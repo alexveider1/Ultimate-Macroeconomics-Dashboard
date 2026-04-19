@@ -1,0 +1,192 @@
+databases:
+  world_bank:
+    
+    countries:
+      id:
+        type: TEXT
+        description: 3 ISO country code
+      value:
+        type: TEXT
+        description: country name
+      aggregate:
+        type: BOOLEAN
+        description: true if the country is an aggregate of multiple countries (e.g. "World", "High income", "European Union", etc.)
+      longitude:
+        type: DOUBLE PRECISION
+        description: longitude of the country's capital city
+      latitude:
+        type: DOUBLE PRECISION
+        description: latitude of the country's capital city
+      region.id:
+        type: TEXT
+        description: region identifier
+      region.value:
+        type: TEXT
+        description: region name
+      adminregion.id:
+        type: TEXT
+        description: administrative region identifier
+      adminregion.value:
+        type: TEXT
+        description: administrative region name
+      lendingType.id:
+        type: TEXT
+        description: lending type identifier
+      lendingType.value:
+        type: TEXT
+        description: lending type name
+      incomeLevel.id:
+        type: TEXT
+        description: income level identifier
+      incomeLevel.value:
+        type: TEXT
+        description: income level name
+      capitalCity:
+        type: TEXT
+        description: capital city name
+
+    database_indicators:
+      id:
+        type: TEXT
+        description: indicator identifier
+      description:
+        type: TEXT
+        description: indicator description
+      database_id:
+        type: TEXT
+        description: identifier of the database this indicator belongs to
+    
+    databases:
+      id:
+        type: TEXT
+        description: id of the database
+      lastupdated:
+        type: TEXT
+        description: date of the last update of the database
+      name:
+        type: TEXT
+        description: name of the database
+      code:
+        type: TEXT
+        description: code of the database
+      databid:
+        type: TEXT
+        description: unique identifier of the database (extra)
+      description:
+        type: TEXT
+        description: description of the database
+      url:
+        type: TEXT
+        description: URL of the database
+      dataavailability:
+        type: TEXT
+        description: availability of the data
+      metadataavailability:
+        type: TEXT
+        description: availability of the metadata
+      concepts:
+        type: TEXT
+        description: concepts covered by the database
+      database_id:
+        type: TEXT
+        description: id of the database (main)
+    
+    indicators:
+      economy:
+        type: TEXT
+        description: 3 ISO country code
+      year:
+        type: BIGINT
+        description: year of the observation
+      value:
+        type: DOUBLE PRECISION
+        description: value of the indicator
+      indicator_id:
+        type: TEXT
+        description: identifier of the indicator
+      db_id:
+        type: BIGINT
+        description: code of the database this indicator belongs to
+    
+    metadata:
+      indicator_id:
+        type: TEXT
+        description: identifier of the indicator
+      db_id:
+        type: BIGINT
+        description: database id this indicator belongs to
+      indicator_name:
+        type: TEXT
+        description: name of the indicator
+      units:
+        type: TEXT
+        description: units of measurement for the indicator
+      source:
+        type: TEXT
+        description: source of the indicator data
+      development_relevance:
+        type: TEXT
+        description: relevance of the indicator to development
+      limitations_and_exceptions:
+        type: TEXT
+        description: limitations and exceptions of the indicator
+      statistical_concept_and_methodology:
+        type: TEXT
+        description: statistical concept and methodology of the indicator
+
+  yahoo_finance:
+    
+    yahoo_historical_prices:
+      date:
+        type: TIMESTAMP WITHOUT TIME ZONE
+        description: date of the price observation
+      open:
+        type: DOUBLE PRECISION
+        description: opening price of the stock on the given date
+      high:
+        type: DOUBLE PRECISION
+        description: highest price of the stock on the given date
+      low:
+        type: DOUBLE PRECISION
+        description: lowest price of the stock on the given date
+      close:
+        type: DOUBLE PRECISION
+        description: closing price of the stock on the given date
+      volume:
+        type: BIGINT
+        description: trading volume of the stock on the given date
+      ticker:
+        type: TEXT
+        description: stock ticker symbol
+      category:
+        type: TEXT
+        description: category of the stock (Indices or Companies)
+    
+    yahoo_metadata:
+      ticker:
+        type: TEXT
+        description: stock ticker symbol
+      asset_name:
+        type: TEXT
+        description: name of the asset
+      category:
+        type: TEXT
+        description: category of the asset (Indices or Companies)
+      short_name:
+        type: TEXT
+        description: short name of the asset
+      sector:
+        type: TEXT
+        description: sector of the asset
+      industry:
+        type: TEXT
+        description: industry of the asset
+      currency:
+        type: TEXT
+        description: currency of the asset
+      exchange:
+        type: TEXT
+        description: exchange where the asset is listed
+      business_summary:
+        type: TEXT
+        description: summary of the business operations of the asset

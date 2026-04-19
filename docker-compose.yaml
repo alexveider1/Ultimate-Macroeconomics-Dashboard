@@ -1,0 +1,167 @@
+name: Ultimate_Macroeconomics_Dashboard
+
+services:
+  
+  db:
+    image: postgres:18
+    restart: always
+    container_name: postgres_db
+    env_file:
+      - ./_container_data/.env
+    ports:
+      - 5432:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    
+  vector_db:
+    image: qdrant/qdrant:v1.17
+    restart: always
+    container_name: qdrant_db
+    env_file:
+      - ./_container_data/.env
+    ports:
+      - 6333:6333
+    volumes:
+      - qdrant_data:/qdrant/storage
+  
+  downloader_general:
+    build:
+      context: downloader_general
+      dockerfile: Dockerfile
+    container_name: downloader_general
+    env_file:
+      - ./_container_data/.env
+    depends_on:
+      - db
+      - vector_db
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/_configs:/app/_configs
+      - ./_container_data/downloader_general:/app/_container_data
+
+  app:
+    build: 
+      context: app
+      dockerfile: Dockerfile
+    container_name: app
+    env_file:
+      - ./_container_data/.env
+    ports:
+      - 8501:8501
+    depends_on:
+      - db
+      - vector_db
+      - agent
+      - forecaster
+      - clustering
+      - python_sandbox
+      - downloader_general
+      - downloader_extra
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/_configs:/app/_configs
+      - ./_container_data/app:/app/_container_data
+  
+  agent:
+    build:
+      context: agent
+      dockerfile: Dockerfile
+    container_name: agent
+    env_file:
+      - ./_container_data/.env
+    ports:
+      - 8000:8000
+    depends_on:
+      - db
+      - vector_db
+      - downloader_general
+      - downloader_extra
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/database_schema.yaml:/app/database_schema.yaml:ro
+      - ./_container_data/_configs:/app/_configs:ro
+      - ./_container_data/agent:/app/_container_data
+  
+  forecaster:
+    build:
+      context: forecaster
+      dockerfile: Dockerfile
+    container_name: forecaster
+    env_file:
+      - ./_container_data/.env
+    ports:
+      - 8001:8001
+    depends_on:
+      - db
+      - vector_db
+      - downloader_general
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/forecaster:/app/_container_data
+    # remove `deploy` part if no GPU available
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  clustering:
+    build:
+      context: clustering
+      dockerfile: Dockerfile
+    container_name: clustering
+    env_file:
+      - ./_container_data/.env
+    ports:
+      - 8002:8002
+    depends_on:
+      - db
+      - vector_db
+      - downloader_general
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/clustering:/app/_container_data
+
+  downloader_extra:
+    build:
+      context: downloader_extra
+      dockerfile: Dockerfile
+    container_name: downloader_extra
+    env_file:
+      - ./_container_data/.env
+    ports:
+      - 8003:8003
+    depends_on:
+      - db
+      - vector_db
+      - downloader_general
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/downloader_extra:/app/_container_data
+
+  python_sandbox:
+    build:
+      context: python_sandbox
+      dockerfile: Dockerfile
+    container_name: python_sandbox
+    env_file:
+      - ./_container_data/.env
+    ports:
+      - 8004:8004
+    depends_on:
+      - db
+      - vector_db
+      - downloader_general
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/python_sandbox:/app/_container_data
+
+networks:
+  default:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  qdrant_data:

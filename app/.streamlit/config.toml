@@ -1,0 +1,31 @@
+[global]
+showWarningOnDirectExecution = true
+
+[logger]
+level = "info"
+messageFormat = "%(asctime)s %(message)s"
+
+[theme]
+primaryColor = "#10c8f1"
+backgroundColor = "#000000"
+secondaryBackgroundColor = "#073642"
+textColor = "#ffffff"
+
+[browser]
+serverAddress = "localhost"
+gatherUsageStats = false
+serverPort = 8501
+
+[client]
+showErrorDetails = "none"
+showErrorLinks = "false"
+
+[runner]
+fastReruns = true
+
+[server]
+address = "localhost"
+headless = false
+runOnSave = false
+port = 8501
+enableXsrfProtection = true

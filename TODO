@@ -1,0 +1,7 @@
+* Check and correct spelling in `README.md`
+* Implement more verbose and structured logs for `app` container
+* Complete complex testing of agent (create a table with set of tasks to solve and results of agent execution)
+* Improve prompts for agentic system
+* Improve hard-coded colors so they would fit general color palette more
+* Refactor code of agent backened
+* 

@@ -1,0 +1,15 @@
+{
+    "gdp_snapshot_card": "<div style='min-height:${min_height}px;display:flex;flex-direction:column;justify-content:center;text-align:center;'><div style='font-size:0.95rem;font-weight:600;color:#334155;'>${title}</div><div style='margin-top:0.55rem;font-size:2rem;font-weight:700;color:${trend_color};line-height:1.15;'>${formatted_value}</div><div style='margin-top:0.5rem;font-size:1rem;font-weight:600;color:${trend_color};'>${delta_text}</div></div>",
+    "gdp_share_pie_hovertemplate": "%{label}<br>GDP: $%{value:,.0f}<br>Share: %{percent}<extra></extra>",
+    "line_plot_ci_suffix": "<br>CI Lower: %{customdata[0]}<br>CI Upper: %{customdata[1]}",
+    "line_plot_group_hovertemplate": "$series_label: %{fullData.name}<br>$value_label: %{y}$ci_suffix<extra></extra>",
+    "line_plot_single_hovertemplate": "$value_label: %{y}$ci_suffix<extra></extra>",
+    "line_plot_unified_hover_title": "Year: %{x}<br>$hover_context",
+    "map_hovertemplate": "%{text}<br>$value_label: %{z}<extra></extra>",
+    "map_hovertemplate_with_context": "$hover_context<br>Country: %{text}<br>$value_label: %{z}<extra></extra>",
+    "treemap_hovertemplate": "%{label}<br>%{customdata}<br>Weight: %{value}<extra></extra>",
+    "correlation_heatmap_hovertemplate": "X: %{customdata[1]}<br>Y: %{customdata[0]}<br>Correlation: %{z:.3f}<extra></extra>",
+    "indicator_hover_context": "Indicator: $indicator_name",
+    "indicator_hover_context_with_units": "Indicator: $indicator_name<br>Units: $units",
+    "yahoo_leaf_hover_text": "Ticker: {}<br>Name: {}<br>Close: {}"
+}

@@ -1,0 +1,297 @@
+{
+    "General Economics Indicators": [
+        {
+            "name": "GDP",
+            "id": "NY.GDP.MKTP.CD",
+            "db": 2
+        },
+        {
+            "name": "GDP_PPP",
+            "id": "NY.GDP.MKTP.PP.CD",
+            "db": 2
+        },
+        {
+            "name": "GDP_growth",
+            "id": "NY.GDP.MKTP.KD.ZG",
+            "db": 2
+        },
+        {
+            "name": "GDP_PC",
+            "id": "NY.GDP.PCAP.CD",
+            "db": 2
+        },
+        {
+            "name": "GDP_PC_PPP",
+            "id": "NY.GDP.PCAP.PP.CD",
+            "db": 2
+        },
+        {
+            "name": "GDP_PC_growth",
+            "id": "NY.GDP.PCAP.KD.ZG",
+            "db": 2
+        },
+        {
+            "name": "GNI",
+            "id": "NY.GNP.MKTP.CD",
+            "db": 2
+        },
+        {
+            "name": "GNI_growth",
+            "id": "NY.GNP.MKTP.KD.ZG",
+            "db": 2
+        },
+        {
+            "name": "GNI_PC",
+            "id": "NY.GNP.PCAP.CD",
+            "db": 2
+        },
+        {
+            "name": "GNI_PC_growth",
+            "id": "NY.GNP.PCAP.KD.ZG",
+            "db": 2
+        },
+        {
+            "name": "Gini",
+            "id": "SI.POV.GINI",
+            "db": 2
+        },
+        {
+            "name": "Gross Capital Formation",
+            "id": "NE.GDI.TOTL.ZS",
+            "db": 2
+        },
+        {
+            "name": "Gross Fixed Capital Formation",
+            "id": "NE.GDI.FTOT.ZS",
+            "db": 2
+        },
+        {
+            "name": "Gross savings",
+            "id": "NY.GNS.ICTR.GN.ZS",
+            "db": 2
+        },
+        {
+            "name": "Household Final Consumption",
+            "id": "NE.CON.PRVT.ZS",
+            "db": 2
+        },
+        {
+            "name": "Government Final Consumption",
+            "id": "NE.CON.GOVT.ZS",
+            "db": 2
+        }
+    ],
+    "Structure": [
+        {
+            "name": "Agriculture Value Added",
+            "id": "NV.AGR.TOTL.ZS",
+            "db": 2
+        },
+        {
+            "name": "Manufacturing Value Added",
+            "id": "NV.IND.MANF.ZS",
+            "db": 2
+        },
+        {
+            "name": "Services Value Added",
+            "id": "NV.SRV.TOTL.ZS",
+            "db": 2
+        }
+    ],
+    "Finance and Monetary": [
+        {
+            "name": "Debt_GDP",
+            "id": "GC.DOD.TOTL.GD.ZS",
+            "db": 2
+        },
+        {
+            "name": "Inflation, GDP deflator",
+            "id": "NY.GDP.DEFL.KD.ZG",
+            "db": 2
+        },
+        {
+            "name": "Inflation, consumer prices",
+            "id": "FP.CPI.TOTL.ZG",
+            "db": 2
+        },
+        {
+            "name": "Broad Money",
+            "id": "FM.LBL.BMNY.GD.ZS",
+            "db": 2
+        },
+        {
+            "name": "Broad Money Growth",
+            "id": "FM.LBL.BMNY.ZG",
+            "db": 2
+        },
+        {
+            "name": "Interest rate",
+            "id": "FR.INR.RINR",
+            "db": 2
+        },
+        {
+            "name": "Total Reserves",
+            "id": "FI.RES.TOTL.MO",
+            "db": 2
+        }
+    ],
+    "Fiscal": [
+        {
+            "name": "Net Lending/Borrowing",
+            "id": "GC.NLD.TOTL.GD.ZS",
+            "db": 2
+        },
+        {
+            "name": "Tax Revenue",
+            "id": "GC.TAX.TOTL.GD.ZS",
+            "db": 2
+        },
+        {
+            "name": "Revenue, excluding grants",
+            "id": "GC.REV.XGRT.GD.ZS",
+            "db": 2
+        }
+    ],
+    "Trade and External sector": [
+        {
+            "name": "Import_GDP",
+            "id": "NE.IMP.GNFS.ZS",
+            "db": 2
+        },
+        {
+            "name": "Export_GDP",
+            "id": "NE.EXP.GNFS.ZS",
+            "db": 2
+        },
+        {
+            "name": "Current Account Balance",
+            "id": "BN.CAB.XOKA.GD.ZS",
+            "db": 2
+        },
+        {
+            "name": "Net Barter Terms of Trade",
+            "id": "TT.PRI.MRCH.XD.WD",
+            "db": 2
+        },
+        {
+            "name": "FDI, Net Inflows",
+            "id": "BX.KLT.DINV.WD.GD.ZS",
+            "db": 2
+        },
+        {
+            "name": "Personal Remittances",
+            "id": "BX.TRF.PWKR.DT.GD.ZS",
+            "db": 2
+        },
+        {
+            "name": "External Debt Stocks",
+            "id": "DT.DOD.DECT.GN.ZS",
+            "db": 2
+        },
+        {
+            "name": "Official Exchange Rate",
+            "id": "PA.NUS.FCRF",
+            "db": 2
+        },
+        {
+            "name": "Real Effective Exchange Rate",
+            "id": "PX.REX.REER",
+            "db": 2
+        }
+    ],
+    "Demography": [
+        {
+            "name": "Population",
+            "id": "SP.POP.TOTL",
+            "db": 2
+        },
+        {
+            "name": "Population, male",
+            "id": "SP.POP.TOTL.MA.IN",
+            "db": 2
+        },
+        {
+            "name": "Population, female",
+            "id": "SP.POP.TOTL.FE.IN",
+            "db": 2
+        },
+        {
+            "name": "Population_growth",
+            "id": "SP.POP.GROW",
+            "db": 2
+        },
+        {
+            "name": "Labor force",
+            "id": "SL.TLF.TOTL.IN",
+            "db": 2
+        },
+        {
+            "name": "LFPR",
+            "id": "SL.TLF.CACT.ZS",
+            "db": 2
+        },
+        {
+            "name": "Employment to population",
+            "id": "SL.EMP.TOTL.SP.ZS",
+            "db": 2
+        },
+        {
+            "name": "Unemployment",
+            "id": "SL.UEM.TOTL.ZS",
+            "db": 2
+        }
+    ],
+    "Technology and Innovations": [
+        {
+            "name": "High-Tech exports",
+            "id": "TX.VAL.TECH.CD",
+            "db": 2
+        },
+        {
+            "name": "Research_Development_GDP",
+            "id": "GB.XPD.RSDV.GD.ZS",
+            "db": 2
+        }
+    ],
+    "Health and wellbeing": [
+        {
+            "name": "Life expectancy",
+            "id": "SP.DYN.LE00.IN",
+            "db": 2
+        },
+        {
+            "name": "Life expectancy, male",
+            "id": "SP.DYN.LE00.MA.IN",
+            "db": 2
+        },
+        {
+            "name": "Life expectancy, female",
+            "id": "SP.DYN.LE00.FE.IN",
+            "db": 2
+        }
+    ],
+    "Education and Human Capital": [
+        {
+            "name": "Literacy",
+            "id": "SE.ADT.LITR.ZS",
+            "db": 2
+        },
+        {
+            "name": "Researchers_RD",
+            "id": "SP.POP.SCIE.RD.P6",
+            "db": 2
+        }
+    ],
+    "Environment and ecology": [
+        {
+            "name": "PM25 Air Pollution",
+            "id": "EN.ATM.PM25.MC.M3",
+            "db": 2
+        },
+        {
+            "name": "Renewable Energy Consumption",
+            "id": "EG.FEC.RNEW.ZS",
+            "db": 2
+        }
+    ]
+}

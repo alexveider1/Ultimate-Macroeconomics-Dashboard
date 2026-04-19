@@ -1,0 +1,51 @@
+shared:
+  data_root: _container_data
+  env_file: _container_data/.env
+  world_bank_download_config: _configs/world_bank_download_config.json
+  news_download_config: _configs/news_download_config.json
+  yahoo_download_config: _configs/yahoo_download_config.json
+  openai_base_url: https://api.openai.com/v1
+  openai_llm_model: gpt-5.4
+  openai_embedding_model: openai/text-embedding-3-small
+  openai_embedding_model_max_tokens: 8192
+  openai_embedding_model_dimensions: 1536
+services:
+  app:
+    host_sync_dir: _container_data/app
+  agent:
+    host_sync_dir: _container_data/agent
+  downloader_general:
+    host_sync_dir: _container_data/downloader_general
+  downloader_extra:
+    host_sync_dir: _container_data/downloader_extra
+  forecaster:
+    host_sync_dir: _container_data/forecaster
+  python_sandbox:
+    host_sync_dir: _container_data/python_sandbox
+  clustering:
+    host_sync_dir: _container_data/clustering
+postgres:
+  host: db
+  port: 5432
+  database: postgres
+qdrant:
+  host: vector_db
+  port: 6333
+downloader_general:
+  repo_url: https://github.com/Webhose/free-news-datasets.git
+app:
+  port: 8501
+agent:
+  port: 8000
+forecaster:
+  port: 8001
+  ARIMA_AVAILABLE: true
+  PROPHET_AVAILABLE: true
+  CHRONOS_AVAILABLE: true
+  CHRONOS_MODEL: amazon/chronos-t5-tiny
+clustering:
+  port: 8002
+downloader_extra:
+  port: 8003
+python_sandbox:
+  port: 8004

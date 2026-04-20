@@ -35,23 +35,13 @@ Technical stack used in the application or during development (not full):
 
 ## Illustrations
 
-![](app/assets/1.png)
-
-![](app/assets/2.png)
-
-![](app/assets/3.png)
-
-![](app/assets/4.png)
-
-![](app/assets/5.png)
-
-![](app/assets/6.png)
-
-![](app/assets/7.png)
-
-![](app/assets/8.png)
-
-![](app/assets/9.png)
+|                          |                       |
+| ------------------------ | --------------------- |
+| ![](app/assets/logo.png) | ![](app/assets/1.png) |
+| ![](app/assets/2.png)    | ![](app/assets/3.png) |
+| ![](app/assets/4.png)    | ![](app/assets/5.png) |
+| ![](app/assets/6.png)    | ![](app/assets/7.png) |
+| ![](app/assets/8.png)    | ![](app/assets/9.png) |
 
 ## LLM Requirements
 As dashboard highly relates on the agentic infrastructure $-$ there are specific requirements to the LLM (they are fullfiled by almost all recent fundamental models from most popular providers: `OpenAI`, `Google`, `Anthropic`, `Qwen` and `Deepseek`) - but be carefull if either using models from other providers or using old models as some functionality might be broken. So, it is recommended to use powerfull cloud models from paid APIs. Nevertheless, you can use local ones if high-performance GPU is available via [`vLLM`](https://github.com/vllm-project/vllm), for example. List of requirements:
@@ -106,9 +96,6 @@ QDRANT__SERVICE__API_KEY=some_api_key
 OPENAI_API_KEY=some_api_key
 ```
 **Important:** do not share these secrets with others
-
-Modify `config.yaml` in the `_container_data` folder:
-...
 
 Start building:
 ```bash

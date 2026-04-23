@@ -70,6 +70,7 @@ Comment it or remove.
 Cloning repository (you can also download `.zip` folder with source code if `Git` is not installed on your machine):
 ```bash
 git clone https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard
+cd Ultimate-Macroeconomics-Dashboard/
 ```
 
 Modify `config.yaml` at the `_container_data` folder and set base url, models for llm and for embeddings and their params in the 'shared' key:
@@ -101,6 +102,8 @@ Start building:
 ```bash
 docker compose up --build
 ```
+
+Then wait 5-10 minutes for build of the application and approximately 1 hour for fetching and processing data
 
 Go to `localhost:8501` and dashboard should appear
 

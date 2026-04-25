@@ -12,6 +12,13 @@ services:
       - 5432:5432
     volumes:
       - postgres_data:/var/lib/postgresql
+      - ./_container_data/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USERNAME} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     
   vector_db:
     image: qdrant/qdrant:v1.17
@@ -32,8 +39,10 @@ services:
     env_file:
       - ./_container_data/.env
     depends_on:
-      - db
-      - vector_db
+      db:
+        condition: service_healthy
+      vector_db:
+        condition: service_started
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/_configs:/app/_configs
@@ -49,14 +58,22 @@ services:
     ports:
       - 8501:8501
     depends_on:
-      - db
-      - vector_db
-      - agent
-      - forecaster
-      - clustering
-      - python_sandbox
-      - downloader_general
-      - downloader_extra
+      db:
+        condition: service_healthy
+      vector_db:
+        condition: service_started
+      agent:
+        condition: service_started
+      forecaster:
+        condition: service_started
+      clustering:
+        condition: service_started
+      python_sandbox:
+        condition: service_started
+      downloader_general:
+        condition: service_started
+      downloader_extra:
+        condition: service_started
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/_configs:/app/_configs
@@ -72,10 +89,14 @@ services:
     ports:
       - 8000:8000
     depends_on:
-      - db
-      - vector_db
-      - downloader_general
-      - downloader_extra
+      db:
+        condition: service_healthy
+      vector_db:
+        condition: service_started
+      downloader_general:
+        condition: service_started
+      downloader_extra:
+        condition: service_started
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/database_schema.yaml:/app/database_schema.yaml:ro
@@ -92,9 +113,12 @@ services:
     ports:
       - 8001:8001
     depends_on:
-      - db
-      - vector_db
-      - downloader_general
+      db:
+        condition: service_healthy
+      vector_db:
+        condition: service_started
+      downloader_general:
+        condition: service_started
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/forecaster:/app/_container_data
@@ -117,9 +141,12 @@ services:
     ports:
       - 8002:8002
     depends_on:
-      - db
-      - vector_db
-      - downloader_general
+      db:
+        condition: service_healthy
+      vector_db:
+        condition: service_started
+      downloader_general:
+        condition: service_started
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/clustering:/app/_container_data
@@ -134,9 +161,12 @@ services:
     ports:
       - 8003:8003
     depends_on:
-      - db
-      - vector_db
-      - downloader_general
+      db:
+        condition: service_healthy
+      vector_db:
+        condition: service_started
+      downloader_general:
+        condition: service_started
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/downloader_extra:/app/_container_data
@@ -151,9 +181,12 @@ services:
     ports:
       - 8004:8004
     depends_on:
-      - db
-      - vector_db
-      - downloader_general
+      db:
+        condition: service_healthy
+      vector_db:
+        condition: service_started
+      downloader_general:
+        condition: service_started
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/python_sandbox:/app/_container_data

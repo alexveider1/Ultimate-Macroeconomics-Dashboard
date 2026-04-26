@@ -103,7 +103,7 @@ Start building:
 docker compose up --build
 ```
 
-Then wait 5-10 minutes for build of the application and approximately 1 hour for fetching and processing data
+Then wait 5-10 minutes for build of the application and approximately 1-2 hours for fetching and processing data
 
 Go to `localhost:8501` and dashboard should appear
 

@@ -61,21 +61,18 @@ def _call_with_retries(
         except Exception as exc:
             if attempt == max_retries:
                 logger.exception(
-                    exc,
-                    extra={
-                        "operation": operation_name,
-                        "attempt": attempt,
-                        "max_retries": max_retries,
-                    },
+                    "Operation '%s' failed after %d attempt(s), giving up",
+                    operation_name,
+                    attempt + 1,
                 )
                 return None
             logger.warning(
+                "Retry %d/%d for operation '%s' failed: %s",
+                attempt + 1,
+                max_retries,
+                operation_name,
                 exc,
-                extra={
-                    "operation": operation_name,
-                    "attempt": attempt,
-                    "max_retries": max_retries,
-                },
+                exc_info=True,
             )
             sleep(delay)
             attempt += 1
@@ -122,10 +119,16 @@ def _download_source_indicators(
     """Download indicators for a given World Bank database and save to `PostgreSQL`"""
     indicator_records = _call_with_retries(
         operation_name=f"series.list(db={db_id})",
-        request_callable=lambda: wb.series.list(db=db_id),
+        request_callable=lambda: list(wb.series.list(db=db_id)),
         max_retries=api_max_retries,
         retry_delay_seconds=api_retry_delay_seconds,
     )
+
+    if indicator_records is None:
+        logger.warning(
+            "Skipping source indicators for db_id=%s after all retries failed", db_id
+        )
+        return False
 
     df_indicators = _polars_from_world_bank_records(indicator_records)
 

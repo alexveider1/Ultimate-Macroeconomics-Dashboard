@@ -193,10 +193,13 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         logger.info("Starting download of World Bank basic tables")
         source_records = _call_with_retries(
             operation_name="source.list",
-            request_callable=lambda: wb.source.list(),
+            request_callable=lambda: list(wb.source.list()),
             max_retries=self.download_max_retries,
             retry_delay_seconds=self.download_retry_delay_seconds,
         )
+        if source_records is None:
+            logger.warning("Skipping basic tables download: source.list failed after all retries")
+            return
         df = _polars_from_world_bank_records(source_records)
         df = df.with_columns(pl.col("id").alias("database_id"))
         df.write_database(
@@ -208,10 +211,13 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         logger.info("Starting download of World Bank countries table")
         country_records = _call_with_retries(
             operation_name="economy.list",
-            request_callable=lambda: wb.economy.list(skipAggs=True, db=2, labels=True),
+            request_callable=lambda: list(wb.economy.list(skipAggs=True, db=2, labels=True)),
             max_retries=self.download_max_retries,
             retry_delay_seconds=self.download_retry_delay_seconds,
         )
+        if country_records is None:
+            logger.warning("Skipping countries table download: economy.list failed after all retries")
+            return
         df_countries = _polars_from_world_bank_records(country_records)
         df_countries.write_database(
             "countries",
@@ -242,7 +248,7 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         )
         data_records = _call_with_retries(
             operation_name=f"data.fetch(indicator_id={indicator_id}, db={db})",
-            request_callable=lambda: wb.data.fetch(
+            request_callable=lambda: list(wb.data.fetch(
                 indicator_id,
                 db=db,
                 skipAggs=True,
@@ -250,10 +256,17 @@ class WorldBankDownloader(BaseWorldBankDownloader):
                 time="all",
                 skipBlanks=False,
                 numericTimeKeys=True,
-            ),
+            )),
             max_retries=self.download_max_retries,
             retry_delay_seconds=self.download_retry_delay_seconds,
         )
+
+        if data_records is None:
+            logger.warning(
+                "Skipping indicator data download after all retries failed "
+                "(indicator_id=%s, db=%s)", indicator_id, db
+            )
+            return
 
         df = _polars_from_world_bank_records(data_records)
 
@@ -266,18 +279,14 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         economy_column = "economy"
         year_column = "time"
 
-        df = df.select(
-            [
-                pl.col(economy_column).alias("economy"),
-                pl.col(year_column).alias("year"),
-                pl.col("value"),
-            ]
-        ).with_columns(
-            [
-                pl.lit(indicator_id).alias("indicator_id"),
-                pl.lit(db).alias("db_id"),
-            ]
-        )
+        df = df.select([
+            pl.col(economy_column).alias("economy"),
+            pl.col(year_column).alias("year"),
+            pl.col("value"),
+        ]).with_columns([
+            pl.lit(indicator_id).alias("indicator_id"),
+            pl.lit(db).alias("db_id"),
+        ])
         table_exists_mode = (
             "replace" if not self._indicators_table_initialized else "append"
         )
@@ -290,7 +299,7 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         logger.info(
             f"Finished download of World Bank indicator data (indicator_id={indicator_id}, db={db})"
         )
-        sleep(30)
+        sleep(10)
         self._indicators_table_initialized = True
 
     def download_metadata(self, indicator_id, db):
@@ -306,7 +315,8 @@ class WorldBankDownloader(BaseWorldBankDownloader):
 
         if metadata_response is None:
             logger.warning(
-                f"No metadata found for World Bank indicator (indicator_id={indicator_id}, db={db})"
+                "Skipping metadata download after all retries failed "
+                "(indicator_id=%s, db=%s)", indicator_id, db
             )
             return
 
@@ -347,7 +357,7 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         logger.info(
             f"Finished download of World Bank indicator metadata (indicator_id={indicator_id}, db={db})"
         )
-        sleep(30)
+        sleep(10)
         self._metadata_table_initialized = True
 
     def run(self):

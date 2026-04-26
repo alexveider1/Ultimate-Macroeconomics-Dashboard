@@ -20,6 +20,18 @@ services:
       retries: 10
       start_period: 10s
     
+  db_init:
+    image: postgres:18
+    restart: "no"
+    env_file:
+      - ./_container_data/.env
+    volumes:
+      - ./_container_data/db_init.sh:/db_init.sh:ro
+    entrypoint: ["/bin/bash", "/db_init.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+
   vector_db:
     image: qdrant/qdrant:v1.17
     restart: always
@@ -41,6 +53,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db_init:
+        condition: service_completed_successfully
       vector_db:
         condition: service_started
     volumes:
@@ -49,7 +63,7 @@ services:
       - ./_container_data/downloader_general:/app/_container_data
 
   app:
-    build: 
+    build:
       context: app
       dockerfile: Dockerfile
     container_name: app
@@ -60,6 +74,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db_init:
+        condition: service_completed_successfully
       vector_db:
         condition: service_started
       agent:
@@ -91,6 +107,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db_init:
+        condition: service_completed_successfully
       vector_db:
         condition: service_started
       downloader_general:
@@ -115,6 +133,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db_init:
+        condition: service_completed_successfully
       vector_db:
         condition: service_started
       downloader_general:
@@ -143,6 +163,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db_init:
+        condition: service_completed_successfully
       vector_db:
         condition: service_started
       downloader_general:
@@ -163,6 +185,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db_init:
+        condition: service_completed_successfully
       vector_db:
         condition: service_started
       downloader_general:
@@ -183,6 +207,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db_init:
+        condition: service_completed_successfully
       vector_db:
         condition: service_started
       downloader_general:

@@ -1,3 +1,5 @@
+import sys
+
 from src.core.base_downloaders import BaseNewsDownloader
 
 from src.utils.downloads import (
@@ -201,12 +203,20 @@ class NewsDownloader(BaseNewsDownloader):
         for filename in tqdm(
             iter_files,
             desc="Unzipping files",
+            dynamic_ncols=True,
+            file=sys.stdout,
         ):
             if not filename.endswith(".zip"):
                 continue
 
             base_name = filename[:-4]
             parts = base_name.rsplit("_", 2)
+            if len(parts) != 3:
+                logger.warning(
+                    "Skipping news archive with unexpected name format: %s",
+                    filename,
+                )
+                continue
             topic, sentiment, date_str = parts
             if topic in allowed_topics:
                 topic_normalized = topic.strip().lower()
@@ -346,6 +356,8 @@ class NewsDownloader(BaseNewsDownloader):
             for i in tqdm(
                 range(0, len(metadata_entries), self.batch_size),
                 desc=f"Embedding and Uploading: {collection_name}",
+                dynamic_ncols=True,
+                file=sys.stdout,
             ):
                 batch_metadata = metadata_entries[i : i + self.batch_size]
 
@@ -408,9 +420,8 @@ class NewsDownloader(BaseNewsDownloader):
             sleep(self.download_retry_delay_seconds)
 
     def run(self):
-        if self._initialize_connections():
-            if not self.download_repository():
-                return
-            self.parse_repository()
-            self.clean_repository()
-            self.upload_to_qdrant()
+        if not self.download_repository():
+            return
+        self.parse_repository()
+        self.clean_repository()
+        self.upload_to_qdrant()

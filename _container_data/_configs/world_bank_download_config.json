@@ -241,6 +241,38 @@
             "db": 2
         }
     ],
+    "Governance and Institutions": [
+        {
+            "name": "Rule of Law",
+            "id": "GOV_WGI_RL.EST",
+            "db": 3
+        },
+        {
+            "name": "Control of Corruption",
+            "id": "GOV_WGI_CC.EST",
+            "db": 3
+        },
+        {
+            "name": "Government Effectiveness",
+            "id": "GOV_WGI_GE.EST",
+            "db": 3
+        },
+        {
+            "name": "Voice and Accountability",
+            "id": "GOV_WGI_VA.EST",
+            "db": 3
+        },
+        {
+            "name": "Regulatory Quality",
+            "id": "GOV_WGI_RQ.EST",
+            "db": 3
+        },
+        {
+            "name": "Political Stability and Absence of Violence",
+            "id": "GOV_WGI_PV.EST",
+            "db": 3
+        }
+    ],
     "Technology and Innovations": [
         {
             "name": "High-Tech exports",

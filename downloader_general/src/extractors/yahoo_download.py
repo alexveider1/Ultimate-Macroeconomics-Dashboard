@@ -1,3 +1,4 @@
+import sys
 import polars as pl
 import yfinance as yf
 
@@ -8,13 +9,18 @@ from src.utils.downloads import (
     _test_sql,
     _get_sql_config,
 )
+from src.utils.schema import (
+    bootstrap_schema_group,
+    get_table_definition,
+    write_polars_to_table,
+)
 
 
 import os
 import time
 import logging
 
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Optional
 from dotenv import load_dotenv
 from tqdm import tqdm
 
@@ -26,7 +32,14 @@ class YahooDownloader(BaseYahooDownloader):
     Downloader for Yahoo Finance data
     """
 
-    def __init__(self, env_path: str, download_config_path: str):
+    SCHEMA_GROUP = "yahoo_finance"
+
+    def __init__(
+        self,
+        env_path: str,
+        download_config_path: str,
+        database_schema: Optional[Dict[str, Any]] = None,
+    ):
         self.env_path = env_path
         self.download_config = _download_config(download_config_path)
         self.sql_uri = None
@@ -34,12 +47,15 @@ class YahooDownloader(BaseYahooDownloader):
         self.historical_data_table_name = "yahoo_historical_prices"
         self.metadata_table_name = "yahoo_metadata"
 
-        self._metadata_table_initialized = False
-        self._historical_table_initialized = False
+        self.database_schema = database_schema or {}
+
         self.successful_connections = False
 
         self.download_max_retries = 3
         self.download_retry_delay_seconds = 5
+
+    def _table_def(self, table_name: str) -> Dict[str, Any]:
+        return get_table_definition(self.database_schema, self.SCHEMA_GROUP, table_name)
 
     def _normalize_assets(self, category: str, assets: Any) -> Iterable[Dict[str, str]]:
         if isinstance(assets, dict):
@@ -95,6 +111,12 @@ class YahooDownloader(BaseYahooDownloader):
             retry_delay_seconds=self.download_retry_delay_seconds,
         )
 
+        if hist_df_pandas is None:
+            logger.warning(
+                f"Skipping historical data for {ticker_id}: all retries failed."
+            )
+            return
+
         if hist_df_pandas.empty:
             logger.warning(f"No historical data found for {ticker_id}.")
             return
@@ -120,31 +142,32 @@ class YahooDownloader(BaseYahooDownloader):
             ]
         )
 
-        table_exists_mode = (
-            "replace" if not self._historical_table_initialized else "append"
-        )
-
-        df.write_database(
-            self.historical_data_table_name,
-            connection=self.sql_uri,
-            if_table_exists=table_exists_mode,
-            engine="sqlalchemy",
+        write_polars_to_table(
+            df,
+            sql_uri=self.sql_uri,
+            table_name=self.historical_data_table_name,
+            table_def=self._table_def(self.historical_data_table_name),
         )
 
         logger.info(f"Finished download of historical data (ticker={ticker_id})")
-        self._historical_table_initialized = True
 
-    def download_metadata(self, ticker_id, asset_name, category):
+    def download_metadata(self, ticker_id, asset_name, category) -> bool:
         logger.info(f"Starting download of metadata (ticker={ticker_id})")
 
         ticker_obj = yf.Ticker(ticker_id)
 
-        info_dict: Dict[str, Any] = _call_with_retries(
+        info_dict: Optional[Dict[str, Any]] = _call_with_retries(
             operation_name=f"yfinance.info(ticker={ticker_id})",
             request_callable=lambda: ticker_obj.info,
             max_retries=self.download_max_retries,
             retry_delay_seconds=self.download_retry_delay_seconds,
         )
+
+        if info_dict is None:
+            logger.warning(
+                f"Skipping metadata for {ticker_id}: all retries failed."
+            )
+            return False
 
         dataframe_dict = {
             "ticker": ticker_id,
@@ -160,26 +183,22 @@ class YahooDownloader(BaseYahooDownloader):
 
         df = pl.DataFrame([dataframe_dict])
 
-        table_exists_mode = (
-            "replace" if not self._metadata_table_initialized else "append"
-        )
-
-        df.write_database(
-            self.metadata_table_name,
-            connection=self.sql_uri,
-            if_table_exists=table_exists_mode,
-            engine="sqlalchemy",
+        write_polars_to_table(
+            df,
+            sql_uri=self.sql_uri,
+            table_name=self.metadata_table_name,
+            table_def=self._table_def(self.metadata_table_name),
         )
 
         logger.info(f"Finished download of metadata (ticker={ticker_id})")
-        self._metadata_table_initialized = True
+        return True
 
     def download_category(self, category, assets):
         logger.info(f"Starting downloads for category: {category}")
 
         normalized_assets = list(self._normalize_assets(category, assets))
 
-        for asset in tqdm(normalized_assets, desc=f"Downloading {category}"):
+        for asset in tqdm(normalized_assets, desc=f"Downloading {category}", dynamic_ncols=True, file=sys.stdout):
             ticker_id = asset.get("id")
             asset_name = asset.get("name")
 
@@ -187,7 +206,14 @@ class YahooDownloader(BaseYahooDownloader):
                 logger.warning(f"Skipping asset missing 'id' in category '{category}'")
                 continue
 
-            self.download_metadata(ticker_id, asset_name, category)
+            metadata_ok = self.download_metadata(ticker_id, asset_name, category)
+            if not metadata_ok:
+                logger.warning(
+                    f"Skipping historical data for {ticker_id}: metadata write was skipped, "
+                    f"FK to yahoo_metadata.ticker would fail."
+                )
+                time.sleep(1)
+                continue
             self.download_historical_data(ticker_id, category, period="max")
 
             time.sleep(1)
@@ -195,5 +221,6 @@ class YahooDownloader(BaseYahooDownloader):
         logger.info(f"Finished downloads for category: {category}")
 
     def run(self):
+        bootstrap_schema_group(self.sql_uri, self.database_schema, self.SCHEMA_GROUP)
         for category, assets in self.download_config.items():
             self.download_category(category, assets)

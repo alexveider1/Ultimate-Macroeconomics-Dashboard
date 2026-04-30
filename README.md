@@ -2,8 +2,9 @@
 Technical stack used in the application or during development (not full):
 
 ![Visual Studio Code](https://img.shields.io/badge/Visual%20Studio%20Code-0078d7.svg?style=for-the-badge&logo=visual-studio-code&logoColor=white)
-![GitHub Copilot](https://img.shields.io/badge/github_copilot-8957E5?style=for-the-badge&logo=github-copilot&logoColor=white)
 ![Google Gemini](https://img.shields.io/badge/google%20gemini-8E75B2?style=for-the-badge&logo=google%20gemini&logoColor=white)
+![Claude](https://img.shields.io/badge/Claude-D97757?style=for-the-badge&logo=claude&logoColor=white)
+![GitHub Copilot](https://img.shields.io/badge/github_copilot-8957E5?style=for-the-badge&logo=github-copilot&logoColor=white)
 ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
 ![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
@@ -20,11 +21,12 @@ Technical stack used in the application or during development (not full):
 
 
 ## Description
-[`Ultimate Macroeconomics Dashboard`](https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard) $-$ is an AI-based intellectual system for analysing macroeconomics data in the form of interactive dashboard. Dashboard features more than **50** various indicators from [`World Bank Data API`](https://data360.worldbank.org/en/search), more than **20000** news articles from open [`Webz.io`](https://github.com/Webhose/free-news-datasets) repository and more than **50** companies and **9** indices from [`Yahoo Finance`](https://finance.yahoo.com/). Dashboard utilizes `streamlit` and `plotly` frameworks for creating fascinating visualizations (more than **60** plots) with multifunctional AI-agent, RAG, ML and much more. 
+[`Ultimate Macroeconomics Dashboard`](https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard) $-$ is an AI-based intellectual system for analysing macroeconomics data in the form of interactive dashboard. Dashboard features more than **60** various indicators from [`World Bank Data API`](https://data360.worldbank.org/en/search), more than **30000** news articles from open [`Webz.io`](https://github.com/Webhose/free-news-datasets) repository and more than **50** companies and **9** indices from [`Yahoo Finance`](https://finance.yahoo.com/). Dashboard utilizes `streamlit` and `plotly` frameworks for creating fascinating visualizations (more than **60** plots) with multifunctional AI-agent, RAG, ML and much more. 
 
-`Ultimate Macroeconomics Dashboard` uses micro-service conception and contains 9 `Docker` containers for different tasks:
+`Ultimate Macroeconomics Dashboard` uses micro-service conception and contains 10 `Docker` containers for different tasks:
 * `db` $-$ container with relation DB (`PostgreSQL`) for storing data from `World Bank Data API` and `Yahoo Finance`
 * `vector_db` $-$ vector DB (`Qdrant`) for storing news articles and their embeddings from `Webz.io` open news repository
+* `db_init` $-$ temporal container for initializing and configuring `PostgreSQL` (`db` container)
 * `downloader_general` $-$ one-time running script for download all the needed data from the the open APIs (`World Bank Data` and `Yahoo Finance`) and repository (`Webz.io`)
 * `app` $-$ main container with dashboard logic itself
 * `agent` $-$ backened of AI-agent wrapped as `FastAPI` service

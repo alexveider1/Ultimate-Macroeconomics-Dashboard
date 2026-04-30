@@ -1,4 +1,5 @@
 import os
+import sys
 import stat
 
 from tqdm import tqdm
@@ -10,7 +11,7 @@ import logging
 import wbgapi as wb
 import polars as pl
 
-from typing import Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 from time import sleep
 
@@ -31,7 +32,7 @@ class CloneProgress(RemoteProgress):
 
     def __init__(self):
         super().__init__()
-        self.pbar = tqdm(desc="Cloning Repository", unit="operations")
+        self.pbar = tqdm(desc="Cloning Repository", unit="operations", dynamic_ncols=True, file=sys.stdout)
 
     def update(
         self,
@@ -53,7 +54,6 @@ def _call_with_retries(
 ):
     """Call a request function with retries and logging."""
     attempt = 0
-    delay = retry_delay_seconds
 
     while attempt <= max_retries:
         try:
@@ -74,7 +74,7 @@ def _call_with_retries(
                 exc,
                 exc_info=True,
             )
-            sleep(delay)
+            sleep(retry_delay_seconds)
             attempt += 1
 
 
@@ -112,11 +112,13 @@ def _download_source_indicators(
     db_id: int,
     sql_uri: str,
     table_name: str,
-    table_exists_mode: str,
+    table_def: Dict[str, Any],
     api_max_retries: int,
     api_retry_delay_seconds: float,
 ) -> bool:
     """Download indicators for a given World Bank database and save to `PostgreSQL`"""
+    from src.utils.schema import write_polars_to_table
+
     indicator_records = _call_with_retries(
         operation_name=f"series.list(db={db_id})",
         request_callable=lambda: list(wb.series.list(db=db_id)),
@@ -132,13 +134,19 @@ def _download_source_indicators(
 
     df_indicators = _polars_from_world_bank_records(indicator_records)
 
+    if df_indicators.is_empty():
+        logger.info(
+            "No indicators returned for db_id=%s; skipping write", db_id
+        )
+        return True
+
     df_indicators = df_indicators.with_columns(pl.lit(db_id).alias("database_id"))
     df_indicators = df_indicators.rename({"value": "description"})
-    df_indicators.write_database(
-        table_name,
-        connection=sql_uri,
-        if_table_exists=table_exists_mode,
-        engine="sqlalchemy",
+    write_polars_to_table(
+        df_indicators,
+        sql_uri=sql_uri,
+        table_name=table_name,
+        table_def=table_def,
     )
     return True
 
@@ -175,7 +183,7 @@ def _test_world_bank_api() -> bool:
     try:
         _records = _call_with_retries(
             operation_name="source.list",
-            request_callable=lambda: wb.source.list(),
+            request_callable=lambda: list(wb.source.list()),
             max_retries=2,
             retry_delay_seconds=1.0,
         )

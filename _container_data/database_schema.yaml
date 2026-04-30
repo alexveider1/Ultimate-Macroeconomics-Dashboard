@@ -1,192 +1,235 @@
 databases:
+
   world_bank:
-    
+
     countries:
-      id:
-        type: TEXT
-        description: 3 ISO country code
-      value:
-        type: TEXT
-        description: country name
-      aggregate:
-        type: BOOLEAN
-        description: true if the country is an aggregate of multiple countries (e.g. "World", "High income", "European Union", etc.)
-      longitude:
-        type: DOUBLE PRECISION
-        description: longitude of the country's capital city
-      latitude:
-        type: DOUBLE PRECISION
-        description: latitude of the country's capital city
-      region.id:
-        type: TEXT
-        description: region identifier
-      region.value:
-        type: TEXT
-        description: region name
-      adminregion.id:
-        type: TEXT
-        description: administrative region identifier
-      adminregion.value:
-        type: TEXT
-        description: administrative region name
-      lendingType.id:
-        type: TEXT
-        description: lending type identifier
-      lendingType.value:
-        type: TEXT
-        description: lending type name
-      incomeLevel.id:
-        type: TEXT
-        description: income level identifier
-      incomeLevel.value:
-        type: TEXT
-        description: income level name
-      capitalCity:
-        type: TEXT
-        description: capital city name
+      primary_key: [id]
+      foreign_keys: []
+      columns:
+        id:
+          type: TEXT
+          description: ISO 3166-1 alpha-3 country code (e.g. "USA", "DEU"). Primary identifier of the country and the join key used by indicators.economy.
+        value:
+          type: TEXT
+          description: Full English country name as reported by the World Bank (e.g. "United States", "Germany").
+        aggregate:
+          type: BOOLEAN
+          description: True if the entity is an aggregate region rather than a single country (e.g. "World", "European Union", "High income"). With skipAggs=True the table normally contains only sovereigns, so this is typically False.
+        longitude:
+          type: DOUBLE PRECISION
+          description: Longitude in decimal degrees of the country's capital city.
+        latitude:
+          type: DOUBLE PRECISION
+          description: Latitude in decimal degrees of the country's capital city.
+        region.id:
+          type: TEXT
+          description: Short code of the World Bank region the country belongs to (e.g. "EAS" for East Asia & Pacific, "ECS" for Europe & Central Asia).
+        region.value:
+          type: TEXT
+          description: Human-readable region name (e.g. "Europe & Central Asia").
+        adminregion.id:
+          type: TEXT
+          description: Short code for the administrative subregion used in income/lending classifications. Empty for many high-income economies and for aggregates.
+        adminregion.value:
+          type: TEXT
+          description: Human-readable administrative subregion name.
+        lendingType.id:
+          type: TEXT
+          description: Short code for the country's World Bank lending category (e.g. "IBD", "IDA", "LNX").
+        lendingType.value:
+          type: TEXT
+          description: Human-readable lending category (e.g. "IBRD", "Blend", "Not classified").
+        incomeLevel.id:
+          type: TEXT
+          description: Short code for the country's income classification (e.g. "HIC" high income, "UMC" upper middle, "LMC" lower middle, "LIC" low income).
+        incomeLevel.value:
+          type: TEXT
+          description: Human-readable income classification (e.g. "High income", "Low income").
+        capitalCity:
+          type: TEXT
+          description: Name of the country's capital city.
+
+    databases:
+      primary_key: [id]
+      foreign_keys: []
+      columns:
+        id:
+          type: INTEGER
+          description: World Bank source/database identifier (e.g. 2 = World Development Indicators, 11 = Africa Development Indicators). This is the canonical join key used by indicators.db_id, metadata.db_id, and database_indicators.database_id.
+        lastupdated:
+          type: TEXT
+          description: ISO date (YYYY-MM-DD) on which this source database was last refreshed by the World Bank.
+        name:
+          type: TEXT
+          description: Full human-readable name of the source database (e.g. "World Development Indicators").
+        code:
+          type: TEXT
+          description: Short alphanumeric mnemonic used by the World Bank for the source database (e.g. "WDI", "HNP").
+        databid:
+          type: TEXT
+          description: Alternate identifier returned by the World Bank API. In practice usually equal to id but kept as text because the API returns it that way.
+        description:
+          type: TEXT
+          description: Free-form description of the source database's scope and contents.
+        url:
+          type: TEXT
+          description: URL of the World Bank web page describing the source database.
+        dataavailability:
+          type: TEXT
+          description: API flag indicating whether observation data is available for this source ("Y" / "N").
+        metadataavailability:
+          type: TEXT
+          description: API flag indicating whether descriptive metadata is available for this source ("Y" / "N").
+        concepts:
+          type: TEXT
+          description: Number of dimensions/concepts the source uses, returned as a string by the API (e.g. "3").
 
     database_indicators:
-      id:
-        type: TEXT
-        description: indicator identifier
-      description:
-        type: TEXT
-        description: indicator description
-      database_id:
-        type: TEXT
-        description: identifier of the database this indicator belongs to
-    
-    databases:
-      id:
-        type: TEXT
-        description: id of the database
-      lastupdated:
-        type: TEXT
-        description: date of the last update of the database
-      name:
-        type: TEXT
-        description: name of the database
-      code:
-        type: TEXT
-        description: code of the database
-      databid:
-        type: TEXT
-        description: unique identifier of the database (extra)
-      description:
-        type: TEXT
-        description: description of the database
-      url:
-        type: TEXT
-        description: URL of the database
-      dataavailability:
-        type: TEXT
-        description: availability of the data
-      metadataavailability:
-        type: TEXT
-        description: availability of the metadata
-      concepts:
-        type: TEXT
-        description: concepts covered by the database
-      database_id:
-        type: TEXT
-        description: id of the database (main)
-    
-    indicators:
-      economy:
-        type: TEXT
-        description: 3 ISO country code
-      year:
-        type: BIGINT
-        description: year of the observation
-      value:
-        type: DOUBLE PRECISION
-        description: value of the indicator
-      indicator_id:
-        type: TEXT
-        description: identifier of the indicator
-      db_id:
-        type: BIGINT
-        description: code of the database this indicator belongs to
-    
+      primary_key: [id, database_id]
+      foreign_keys:
+        - columns: [database_id]
+          references_table: databases
+          references_columns: [id]
+          enforce: true
+      columns:
+        id:
+          type: TEXT
+          description: World Bank indicator identifier (e.g. "NY.GDP.MKTP.CD"). Same value used by indicators.indicator_id and metadata.indicator_id.
+        description:
+          type: TEXT
+          description: Human-readable indicator title (e.g. "GDP (current US$)"). Renamed from the API field "value" by the downloader.
+        database_id:
+          type: INTEGER
+          description: Source/database id this indicator belongs to. References databases.id.
+
     metadata:
-      indicator_id:
-        type: TEXT
-        description: identifier of the indicator
-      db_id:
-        type: BIGINT
-        description: database id this indicator belongs to
-      indicator_name:
-        type: TEXT
-        description: name of the indicator
-      units:
-        type: TEXT
-        description: units of measurement for the indicator
-      source:
-        type: TEXT
-        description: source of the indicator data
-      development_relevance:
-        type: TEXT
-        description: relevance of the indicator to development
-      limitations_and_exceptions:
-        type: TEXT
-        description: limitations and exceptions of the indicator
-      statistical_concept_and_methodology:
-        type: TEXT
-        description: statistical concept and methodology of the indicator
+      primary_key: [indicator_id, db_id]
+      foreign_keys:
+        - columns: [db_id]
+          references_table: databases
+          references_columns: [id]
+          enforce: true
+      columns:
+        indicator_id:
+          type: TEXT
+          description: World Bank indicator identifier (e.g. "NY.GDP.MKTP.CD"). Together with db_id, identifies a unique indicator series.
+        db_id:
+          type: INTEGER
+          description: Source/database id the indicator belongs to. References databases.id.
+        indicator_name:
+          type: TEXT
+          description: Full human-readable indicator name (e.g. "GDP (current US$)").
+        units:
+          type: TEXT
+          description: Units of measurement (e.g. "US$", "% of GDP", "per 1,000 people"). May be empty.
+        source:
+          type: TEXT
+          description: Original data source/provider name (e.g. "World Bank national accounts data").
+        development_relevance:
+          type: TEXT
+          description: Long-form text explaining why the indicator matters for development analysis.
+        limitations_and_exceptions:
+          type: TEXT
+          description: Long-form text describing data quality caveats, comparability issues, and known gaps.
+        statistical_concept_and_methodology:
+          type: TEXT
+          description: Long-form description of how the indicator is computed and the conceptual definitions used.
+
+    indicators:
+      primary_key: [economy, year, indicator_id, db_id]
+      foreign_keys:
+        - columns: [db_id]
+          references_table: databases
+          references_columns: [id]
+          enforce: true
+        - columns: [economy]
+          references_table: countries
+          references_columns: [id]
+          enforce: false
+        - columns: [indicator_id, db_id]
+          references_table: metadata
+          references_columns: [indicator_id, db_id]
+          enforce: false
+      columns:
+        economy:
+          type: TEXT
+          description: ISO 3166-1 alpha-3 country code (e.g. "USA"). References countries.id (FK declared but not enforced because some sources may include economies not present in the countries table, which is populated only from db=2).
+        year:
+          type: INTEGER
+          description: Calendar year of the observation.
+        value:
+          type: DOUBLE PRECISION
+          description: Numeric value of the indicator for the given economy and year. Nullable when the World Bank reports the cell as missing.
+        indicator_id:
+          type: TEXT
+          description: World Bank indicator identifier (e.g. "NY.GDP.MKTP.CD"). Together with db_id, identifies a unique indicator series. References metadata.indicator_id (FK declared but not enforced because downloader_extra ingests indicators on demand without re-writing metadata).
+        db_id:
+          type: INTEGER
+          description: Source/database id the indicator belongs to. References databases.id.
 
   yahoo_finance:
-    
-    yahoo_historical_prices:
-      date:
-        type: TIMESTAMP WITHOUT TIME ZONE
-        description: date of the price observation
-      open:
-        type: DOUBLE PRECISION
-        description: opening price of the stock on the given date
-      high:
-        type: DOUBLE PRECISION
-        description: highest price of the stock on the given date
-      low:
-        type: DOUBLE PRECISION
-        description: lowest price of the stock on the given date
-      close:
-        type: DOUBLE PRECISION
-        description: closing price of the stock on the given date
-      volume:
-        type: BIGINT
-        description: trading volume of the stock on the given date
-      ticker:
-        type: TEXT
-        description: stock ticker symbol
-      category:
-        type: TEXT
-        description: category of the stock (Indices or Companies)
-    
+
     yahoo_metadata:
-      ticker:
-        type: TEXT
-        description: stock ticker symbol
-      asset_name:
-        type: TEXT
-        description: name of the asset
-      category:
-        type: TEXT
-        description: category of the asset (Indices or Companies)
-      short_name:
-        type: TEXT
-        description: short name of the asset
-      sector:
-        type: TEXT
-        description: sector of the asset
-      industry:
-        type: TEXT
-        description: industry of the asset
-      currency:
-        type: TEXT
-        description: currency of the asset
-      exchange:
-        type: TEXT
-        description: exchange where the asset is listed
-      business_summary:
-        type: TEXT
-        description: summary of the business operations of the asset
+      primary_key: [ticker]
+      foreign_keys: []
+      columns:
+        ticker:
+          type: TEXT
+          description: Yahoo Finance ticker symbol (e.g. "AAPL", "^GSPC"). Primary identifier of the asset and join key used by yahoo_historical_prices.ticker.
+        asset_name:
+          type: TEXT
+          description: Display name configured in the downloader's yahoo_download_config for the asset.
+        category:
+          type: TEXT
+          description: Group the asset belongs to in our config; one of "Indices" or "Companies".
+        short_name:
+          type: TEXT
+          description: Short display name reported by Yahoo Finance (e.g. "Apple Inc.").
+        sector:
+          type: TEXT
+          description: Yahoo-classified sector (e.g. "Technology"). Often NULL for indices.
+        industry:
+          type: TEXT
+          description: Yahoo-classified industry (e.g. "Consumer Electronics"). Often NULL for indices.
+        currency:
+          type: TEXT
+          description: Trading currency reported by Yahoo (e.g. "USD").
+        exchange:
+          type: TEXT
+          description: Yahoo exchange code where the asset is listed (e.g. "NMS", "NYQ").
+        business_summary:
+          type: TEXT
+          description: Long-form description of the company's business. Populated for companies, usually NULL for indices.
+
+    yahoo_historical_prices:
+      primary_key: [date, ticker]
+      foreign_keys:
+        - columns: [ticker]
+          references_table: yahoo_metadata
+          references_columns: [ticker]
+          enforce: true
+      columns:
+        date:
+          type: TIMESTAMP WITHOUT TIME ZONE
+          description: Trading date of the price observation. Timezone is stripped before storage so all values are naive timestamps at midnight UTC.
+        open:
+          type: DOUBLE PRECISION
+          description: Opening price for the trading day.
+        high:
+          type: DOUBLE PRECISION
+          description: Highest traded price during the day.
+        low:
+          type: DOUBLE PRECISION
+          description: Lowest traded price during the day.
+        close:
+          type: DOUBLE PRECISION
+          description: Closing price for the trading day.
+        volume:
+          type: BIGINT
+          description: Number of shares/contracts traded during the day.
+        ticker:
+          type: TEXT
+          description: Yahoo Finance ticker symbol. References yahoo_metadata.ticker.
+        category:
+          type: TEXT
+          description: Group the asset belongs to ("Indices" or "Companies"). Duplicates yahoo_metadata.category for query convenience.

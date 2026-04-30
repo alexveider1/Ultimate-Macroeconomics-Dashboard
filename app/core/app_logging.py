@@ -1,3 +1,4 @@
+import sys
 import logging
 from urllib.parse import urlparse
 
@@ -19,11 +20,17 @@ def get_app_logger() -> logging.Logger:
         return logger
 
     log_path = f"_container_data/{DEFAULT_LOG_FILE_NAME}"
-    handler = logging.FileHandler(log_path, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
 
     logger.setLevel(logging.INFO)
-    logger.addHandler(handler)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
     logger.propagate = False
     logger._ultimate_logger_configured = True
     return logger

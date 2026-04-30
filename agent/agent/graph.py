@@ -290,7 +290,7 @@ Step 2 — FIND THE INDICATOR:
   There can be THOUSANDS of indicators per database — use ILIKE or regexp filtering
   on the `description` column to narrow down.
   Example: SELECT id, description FROM database_indicators
-           WHERE database_id = '2' AND description ~* 'gdp.*per capita';
+           WHERE database_id = 2 AND description ~* 'gdp.*per capita';
   If you get too many results, refine the filter. If zero results, broaden it.
 
 Step 3 — FETCH THE DATA:

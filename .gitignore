@@ -21,3 +21,5 @@ logs/
 *.vscode
 /_container_data/downloader_general/news
 /_container_data/downloader_general/.download_completed
+
+.claude/

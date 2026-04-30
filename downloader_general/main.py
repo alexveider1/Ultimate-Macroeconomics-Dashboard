@@ -1,8 +1,21 @@
+import sys
 import yaml
 import logging
 import os
+import tqdm
 
 from src.extractors import WorldBankDownloader, NewsDownloader, YahooDownloader
+from src.utils.schema import load_database_schema
+
+
+class _TqdmHandler(logging.StreamHandler):
+    """Routes log records through tqdm.write() to prevent progress bar overlap."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            tqdm.tqdm.write(self.format(record), file=sys.stdout)
+        except Exception:
+            self.handleError(record)
 
 
 def main() -> None:
@@ -22,6 +35,7 @@ def main() -> None:
                 mode="w",
                 encoding="utf-8",
             ),
+            _TqdmHandler(),
         ],
     )
 
@@ -32,6 +46,8 @@ def main() -> None:
     postgres_db = args["postgres"]["database"]
     qdrant_host = args["qdrant"]["host"]
     qdrant_port = args["qdrant"]["port"]
+    database_schema_path = args["shared"]["database_schema"]
+    database_schema = load_database_schema(database_schema_path)
     world_bank_download_config = args["shared"]["world_bank_download_config"]
     news_download_config = args["shared"]["news_download_config"]
     yahoo_download_config = args["shared"]["yahoo_download_config"]
@@ -44,7 +60,9 @@ def main() -> None:
     openai_model_dimensions = args["shared"]["openai_embedding_model_dimensions"]
 
     world_bank_downloader = WorldBankDownloader(
-        env_path=env_file, download_config_path=world_bank_download_config
+        env_path=env_file,
+        download_config_path=world_bank_download_config,
+        database_schema=database_schema,
     )
     if world_bank_downloader._initialize_connections(
         host=postgres_host,
@@ -71,6 +89,7 @@ def main() -> None:
     yahoo_downloader = YahooDownloader(
         env_path=env_file,
         download_config_path=yahoo_download_config,
+        database_schema=database_schema,
     )
     if yahoo_downloader._initialize_connections(
         host=postgres_host,

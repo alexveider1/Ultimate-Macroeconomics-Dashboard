@@ -12,11 +12,6 @@ class BaseWorldBankDownloader(ABC):
         pass
 
     @abstractmethod
-    def create_llm_readonly_user(self) -> None:
-        """Create or update the read-only SQL user used by the LLM"""
-        pass
-
-    @abstractmethod
     def download_basic_tables(self) -> None:
         """Download basic `world-bank` tables"""
         pass
@@ -102,7 +97,7 @@ class BaseYahooDownloader(ABC):
         pass
 
     @abstractmethod
-    def download_metadata(self, ticker_id: str, asset_name: str, category: str) -> None:
+    def download_metadata(self, ticker_id: str, asset_name: str, category: str) -> bool:
         """Download metadata for given ticker from `yahoo-finance`"""
         pass
 

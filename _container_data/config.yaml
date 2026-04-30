@@ -1,6 +1,7 @@
 shared:
   data_root: _container_data
   env_file: _container_data/.env
+  database_schema: database_schema.yaml
   world_bank_download_config: _configs/world_bank_download_config.json
   news_download_config: _configs/news_download_config.json
   yahoo_download_config: _configs/yahoo_download_config.json

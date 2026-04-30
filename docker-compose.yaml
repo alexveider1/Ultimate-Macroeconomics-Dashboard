@@ -48,6 +48,7 @@ services:
       context: downloader_general
       dockerfile: Dockerfile
     container_name: downloader_general
+    tty: true
     env_file:
       - ./_container_data/.env
     depends_on:
@@ -59,6 +60,7 @@ services:
         condition: service_started
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/database_schema.yaml:/app/database_schema.yaml:ro
       - ./_container_data/_configs:/app/_configs
       - ./_container_data/downloader_general:/app/_container_data
 

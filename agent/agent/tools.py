@@ -91,12 +91,28 @@ def get_database_schema_text() -> str:
     lines: list[str] = []
     for db_name, tables in schema.get("databases", {}).items():
         lines.append(f"--- Database: {db_name} ---")
-        for table_name, columns in tables.items():
+        for table_name, table_def in tables.items():
             lines.append(f"\nTable: {table_name}")
-            for col_name, col_info in columns.items():
+
+            pk_cols = table_def.get("primary_key") or []
+            if pk_cols:
+                lines.append(f"  Primary key: ({', '.join(pk_cols)})")
+
+            fks = table_def.get("foreign_keys") or []
+            for fk in fks:
+                cols = ", ".join(fk.get("columns", []))
+                ref_table = fk.get("references_table", "")
+                ref_cols = ", ".join(fk.get("references_columns", []))
+                enforced = "enforced" if fk.get("enforce", True) else "documentation only"
+                lines.append(
+                    f"  Foreign key: ({cols}) -> {ref_table}({ref_cols}) [{enforced}]"
+                )
+
+            lines.append("  Columns:")
+            for col_name, col_info in (table_def.get("columns") or {}).items():
                 col_type = col_info.get("type", "UNKNOWN")
                 col_desc = col_info.get("description", "")
-                lines.append(f"  - {col_name} ({col_type}): {col_desc}")
+                lines.append(f"    - {col_name} ({col_type}): {col_desc}")
     return "\n".join(lines)
 
 

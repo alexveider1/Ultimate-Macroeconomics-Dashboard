@@ -273,7 +273,7 @@ def _render_topic_wordcloud(topic_corpus: str, source_count: int) -> None:
             ax.imshow(image_array, interpolation="bilinear")
             ax.axis("off")
             fig.tight_layout(pad=0)
-            st.pyplot(fig, clear_figure=True, use_container_width=True)
+            st.pyplot(fig, clear_figure=True, width="stretch")
             plt.close(fig)
 
 
@@ -302,7 +302,7 @@ def _render_nearest_news(
 ) -> None:
     if not st.button(
         f"Find {DEFAULT_NEAREST_COUNT} nearest news",
-        use_container_width=True,
+        width="stretch",
         type="primary",
     ):
         return
@@ -343,7 +343,7 @@ def _render_nearest_news(
         score_text = f"{hit.score:.4f}" if hit.score is not None else "N/A"
         label = f"{idx}. {title} (score: {score_text})"
         if st.button(
-            label, key=f"nearest_{collection_name}_{hit_id}", use_container_width=True
+            label, key=f"nearest_{collection_name}_{hit_id}", width="stretch"
         ):
             st.session_state[select_state_key] = hit_id
             st.rerun()

@@ -1,5 +1,7 @@
 import streamlit as st
 
+from core.theming import register_plotly_template
+
 st.set_page_config(
     page_title="Ultimate Macroeconomics Dashboard",
     page_icon="🌍",
@@ -9,16 +11,12 @@ st.set_page_config(
 
 st.logo("assets/logo.png")
 
+register_plotly_template()
+
 
 def init_global_state():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
-
-    if "user_settings" not in st.session_state:
-        st.session_state.user_settings = {
-            "theme": "dark",
-            "plotly_theme": "plotly",
-        }
 
     if "api_health" not in st.session_state:
         st.session_state.api_health = {
@@ -111,7 +109,7 @@ def _show_data_disclaimer():
             "as-is. It is the user's responsibility to evaluate whether any given "
             "source or data point is reliable before making decisions based on it."
         )
-        if st.button("I understand", type="primary", use_container_width=True):
+        if st.button("I understand", type="primary", width="stretch"):
             st.session_state.disclaimer_accepted = True
             st.rerun()
 

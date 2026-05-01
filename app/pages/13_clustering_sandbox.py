@@ -215,7 +215,7 @@ def _render_visuals(
             yaxis_title=y_axis_title,
         )
         scatter_fig = apply_plotly_theme(scatter_fig)
-        st.plotly_chart(scatter_fig, use_container_width=True)
+        st.plotly_chart(scatter_fig, width="stretch")
 
     with right:
         map_fig = px.choropleth(
@@ -230,7 +230,7 @@ def _render_visuals(
         )
         map_fig.update_layout(margin=dict(l=0, r=0, t=40, b=0))
         map_fig = apply_plotly_theme(map_fig)
-        st.plotly_chart(map_fig, use_container_width=True)
+        st.plotly_chart(map_fig, width="stretch")
 
 
 def render_page() -> None:
@@ -366,7 +366,7 @@ def render_page() -> None:
             n_init = 10
             random_state = 42
 
-    run_button = st.button("Run clustering", type="primary", use_container_width=True)
+    run_button = st.button("Run clustering", type="primary", width="stretch")
 
     if run_button:
         with st.spinner("Preparing feature matrix and running clustering API..."):
@@ -513,7 +513,7 @@ def render_page() -> None:
             .sort("cluster")
             .rename({"len": "countries"})
         )
-        st.dataframe(counts_df, use_container_width=True)
+        st.dataframe(counts_df, width="stretch")
 
     feature_columns = list(state.get("feature_columns", []))
     feature_label_by_id = dict(
@@ -550,14 +550,14 @@ def render_page() -> None:
         }
         for indicator_id in feature_columns
     ]
-    st.dataframe(pl.DataFrame(mode_pairs), use_container_width=True)
+    st.dataframe(pl.DataFrame(mode_pairs), width="stretch")
 
     ordered_cols = ["country_name", "economy", "cluster", *feature_columns]
     final_cols = [col for col in ordered_cols if col in result_df.columns]
     st.subheader("Clustered Dataset")
     st.dataframe(
         result_df.select(final_cols).sort(["cluster", "country_name"]),
-        use_container_width=True,
+        width="stretch",
     )
 
 

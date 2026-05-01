@@ -4,6 +4,7 @@ import polars as pl
 import streamlit as st
 
 from core.plotting import apply_plotly_theme
+from core.theming import get_color
 from core.postgres_client import (
     get_world_bank_country_mapping,
     get_world_bank_indicator,
@@ -154,7 +155,7 @@ def _render_import_export_scatter() -> None:
             y=[axis_min, axis_max],
             mode="lines",
             name="y = x",
-            line={"color": "#64748b", "dash": "dash", "width": 1.5},
+            line={"color": get_color("reference_line"), "dash": "dash", "width": 1.5},
             hoverinfo="skip",
         )
     )
@@ -164,7 +165,7 @@ def _render_import_export_scatter() -> None:
     fig.update_yaxes(range=[axis_min, axis_max])
     fig = apply_plotly_theme(fig)
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption(
         "Points above the dashed y=x line indicate stronger exports than imports "
         "relative to GDP; below the line indicates the opposite."

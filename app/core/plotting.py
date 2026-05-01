@@ -6,7 +6,7 @@ import base64
 import hashlib
 import yaml
 import json
-from plotly.colors import hex_to_rgb, qualitative
+from plotly.colors import hex_to_rgb
 from typing import Optional, Dict, Any
 from datetime import datetime
 
@@ -21,18 +21,14 @@ from core.postgres_client import (
     get_world_bank_indicator_name,
     get_world_bank_metadata,
 )
+from core.theming import PLOTLY_TEMPLATE_NAME, get_color, get_colorway
 
 CONFIG = yaml.safe_load(open("config.yaml"))
 FORECASTER_BASE_URL = f"http://forecaster:{CONFIG.get('forecaster').get('port')}"
 
 
-def get_plotly_template() -> str:
-    user_settings = st.session_state.get("user_settings", {})
-    return str(user_settings.get("plotly_theme", "plotly"))
-
-
 def apply_plotly_theme(fig: go.Figure) -> go.Figure:
-    fig.update_layout(template=get_plotly_template())
+    fig.update_layout(template=PLOTLY_TEMPLATE_NAME)
     fig.for_each_xaxis(lambda axis: axis.update(showgrid=False))
     fig.for_each_yaxis(lambda axis: axis.update(showgrid=False))
     return fig
@@ -128,7 +124,7 @@ def build_line_plot(
         elif "Historical" not in series_names:
             series_names.append("Historical")
 
-    palette = qualitative.Plotly
+    palette = get_colorway()
     series_colors = {
         name: palette[index % len(palette)] for index, name in enumerate(series_names)
     }
@@ -397,7 +393,7 @@ def build_distribution_plot(
     )
 
     if reference_lines:
-        line_palette = qualitative.Plotly
+        line_palette = get_colorway()
         for idx, line_info in enumerate(reference_lines):
             try:
                 level = float(line_info.get("value"))
@@ -478,7 +474,7 @@ def build_map_plot(
         geo=dict(
             showframe=False,
             showcoastlines=True,
-            coastlinecolor="LightBlue",
+            coastlinecolor=get_color("map_coastline"),
             projection_type="natural earth",
         ),
         margin=dict(l=0, r=0, t=50, b=0),
@@ -865,7 +861,7 @@ class GraphBox:
                             run_model_clicked = st.form_submit_button(
                                 "Run model",
                                 type="primary",
-                                use_container_width=True,
+                                width="stretch",
                             )
                     else:
                         st.markdown("**Distribution**")

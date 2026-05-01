@@ -94,9 +94,10 @@ services:
         condition: service_started
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/themes.yaml:/app/themes.yaml
       - ./_container_data/_configs:/app/_configs
       - ./_container_data/app:/app/_container_data
-  
+
   agent:
     build:
       context: agent

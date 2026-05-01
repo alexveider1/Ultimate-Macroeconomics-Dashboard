@@ -7,9 +7,9 @@ messageFormat = "%(asctime)s %(message)s"
 
 [theme]
 primaryColor = "#10c8f1"
-backgroundColor = "#000000"
-secondaryBackgroundColor = "#073642"
-textColor = "#ffffff"
+backgroundColor = "#0e1117"
+secondaryBackgroundColor = "#1e1e1e"
+textColor = "#fafafa"
 
 [browser]
 serverAddress = "localhost"

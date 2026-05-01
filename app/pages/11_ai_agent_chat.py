@@ -101,7 +101,7 @@ def _render_data_expander(artifacts: dict, message_key: str) -> None:
         dataframe_height = max(180, min(640, 35 * (preview_df.height + 1)))
         st.dataframe(
             preview_df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             height=dataframe_height,
         )
@@ -127,7 +127,7 @@ def _render_data_expander(artifacts: dict, message_key: str) -> None:
             file_name=view["file_name"],
             mime="text/csv",
             key=f"{message_key}_table_download",
-            use_container_width=False,
+            width="content",
         )
 
 
@@ -150,7 +150,7 @@ def _render_plot_artifact(plot_artifact: object, message_key: str) -> None:
     title = str(plot_artifact.get("title", "") or "").strip()
     if title:
         st.caption(f"Rendered plot: {title}")
-    st.plotly_chart(figure, use_container_width=True, key=f"{message_key}_plot")
+    st.plotly_chart(figure, width="stretch", key=f"{message_key}_plot")
 
 
 def _render_execution_log(steps: list[str], placeholder, finished: bool) -> None:
@@ -301,7 +301,7 @@ def render_page() -> None:
 
     _, right_col = st.columns([0.7, 0.3])
     with right_col:
-        if st.button("Clear chat", use_container_width=True):
+        if st.button("Clear chat", width="stretch"):
             st.session_state[CHAT_STATE_KEY] = []
             st.rerun()
 

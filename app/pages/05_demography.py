@@ -160,7 +160,7 @@ def _render_demography_bubble() -> None:
     fig.update_yaxes(tickformat=",.2s")
     fig = apply_plotly_theme(fig)
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.divider()
 
 

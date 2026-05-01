@@ -4,6 +4,7 @@ import streamlit as st
 
 from core.assets import get_markup_template, render_markup_template
 from core.plotting import apply_plotly_theme
+from core.theming import get_color
 from core.postgres_client import (
     get_world_bank_country_codes,
     get_world_bank_country_mapping,
@@ -122,7 +123,7 @@ def _render_snapshot_card(
     previous_year: int | None,
 ) -> None:
     trend_is_positive = pct_change is None or pct_change >= 0
-    trend_color = "#16a34a" if trend_is_positive else "#dc2626"
+    trend_color = get_color("positive") if trend_is_positive else get_color("negative")
     delta_prefix = "+" if pct_change is not None and pct_change >= 0 else ""
 
     if pct_change is None:
@@ -282,7 +283,7 @@ def _render_gdp_overview() -> None:
         st.subheader(f"Top-10 Countries by GDP ({target_year})")
         st.dataframe(
             top10_df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             height=TOP10_TABLE_HEIGHT,
             column_config={
@@ -295,7 +296,7 @@ def _render_gdp_overview() -> None:
     st.subheader(f"GDP Share of World Total ({target_year})")
     st.plotly_chart(
         _build_gdp_share_pie(pie_df, title=f"GDP Share of World Total ({target_year})"),
-        use_container_width=True,
+        width="stretch",
     )
 
     st.divider()

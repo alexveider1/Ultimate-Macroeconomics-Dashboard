@@ -1,0 +1,88 @@
+active: dark
+themes:
+  dark:
+    streamlit:
+      primaryColor: "#10c8f1"
+      backgroundColor: "#0e1117"
+      secondaryBackgroundColor: "#1e1e1e"
+      textColor: "#fafafa"
+    plotly:
+      template_base: plotly_dark
+      paper_bgcolor: "#0e1117"
+      plot_bgcolor: "#0e1117"
+      font_color: "#fafafa"
+      colorway:
+        - "#10c8f1"
+        - "#ff6b6b"
+        - "#ffd93d"
+        - "#6bcf7f"
+        - "#a685e2"
+        - "#ff9f43"
+        - "#4ecdc4"
+        - "#f78fb3"
+    semantic:
+      positive: "#22c55e"
+      negative: "#ef4444"
+      reference_line: "#94a3b8"
+      map_coastline: "#7dd3fc"
+      sector_agriculture: "#34d399"
+      sector_manufacturing: "#f59e0b"
+      sector_services: "#60a5fa"
+
+  dark-blue:
+    streamlit:
+      primaryColor: "#3b82f6"
+      backgroundColor: "#0b1c3a"
+      secondaryBackgroundColor: "#13294b"
+      textColor: "#e2e8f0"
+    plotly:
+      template_base: plotly_dark
+      paper_bgcolor: "#0b1c3a"
+      plot_bgcolor: "#0b1c3a"
+      font_color: "#e2e8f0"
+      colorway:
+        - "#60a5fa"
+        - "#38bdf8"
+        - "#818cf8"
+        - "#22d3ee"
+        - "#a78bfa"
+        - "#f472b6"
+        - "#facc15"
+        - "#34d399"
+    semantic:
+      positive: "#4ade80"
+      negative: "#f87171"
+      reference_line: "#64748b"
+      map_coastline: "#38bdf8"
+      sector_agriculture: "#22d3ee"
+      sector_manufacturing: "#a78bfa"
+      sector_services: "#60a5fa"
+
+  light-green:
+    streamlit:
+      primaryColor: "#15803d"
+      backgroundColor: "#f7faf5"
+      secondaryBackgroundColor: "#e6f0e0"
+      textColor: "#1f2937"
+    plotly:
+      template_base: plotly_white
+      paper_bgcolor: "#f7faf5"
+      plot_bgcolor: "#f7faf5"
+      font_color: "#1f2937"
+      colorway:
+        - "#15803d"
+        - "#65a30d"
+        - "#0d9488"
+        - "#ca8a04"
+        - "#b45309"
+        - "#7c3aed"
+        - "#be185d"
+        - "#0369a1"
+    semantic:
+      positive: "#16a34a"
+      negative: "#b91c1c"
+      reference_line: "#475569"
+      map_coastline: "#475569"
+      sector_agriculture: "#15803d"
+      sector_manufacturing: "#b45309"
+      sector_services: "#0369a1"

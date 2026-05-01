@@ -4,6 +4,7 @@ import streamlit as st
 
 from core.app_logging import log_page_render
 from core.plotting import apply_plotly_theme
+from core.theming import get_color
 from core.postgres_client import (
     get_world_bank_country_codes,
     get_world_bank_country_mapping,
@@ -13,9 +14,9 @@ from pages.page_utils import render_page_from_config
 
 
 ECONOMY_STRUCTURE_INDICATORS = [
-    ("Agriculture", "NV.AGR.TOTL.ZS", "#2E8B57"),
-    ("Manufacturing", "NV.IND.MANF.ZS", "#D97706"),
-    ("Services", "NV.SRV.TOTL.ZS", "#2563EB"),
+    ("Agriculture", "NV.AGR.TOTL.ZS", "sector_agriculture"),
+    ("Manufacturing", "NV.IND.MANF.ZS", "sector_manufacturing"),
+    ("Services", "NV.SRV.TOTL.ZS", "sector_services"),
 ]
 PAGE_TITLE = "Economy Structure"
 
@@ -114,7 +115,7 @@ def _build_economy_structure_data(
         {
             "sector": [item[0] for item in ECONOMY_STRUCTURE_INDICATORS],
             "indicator_id": [item[1] for item in ECONOMY_STRUCTURE_INDICATORS],
-            "color": [item[2] for item in ECONOMY_STRUCTURE_INDICATORS],
+            "color": [get_color(item[2]) for item in ECONOMY_STRUCTURE_INDICATORS],
             "value": [
                 float(latest_row.get_column(item[0])[0])
                 for item in ECONOMY_STRUCTURE_INDICATORS
@@ -190,7 +191,7 @@ def _render_economy_structure_section() -> None:
             country_name=country_name,
             year=latest_year,
         ),
-        use_container_width=True,
+        width="stretch",
     )
     st.caption(
         "Uses the latest year where agriculture, manufacturing, and services values are all available. "

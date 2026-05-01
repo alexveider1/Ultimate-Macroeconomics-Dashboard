@@ -3,19 +3,8 @@ import yaml
 
 from core.app_logging import log_page_render
 from core.api_client import list_agent_models, resolve_agent_base_url
+from core.theming import get_active_theme_name, list_theme_names, set_active_theme
 
-
-PLOTLY_THEMES = [
-    "plotly",
-    "plotly_white",
-    "plotly_dark",
-    "ggplot2",
-    "seaborn",
-    "simple_white",
-    "presentation",
-    "xgridoff",
-    "ygridoff",
-]
 
 CONFIG_PATH = "config.yaml"
 CONFIG = yaml.safe_load(open(CONFIG_PATH))
@@ -48,26 +37,32 @@ log_page_render("System Settings")
 st.title("System Settings")
 st.caption("Configure dashboard-wide visualization preferences.")
 
-if "user_settings" not in st.session_state:
-    st.session_state.user_settings = {
-        "theme": "dark",
-        "plotly_theme": "plotly",
-    }
-
-current_theme = st.session_state.user_settings.get("plotly_theme", "plotly")
-default_index = (
-    PLOTLY_THEMES.index(current_theme) if current_theme in PLOTLY_THEMES else 0
+available_themes = list_theme_names()
+active_theme = get_active_theme_name()
+active_index = (
+    available_themes.index(active_theme) if active_theme in available_themes else 0
 )
 
 selected_theme = st.selectbox(
-    "Plotly chart theme",
-    options=PLOTLY_THEMES,
-    index=default_index,
-    help="Applies to all dashboard Plotly charts.",
+    "Dashboard theme",
+    options=available_themes,
+    index=active_index,
+    help="Controls Streamlit page colors, Plotly chart background, and series colors. Defined in themes.yaml.",
 )
 
-st.session_state.user_settings["plotly_theme"] = selected_theme
-st.success(f"Active Plotly theme: {selected_theme}")
+if selected_theme != active_theme:
+    if st.button(f"Apply theme '{selected_theme}'", type="primary"):
+        try:
+            written_config = set_active_theme(selected_theme)
+            st.warning(
+                f"Theme saved. Restart the app container for the change to take effect. "
+                f"(Streamlit reads page colors from config.toml only at server startup.)"
+            )
+            st.caption(f"Streamlit config rewritten at: {written_config}")
+        except Exception as exc:
+            st.error(f"Could not apply theme: {exc}")
+else:
+    st.success(f"Active theme: {active_theme}")
 
 st.divider()
 st.subheader("AI Model")
@@ -109,7 +104,7 @@ else:
         placeholder="Example: gpt-5.4-nano",
     ).strip()
 
-save_clicked = st.button("Save AI model", type="primary", use_container_width=False)
+save_clicked = st.button("Save AI model", type="primary", width="content")
 if save_clicked:
     if not selected_model:
         st.error("Please choose or enter a model name.")

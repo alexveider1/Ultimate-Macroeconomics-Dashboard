@@ -8,6 +8,7 @@ import streamlit as st
 from core.assets import get_markup_template
 from core.app_logging import log_page_render
 from core.plotting import apply_plotly_theme, build_line_plot
+from core.theming import get_color
 from core.postgres_client import get_all_yahoo_historical_prices, get_all_yahoo_metadata
 
 
@@ -70,8 +71,8 @@ def build_yahoo_candlestick_plot(
             low=prepared_df[low_col].to_list(),
             close=prepared_df[close_col].to_list(),
             name="OHLC",
-            increasing_line_color="#16a34a",
-            decreasing_line_color="#dc2626",
+            increasing_line_color=get_color("positive"),
+            decreasing_line_color=get_color("negative"),
         )
     )
     fig.update_layout(

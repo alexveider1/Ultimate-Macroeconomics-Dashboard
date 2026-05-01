@@ -43,11 +43,5 @@ COPY . .
 
 RUN chmod +x /app/docker-entrypoint.sh
 
-
-RUN useradd --create-home --shell /bin/bash appuser \
-    && chown -R appuser:appuser /app
-
-USER appuser
-
 ENTRYPOINT ["tini", "--"]
 CMD ["/app/docker-entrypoint.sh"]

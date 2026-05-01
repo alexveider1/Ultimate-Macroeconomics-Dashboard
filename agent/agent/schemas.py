@@ -24,6 +24,8 @@ class AgentState(TypedDict):
     last_worker: str
     retry_count: int
     trace: Annotated[list[str], operator.add]
+    guardrail_blocked: bool
+    guardrail_message: str
 
 
 WORKER_LITERAL = Literal[
@@ -179,6 +181,28 @@ class ChatSynthesis(BaseModel):
     )
 
 
+class GuardrailDecision(BaseModel):
+    is_inappropriate: bool = Field(
+        description=(
+            "True if the user's message contains harsh language, personal "
+            "attacks, sexual content, requests for illegal/unethical content, "
+            "or anything else outside the dashboard's scope of macroeconomics, "
+            "politics, sociology, econometrics, data science and technology."
+        )
+    )
+    reason: str = Field(
+        default="",
+        description="Short explanation of why the message was flagged.",
+    )
+    refusal_message: str = Field(
+        default="",
+        description=(
+            "A polite, brief refusal in markdown to show the user when "
+            "is_inappropriate is true. Empty otherwise."
+        ),
+    )
+
+
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -187,15 +211,6 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     user_message: str
     chat_history: list[ChatMessage] = Field(default_factory=list)
-
-
-class ChatResponse(BaseModel):
-    answer: str
-    mode: str = "orchestrated"
-    model: str = ""
-    trace: list[str] = Field(default_factory=list)
-    progress_updates: list[str] = Field(default_factory=list)
-    artifacts: Dict[str, Any] = Field(default_factory=dict)
 
 
 class PlotInterpretationRequest(BaseModel):

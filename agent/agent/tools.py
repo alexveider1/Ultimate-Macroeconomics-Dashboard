@@ -22,7 +22,6 @@ MAX_SQL_ROWS = 500
 def configure_runtime(
     *,
     database_schema_path: str,
-    world_bank_catalog_path: str,
     news_topics_path: str,
     qdrant_url: str,
     qdrant_api_key: str,
@@ -44,9 +43,6 @@ def configure_runtime(
 
     with open(database_schema_path) as fh:
         _runtime["database_schema"] = yaml.safe_load(fh)
-
-    with open(world_bank_catalog_path) as fh:
-        _runtime["world_bank_catalog"] = json.load(fh)
 
     with open(news_topics_path) as fh:
         _runtime["news_topics"] = json.load(fh)
@@ -113,16 +109,6 @@ def get_database_schema_text() -> str:
                 col_type = col_info.get("type", "UNKNOWN")
                 col_desc = col_info.get("description", "")
                 lines.append(f"    - {col_name} ({col_type}): {col_desc}")
-    return "\n".join(lines)
-
-
-def get_world_bank_catalog_text() -> str:
-    catalog = _runtime.get("world_bank_catalog", {})
-    lines: list[str] = []
-    for category, indicators in catalog.items():
-        lines.append(f"\n--- {category} ---")
-        for ind in indicators:
-            lines.append(f"  {ind['name']} (id={ind['id']}, db={ind['db']})")
     return "\n".join(lines)
 
 

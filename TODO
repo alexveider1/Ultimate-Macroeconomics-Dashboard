@@ -3,13 +3,10 @@
 > Set of features to implement and bugs to be fixed
 
 ## Short-term
-* Implement more verbose and structured logs for `app` container
 * Improve hard-coded colors so they would fit general color palette more, make more 
 
 ## Medium-term
 * Complete complex testing of agent (create a table with set of tasks to solve and results of agent execution)
-* Improve prompts for agentic system
-* Refactor code of agent backened
 
 ## Long-term
 * Set up authorization module
@@ -17,3 +14,4 @@
 
 ## Backlog
 * Implement new data sources: Maddison Project Database
+* Implement feature for creating dynamic, llm-based macroeconomics reports as documents

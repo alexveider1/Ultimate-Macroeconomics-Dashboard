@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -10,6 +11,7 @@ from .schemas import (
     AgentState,
     ChatSynthesis,
     DownloadIndicatorPlan,
+    GuardrailDecision,
     PlotlyCodeGeneration,
     PolarsCodeGeneration,
     RAGSearchPlan,
@@ -23,7 +25,6 @@ from .tools import (
     execute_code_in_sandbox,
     get_database_schema_text,
     get_news_topics,
-    get_world_bank_catalog_text,
     run_sql_query,
     search_qdrant_news,
     web_search,
@@ -40,6 +41,79 @@ WORKER_NAMES = [
     "downloader_agent",
     "chat_agent",
 ]
+
+
+class GuardrailAgent:
+    """Screens the user's latest message before routing.
+
+    Blocks harsh language, personal attacks, sexual or otherwise
+    inappropriate content, and requests outside the dashboard's
+    macroeconomics / politics / sociology / data-science scope.
+    """
+
+    SYSTEM_PROMPT = (
+        "You are the safety screen for a macroeconomic dashboard assistant. "
+        "Decide whether the user's most recent message is acceptable. "
+        "It is acceptable when the user asks about economics (applied or "
+        "theoretical), politics, sociology, econometrics, data science, "
+        "technology, or anything else relevant to the dashboard — including "
+        "casual greetings and meta questions about the assistant. "
+        "Flag the message ONLY when it contains harsh language directed at "
+        "the assistant or other people, personal attacks, sexual content, "
+        "requests for illegal/unethical material, or topics clearly outside "
+        "this scope (e.g. medical advice, malware, explicit content). "
+        "If you flag the message, write a brief, polite refusal in markdown "
+        "explaining you can only help with the dashboard's topics."
+    )
+
+    def __init__(self, llm: ChatOpenAI):
+        self.llm = llm
+
+    async def ainvoke(self, state: AgentState) -> dict:
+        last_user_msg = ""
+        for msg in reversed(state.get("messages", [])):
+            if isinstance(msg, HumanMessage):
+                last_user_msg = str(msg.content)
+                break
+        if not last_user_msg.strip():
+            return {
+                "guardrail_blocked": False,
+                "guardrail_message": "",
+                "trace": ["guardrail: empty message — passing through"],
+            }
+        try:
+            structured_llm = self.llm.with_structured_output(GuardrailDecision)
+            decision: GuardrailDecision = await structured_llm.ainvoke(
+                [
+                    SystemMessage(content=self.SYSTEM_PROMPT),
+                    HumanMessage(content=last_user_msg),
+                ]
+            )
+            if decision.is_inappropriate:
+                logger.info("guardrail: blocked — %s", decision.reason)
+                refusal = (
+                    decision.refusal_message.strip()
+                    or "I can only help with macroeconomics, politics, "
+                    "sociology, data science and related dashboard topics. "
+                    "Please rephrase your question."
+                )
+                return {
+                    "guardrail_blocked": True,
+                    "guardrail_message": refusal,
+                    "trace": ["guardrail: blocked"],
+                }
+            return {
+                "guardrail_blocked": False,
+                "guardrail_message": "",
+                "trace": ["guardrail: passed"],
+            }
+        except Exception as exc:
+            logger.warning("guardrail: error – %s — passing through", exc)
+            return {
+                "guardrail_blocked": False,
+                "guardrail_message": "",
+                "trace": [f"guardrail: error ({exc}) — passing through"],
+            }
 
 
 class MacroSupervisorAgent:
@@ -103,16 +177,22 @@ class MacroSupervisorAgent:
 Your role is to plan, delegate tasks to specialised workers, review their results, and deliver the final answer.
 
 AVAILABLE WORKERS:
-- sql_agent: Queries PostgreSQL (World Bank indicators + Yahoo Finance data).
-  The sql_agent uses an INTERNAL multi-step exploration process:
-    1) It first queries the `databases` table to identify the right database.
-    2) It then searches `database_indicators` (filtered by database_id) using
-       regexp/ILIKE on the `description` column to find the exact indicator.
-    3) Finally it fetches data from `indicators` + `metadata` for the found indicator.
-    4) It can also use the `countries` table for country metadata (names, regions, income levels).
-  The sql_agent NEVER guesses indicator names — it always looks them up from the database.
-  You do NOT need to tell it which indicator ID to use — just describe what data you need
-  in plain language and it will find the right indicator through its exploration steps.
+- sql_agent: Queries PostgreSQL. It serves TWO independent data domains and
+  picks the right path based on the task you give it:
+    A) WORLD BANK indicators — internal 3-step exploration:
+       1) databases → identify the right World Bank database
+       2) database_indicators (filtered by database_id) → find the indicator
+          via ILIKE/regexp on `description`
+       3) indicators + metadata → fetch the data series, optionally joined
+          with `countries` for country names / regions / income levels
+       It NEVER guesses indicator IDs — always looks them up.
+    B) YAHOO FINANCE market data — simpler 1–2 step lookup:
+       1) yahoo_metadata → find the right ticker(s) by `asset_name`,
+          `short_name`, `sector`, `industry`, `category` (Indices/Companies)
+       2) yahoo_historical_prices → fetch OHLCV history for those tickers
+       Use this path for stocks, indices, sectors, ETFs, market data.
+  Just describe what data you need in plain language; sql_agent decides
+  which domain to query.
 - plotly_agent: Generates Plotly visualizations from data stored in artifacts.
 - table_agent: Transforms/reshapes data with Python Polars (data from artifacts).
 - rag_agent: Semantic search over a Qdrant vector DB of news articles.
@@ -142,25 +222,63 @@ INSTRUCTIONS:
    If the worker needs prior data, tell it the artifact key (e.g. "data is in latest_data").
 5. When routing to FINISH write the complete, well-formatted final answer
    for the user inside 'isolated_worker_task'. Use markdown formatting.
-   Reference generated charts and tables when relevant.
+   Reference generated charts when relevant ("the chart above shows ...").
+   IMPORTANT: NEVER embed the data table itself into the answer. Do NOT write
+   markdown tables of the SQL/Polars rows. The UI renders the underlying
+   data table separately below your answer in an expander, so just summarise
+   the key numbers / takeaways in prose. A short markdown table is acceptable
+   ONLY when summarising 2–4 hand-picked headline figures, never the full
+   dataset.
+   IMPORTANT: When a chart was produced by plotly_agent, the UI renders the
+   chart itself directly in the chat above your answer. NEVER include the
+   plotly Python code, JSON figure spec, raw figure description, axis lists,
+   or any technical chart implementation details in the FINISH answer. Only
+   reference the chart in prose ("the chart above shows ...") and summarise
+   what the user can see in it.
+   For mathematical expressions, use Streamlit-compatible markdown math:
+   inline math as `$expr$` and block math as `$$expr$$`. Do NOT use
+   `\\(...\\)` or `\\[...\\]` delimiters — they will not render.
    When the answer includes information from RAG (news articles), you MUST
    include the source URL for every article referenced. Format as markdown links.
 6. For data-visualisation requests: first obtain data (sql_agent), then visualise (plotly_agent).
-7. ROUTING TO sql_agent:
-   a) Describe the data you need in plain language (e.g. "GDP per capita for Brazil 2000-2023").
-   b) The sql_agent will internally explore databases → find indicators → fetch data.
-      You do NOT need to provide indicator IDs or database IDs.
-   c) If sql_agent returns an error about not finding indicators, first try refining
-      your description (use broader terms, synonyms). Only after sql_agent has
-      confirmed the indicator is NOT available in any database should you consider
-      using downloader_agent.
-   d) If sql_agent returns SQL_AGENT INDICATOR_NOT_DOWNLOADED, the indicator exists
-      in the catalog (database_indicators) but has NOT been downloaded into the
-      indicators table yet. In this case you MUST route to
-      downloader_agent to download it, then route back to sql_agent to fetch the data.
-   e) For Yahoo Finance data, simply describe the stock/index data needed — the
-      sql_agent will query yahoo_historical_prices and yahoo_metadata directly.
-8. FACT-FINDING STRATEGY (when the user asks about specific real-world facts, events,
+7. ROUTING TO chat_agent (DEFAULT for non-data tasks):
+   a) Route to chat_agent for ANY request that does NOT require fetching,
+      transforming, plotting, or searching for data — for example:
+      definitions, conceptual explanations, theoretical questions about
+      economics / econometrics / statistics / data science, "what does X
+      mean?", "explain Y", greetings, meta-questions about the assistant,
+      derivations / formulas, methodology discussions, and general
+      conversational replies.
+      For these, do NOT call sql_agent / rag_agent / web_search just to
+      look something up — chat_agent already has general knowledge.
+   b) After chat_agent returns its synthesis, FINISH and pass its response
+      through to the user (you may lightly polish formatting but preserve
+      content faithfully).
+8. ROUTING TO sql_agent:
+   a) Describe the data in plain language. State the data domain explicitly:
+      "World Bank indicator: ..." OR "Yahoo Finance market data: ...".
+      For ambiguous wording, infer from the request:
+        - macro indicators (GDP, inflation, unemployment, debt, FX, demography,
+          health, education, environment, governance) → World Bank
+        - stocks, equities, tickers, indices (S&P 500, NASDAQ, ^GSPC),
+          companies (AAPL, MSFT), OHLCV / closing prices / market cap →
+          Yahoo Finance
+   b) WORLD BANK PATH:
+      - sql_agent will internally explore databases → indicators → fetch.
+        You do NOT need to provide indicator IDs or database IDs.
+      - If sql_agent reports the indicator is NOT found anywhere, try
+        refining your description (broader terms, synonyms) before giving up.
+      - If sql_agent returns SQL_AGENT INDICATOR_NOT_DOWNLOADED, the
+        indicator exists in `database_indicators` but the data has not been
+        downloaded yet. Route to downloader_agent, then back to sql_agent.
+   c) YAHOO FINANCE PATH:
+      - sql_agent will query yahoo_metadata + yahoo_historical_prices
+        directly. Mention the ticker if the user gave one; otherwise
+        describe the asset (e.g. "Apple stock", "S&P 500 index").
+      - downloader_agent does NOT support Yahoo Finance. If the requested
+        ticker is not present in yahoo_metadata, FINISH and tell the user
+        the asset is not currently tracked by the dashboard.
+9. FACT-FINDING STRATEGY (when the user asks about specific real-world facts, events,
    opinions, or context that is NOT answerable from numeric database data):
    a) ALWAYS route to rag_agent FIRST to search the news article database.
    b) Carefully evaluate rag_agent results for RELEVANCE to the user's specific question.
@@ -171,17 +289,38 @@ INSTRUCTIONS:
       use web_search as a second source to supplement or replace RAG results.
    d) NEVER skip rag_agent and go directly to web_search for fact-based questions.
    e) When presenting facts from RAG results, always include the article source URLs.
-9. If retrying, explicitly describe the previous error and what should change.
-10. ROUTING TO downloader_agent (downloading NEW World Bank indicators):
+10. If retrying, explicitly describe the previous error and what should change.
+11. ROUTING TO downloader_agent (downloading NEW World Bank indicators):
    a) NEVER route directly to downloader_agent based on the user's request alone.
-   b) You MUST first route to sql_agent to explore what databases and indicators
-      are available. The sql_agent will search the `databases` table and then
-      `database_indicators` to check if the requested data exists.
-   c) Only if sql_agent explicitly reports that the indicator was NOT found in
-      any database should you route to downloader_agent.
-   d) After downloader_agent successfully downloads the indicator, route back to
-      sql_agent to fetch the newly available data.
-   e) The full sequence is: sql_agent (explore) → downloader_agent (download) → sql_agent (fetch)."""
+   b) You MUST first route to sql_agent so it can run the 3-step exploration
+      (databases → database_indicators → indicators) and identify the exact
+      `indicator_id` (e.g. 'NY.GDP.MKTP.CD') and `db_id` (e.g. 2) for the
+      requested series.
+   c) Trigger downloader_agent ONLY when sql_agent returns
+      `SQL_AGENT INDICATOR_NOT_DOWNLOADED` — that response is guaranteed to
+      include a "Best match: indicator_id=…, db_id=…" line plus a list of
+      candidates extracted from `database_indicators`. Pick the candidate
+      that best matches the user's request.
+   d) The `isolated_worker_task` you give downloader_agent MUST contain the
+      EXACT `indicator_id` and `db_id` you selected, in this literal form:
+        indicator_id=<ID>
+        db_id=<INT>
+      (you may add a one-line description for context, but those two
+      key=value lines are required and must be verbatim from the candidate
+      list — never invent or paraphrase them).
+   e) downloader_agent will call the downloader_extra `/ingest` endpoint,
+      which fetches the entire (economy, year, value) table for that
+      indicator from the World Bank API and persists it to the `indicators`
+      table. It does NOT pick an indicator on its own — it strictly relies
+      on the values you pass.
+   f) Do NOT call downloader_agent for vague conceptual questions, Yahoo
+      Finance assets, or when sql_agent has not yet identified a concrete
+      indicator_id+db_id pair.
+   g) After downloader_agent reports `DOWNLOADER_AGENT SUCCESS`, route back
+      to sql_agent to fetch the newly available data.
+   h) The full sequence is: sql_agent (explore → INDICATOR_NOT_DOWNLOADED)
+      → downloader_agent (download with exact indicator_id+db_id)
+      → sql_agent (fetch)."""
 
     async def ainvoke(self, state: AgentState) -> dict:
         try:
@@ -278,54 +417,78 @@ class SQLAgent:
 DATABASE SCHEMA:
 {schema_text}
 
-MANDATORY STEP-BY-STEP APPROACH FOR WORLD BANK DATA:
-You MUST follow these steps IN ORDER. Do NOT skip steps or guess indicator names.
+THIS DATABASE COVERS TWO INDEPENDENT DOMAINS — pick the right one FIRST:
+  * WORLD BANK macro indicators → tables `databases`, `database_indicators`,
+    `indicators`, `metadata`, `countries`. Use the 3-step plan below.
+  * YAHOO FINANCE market data → tables `yahoo_metadata` and
+    `yahoo_historical_prices`. Use the 1–2 step plan below. NEVER touch
+    the World Bank tables for stock/index/ticker requests.
+
+Inspect the user task; if it mentions tickers, stocks, equities, indices,
+companies, OHLC/closing prices, market cap, "S&P", "NASDAQ", "Apple",
+"^GSPC", "AAPL" etc. → YAHOO. Otherwise (GDP, inflation, unemployment,
+demography, health, education, environment, governance) → WORLD BANK.
+
+==================================================================
+PLAN A — WORLD BANK (mandatory step order, do NOT skip or guess IDs):
 
 Step 1 — IDENTIFY THE DATABASE:
-  Query the `databases` table to find which database is relevant to the user's request.
-  Example: SELECT id, name, description FROM databases WHERE name ILIKE '%development%' OR description ILIKE '%gdp%';
+  Query the `databases` table to find which database is relevant.
+  Example: SELECT id, name, description FROM databases
+           WHERE name ILIKE '%development%' OR description ILIKE '%gdp%';
 
 Step 2 — FIND THE INDICATOR:
-  Query `database_indicators` filtered by the `database_id` found in Step 1.
-  There can be THOUSANDS of indicators per database — use ILIKE or regexp filtering
-  on the `description` column to narrow down.
+  Query `database_indicators` filtered by `database_id` from Step 1.
+  Use ILIKE/regexp on `description` to narrow thousands of rows.
   Example: SELECT id, description FROM database_indicators
            WHERE database_id = 2 AND description ~* 'gdp.*per capita';
-  If you get too many results, refine the filter. If zero results, broaden it.
 
-Step 3 — FETCH THE DATA:
-  Query `indicators` joined with `metadata` using the exact `indicator_id` (and
-  optionally `db_id`) found in Step 2. This is the FINAL step — set is_final_step=true.
-  Join with `countries` if the user needs country names instead of ISO codes.
-  Example:
-    SELECT i.economy, c.value AS country_name, i.year, i.value,
-           m.indicator_name, m.units
-    FROM indicators i
-    JOIN metadata m ON i.indicator_id = m.indicator_id AND i.db_id = m.db_id
-    LEFT JOIN countries c ON i.economy = c.id
-    WHERE i.indicator_id = 'NY.GDP.PCAP.CD' AND i.db_id = 2
-    ORDER BY i.year;
+Step 3 — FETCH THE DATA (final, is_final_step=true):
+  SELECT i.economy, c.value AS country_name, i.year, i.value,
+         m.indicator_name, m.units
+  FROM indicators i
+  JOIN metadata m ON i.indicator_id = m.indicator_id AND i.db_id = m.db_id
+  LEFT JOIN countries c ON i.economy = c.id
+  WHERE i.indicator_id = 'NY.GDP.PCAP.CD' AND i.db_id = 2
+  ORDER BY i.year;
 
 Step 4 (optional) — COUNTRY METADATA:
-  Use the `countries` table if the user asks about regions, income levels,
-  lending types, or needs to filter/group by these dimensions.
-  Example: SELECT id, value, "region.value", "incomeLevel.value"
-           FROM countries WHERE aggregate = false;
+  SELECT id, value, "region.value", "incomeLevel.value" FROM countries
+  WHERE aggregate = false;
 
-FOR YAHOO FINANCE DATA:
-  Yahoo Finance tables (yahoo_historical_prices, yahoo_metadata) are simpler —
-  you may query them directly in one step (set is_final_step=true).
-  Always check yahoo_metadata first if unsure about available tickers.
+==================================================================
+PLAN B — YAHOO FINANCE (1–2 steps):
 
-RULES:
-- NEVER invent or guess indicator IDs/names. Always look them up from the tables first.
+Step 1 — RESOLVE THE TICKER (skip if the user already gave one):
+  Query `yahoo_metadata` to find the right ticker by asset_name,
+  short_name, sector, industry, or category ('Indices' / 'Companies').
+  Example:
+    SELECT ticker, asset_name, short_name, sector, industry, currency
+    FROM yahoo_metadata
+    WHERE short_name ILIKE '%apple%' OR asset_name ILIKE '%apple%';
+  If zero rows: tell the router the asset is not tracked. Do NOT invent a
+  ticker. (downloader_agent does NOT support Yahoo Finance.)
+
+Step 2 — FETCH PRICE HISTORY (final, is_final_step=true):
+  SELECT date, open, high, low, close, volume, ticker, category
+  FROM yahoo_historical_prices
+  WHERE ticker = 'AAPL'
+    AND date >= '2020-01-01'
+  ORDER BY date;
+  Join with yahoo_metadata only if the answer needs descriptive fields
+  (sector, currency, exchange).
+
+==================================================================
+RULES (apply to BOTH plans):
 - Only SELECT statements.
-- The 'economy' column in the indicators table contains 3-letter ISO country codes.
-- Use double quotes for identifiers with special characters (e.g. "region.value").
+- NEVER invent or guess World Bank indicator IDs or Yahoo tickers — look
+  them up first.
+- The 'economy' column in `indicators` holds 3-letter ISO country codes.
+- Use double quotes for identifiers with special characters
+  (e.g. "region.value").
 - Limit results to 500 rows unless the task explicitly asks for more.
-- Use proper JOINs, aggregation and filtering.
-- For exploration steps (Steps 1-2), set is_final_step = false.
-- For the final data retrieval (Step 3), set is_final_step = true.
+- For exploration steps (World Bank Step 1–2 / Yahoo Step 1),
+  is_final_step = false. For the final data retrieval, is_final_step = true.
 {history_block}
 
 USER TASK:
@@ -391,7 +554,7 @@ Based on the previous steps (if any), generate the NEXT query in the sequence.""
 
             if final_result is None or not final_result.get("rows"):
                 step_lines = []
-                found_indicator_no_data = False
+                indicator_match_step: dict | None = None
                 for i, s in enumerate(previous_steps):
                     err = s["result"].get("error")
                     info = err if err else f"{s['result'].get('row_count', 0)} rows"
@@ -401,19 +564,48 @@ Based on the previous steps (if any), generate the NEXT query in the sequence.""
                         "database_indicators" in query_lower
                         and s["result"].get("row_count", 0) > 0
                     ):
-                        found_indicator_no_data = True
+                        indicator_match_step = s
                 steps_summary = "\n".join(step_lines)
 
-                if found_indicator_no_data:
+                if indicator_match_step is not None:
+                    candidate_rows = indicator_match_step["result"].get("rows", [])[:5]
+                    db_id_match = re.search(
+                        r"database_id\s*=\s*(\d+)",
+                        indicator_match_step["query"],
+                        re.IGNORECASE,
+                    )
+                    db_id_value = db_id_match.group(1) if db_id_match else "(unknown)"
+                    first_indicator_id = (
+                        candidate_rows[0].get("id") if candidate_rows else "(unknown)"
+                    )
+                    candidate_lines = [
+                        f"    indicator_id={row.get('id', '?')} | "
+                        f"description={(row.get('description') or '')[:140]}"
+                        for row in candidate_rows
+                    ]
+                    candidates_block = (
+                        "\n".join(candidate_lines) or "    (no candidates extracted)"
+                    )
                     return {
                         "worker_results": [
-                            f"SQL_AGENT INDICATOR_NOT_DOWNLOADED: The indicator was "
-                            f"found in database_indicators but returned 0 rows from "
-                            f"the indicators table — it likely has not been downloaded "
-                            f"yet. Use downloader_agent to download it, then retry "
-                            f"sql_agent.\nSteps taken:\n{steps_summary}"
+                            f"SQL_AGENT INDICATOR_NOT_DOWNLOADED: indicator found in "
+                            f"database_indicators (db_id={db_id_value}) but the "
+                            f"`indicators` table has no rows for it yet — it has "
+                            f"not been downloaded.\n"
+                            f"Best match: indicator_id={first_indicator_id}, "
+                            f"db_id={db_id_value}.\n"
+                            f"All candidates from database_indicators:\n"
+                            f"{candidates_block}\n"
+                            f"Route to downloader_agent and pass the EXACT "
+                            f"indicator_id and db_id of the candidate that best "
+                            f"matches the user's request, then retry sql_agent.\n"
+                            f"Steps taken:\n{steps_summary}"
                         ],
-                        "trace": [f"sql_agent: indicator found but not downloaded ({len(previous_steps)} steps)"],
+                        "trace": [
+                            f"sql_agent: indicator found but not downloaded "
+                            f"(candidate={first_indicator_id}, db={db_id_value}, "
+                            f"{len(previous_steps)} steps)"
+                        ],
                     }
 
                 return {
@@ -458,6 +650,48 @@ class PlotlyAgent:
     def __init__(self, llm: ChatOpenAI):
         self.llm = llm
 
+    MAX_FIX_ATTEMPTS = 3
+
+    @staticmethod
+    def _build_plotly_prompt(
+        task: str,
+        columns: list,
+        rows_count: int,
+        sample: list,
+        attempts: list[dict],
+    ) -> str:
+        history_block = ""
+        if attempts:
+            parts: list[str] = []
+            for i, att in enumerate(attempts, 1):
+                parts.append(
+                    f"--- Attempt {i} ({att['mode']}) ---\n"
+                    f"Code:\n{att['code']}\n"
+                    f"Issue:\n{att['issue'][:1500]}"
+                )
+            history_block = (
+                "\n\nPREVIOUS FAILED ATTEMPTS (fix the issues described below):\n"
+                + "\n\n".join(parts)
+            )
+
+        return f"""You are a Plotly visualisation expert.
+
+DATA SCHEMA:
+- Columns: {columns}
+- Total rows: {rows_count}
+- Sample (first 3 rows): {json.dumps(sample, default=str)[:1500]}
+
+RULES:
+- Input data is available as `data` (list of dicts, {rows_count} rows).
+- Create a clear, informative chart. Use appropriate chart type.
+- Assign the final figure to `fig`. Do NOT call fig.show().
+- Import any required plotly modules at the top.
+- Handle possible None/null values gracefully.
+{history_block}
+
+YOUR TASK:
+{task}"""
+
     async def ainvoke(self, state: AgentState) -> dict:
         task = state["isolated_worker_task"]
         artifacts = state.get("artifacts", {})
@@ -475,66 +709,100 @@ class PlotlyAgent:
 
             columns = data.get("columns", list(rows[0].keys()) if rows else [])
             sample = rows[:3]
-
-            system_prompt = f"""You are a Plotly visualisation expert.
-
-DATA SCHEMA:
-- Columns: {columns}
-- Total rows: {len(rows)}
-- Sample (first 3 rows): {json.dumps(sample, default=str)[:1500]}
-
-RULES:
-- Input data is available as `data` (list of dicts, {len(rows)} rows).
-- Create a clear, informative chart. Use appropriate chart type.
-- Assign the final figure to `fig`. Do NOT call fig.show().
-- Import any required plotly modules at the top.
-- Handle possible None/null values gracefully.
-
-YOUR TASK:
-{task}"""
-
-            structured_llm = self.llm.with_structured_output(PlotlyCodeGeneration)
-            gen: PlotlyCodeGeneration = await structured_llm.ainvoke(
-                [SystemMessage(content=system_prompt)]
-            )
-
             data_b64 = encode_data_for_sandbox(rows)
-            sandbox_code = (
-                "import json, base64\n"
-                "import plotly.graph_objects as go\n"
-                "import plotly.express as px\n\n"
-                f'data = json.loads(base64.b64decode("{data_b64}").decode())\n\n'
-                f"{gen.plotly_code}\n\n"
-                "print(fig.to_json())\n"
-            )
+            structured_llm = self.llm.with_structured_output(PlotlyCodeGeneration)
 
-            result = await execute_code_in_sandbox(sandbox_code)
+            attempts: list[dict] = []
+            last_issue = ""
+            last_code = ""
 
-            if not result.get("success"):
+            for attempt_num in range(1, self.MAX_FIX_ATTEMPTS + 1):
+                prompt = self._build_plotly_prompt(
+                    task=task,
+                    columns=columns,
+                    rows_count=len(rows),
+                    sample=sample,
+                    attempts=attempts,
+                )
+                gen: PlotlyCodeGeneration = await structured_llm.ainvoke(
+                    [SystemMessage(content=prompt)]
+                )
+                last_code = gen.plotly_code
+
+                sandbox_code = (
+                    "import json, base64\n"
+                    "import plotly.graph_objects as go\n"
+                    "import plotly.express as px\n\n"
+                    f'data = json.loads(base64.b64decode("{data_b64}").decode())\n\n'
+                    f"{gen.plotly_code}\n\n"
+                    "_figure_json = fig.to_json()\n"
+                    "print(json.dumps({'figure_json': _figure_json}))\n"
+                )
+
+                result = await execute_code_in_sandbox(sandbox_code)
+
+                if not result.get("success"):
+                    last_issue = (result.get("stderr") or "").strip()
+                    attempts.append(
+                        {
+                            "code": gen.plotly_code,
+                            "issue": f"sandbox error: {last_issue}",
+                            "mode": "sandbox-error",
+                        }
+                    )
+                    logger.info(
+                        "plotly_agent: attempt %d sandbox failed — %s",
+                        attempt_num,
+                        last_issue[:120],
+                    )
+                    continue
+
+                try:
+                    sandbox_payload = json.loads(result["stdout"])
+                    figure_json = str(sandbox_payload["figure_json"])
+                except Exception as parse_exc:
+                    last_issue = f"could not parse sandbox output: {parse_exc}"
+                    attempts.append(
+                        {
+                            "code": gen.plotly_code,
+                            "issue": last_issue,
+                            "mode": "sandbox-output",
+                        }
+                    )
+                    continue
+
+                logger.info(
+                    "plotly_agent: chart '%s' generated on attempt %d",
+                    gen.title,
+                    attempt_num,
+                )
                 return {
                     "worker_results": [
-                        f"PLOTLY_AGENT ERROR: execution failed.\n"
-                        f"stderr: {result.get('stderr', '')}\n"
-                        f"Code:\n{gen.plotly_code}"
+                        f"PLOTLY_AGENT SUCCESS: chart '{gen.title}' generated "
+                        f"on attempt {attempt_num}."
                     ],
+                    "artifacts": {
+                        "latest_plotly": {
+                            "figure_json": figure_json,
+                            "title": gen.title,
+                        }
+                    },
                     "trace": [
-                        f"plotly_agent: sandbox error – "
-                        f"{(result.get('stderr') or '')[:120]}"
+                        f"plotly_agent: chart '{gen.title}' generated "
+                        f"(attempt {attempt_num})"
                     ],
                 }
 
-            figure_json = result.get("stdout", "").strip()
             return {
                 "worker_results": [
-                    f"PLOTLY_AGENT SUCCESS: chart '{gen.title}' generated."
+                    f"PLOTLY_AGENT ERROR: all {self.MAX_FIX_ATTEMPTS} sandbox "
+                    f"attempts failed.\nLast issue: "
+                    f"{last_issue[:1500]}\nLast code:\n{last_code}"
                 ],
-                "artifacts": {
-                    "latest_plotly": {
-                        "figure_json": figure_json,
-                        "title": gen.title,
-                    }
-                },
-                "trace": [f"plotly_agent: created chart '{gen.title}'"],
+                "trace": [
+                    f"plotly_agent: failed after {self.MAX_FIX_ATTEMPTS} "
+                    f"attempts – {last_issue[:120]}"
+                ],
             }
         except Exception as exc:
             return {
@@ -544,8 +812,50 @@ YOUR TASK:
 
 
 class TableAgent:
+    MAX_FIX_ATTEMPTS = 3
+
     def __init__(self, llm: ChatOpenAI):
         self.llm = llm
+
+    @staticmethod
+    def _build_polars_prompt(
+        task: str,
+        schema_lines: str,
+        columns: list,
+        rows_count: int,
+        attempts: list[dict],
+    ) -> str:
+        history_block = ""
+        if attempts:
+            parts: list[str] = []
+            for i, att in enumerate(attempts, 1):
+                parts.append(
+                    f"--- Attempt {i} ---\n"
+                    f"Code:\n{att['code']}\n"
+                    f"Sandbox stderr:\n{att['stderr'][:1500]}"
+                )
+            history_block = (
+                "\n\nPREVIOUS FAILED ATTEMPTS (study the tracebacks and fix them):\n"
+                + "\n\n".join(parts)
+            )
+
+        return f"""You are a senior data engineer using the Python `polars` library.
+
+INPUT DATA SCHEMA (variable: `df`):
+{schema_lines}
+
+Columns: {columns}
+Total rows: {rows_count}
+
+RULES:
+- Write clean, idiomatic Polars code (pl.col, select, with_columns, group_by, agg…).
+- `import polars as pl` and the DataFrame `df` already exist – do NOT recreate them.
+- Assign the final transformed DataFrame to `result_df`.
+- Do NOT use pandas.
+{history_block}
+
+YOUR TASK:
+{task}"""
 
     async def ainvoke(self, state: AgentState) -> dict:
         task = state["isolated_worker_task"]
@@ -567,73 +877,83 @@ class TableAgent:
             schema_lines = "\n".join(
                 f"  - {k}: {type(v).__name__}" for k, v in sample_row.items()
             )
-
-            system_prompt = f"""You are a senior data engineer using the Python `polars` library.
-
-INPUT DATA SCHEMA (variable: `df`):
-{schema_lines}
-
-Columns: {columns}
-Total rows: {len(rows)}
-
-RULES:
-- Write clean, idiomatic Polars code (pl.col, select, with_columns, group_by, agg…).
-- `import polars as pl` and the DataFrame `df` already exist – do NOT recreate them.
-- Assign the final transformed DataFrame to `result_df`.
-- Do NOT use pandas.
-
-YOUR TASK:
-{task}"""
-
-            structured_llm = self.llm.with_structured_output(PolarsCodeGeneration)
-            gen: PolarsCodeGeneration = await structured_llm.ainvoke(
-                [SystemMessage(content=system_prompt)]
-            )
-
             data_b64 = encode_data_for_sandbox(rows)
-            sandbox_code = (
-                "import json, base64\n"
-                "import polars as pl\n\n"
-                f'_raw = json.loads(base64.b64decode("{data_b64}").decode())\n'
-                "df = pl.DataFrame(_raw)\n\n"
-                f"{gen.polars_code}\n\n"
-                'print(json.dumps({"columns": result_df.columns, '
-                '"rows": result_df.to_dicts(), '
-                '"row_count": result_df.height}, default=str))\n'
-            )
+            structured_llm = self.llm.with_structured_output(PolarsCodeGeneration)
 
-            result = await execute_code_in_sandbox(sandbox_code)
+            attempts: list[dict] = []
+            last_error = ""
+            last_code = ""
 
-            if not result.get("success"):
-                return {
-                    "worker_results": [
-                        f"TABLE_AGENT ERROR: execution failed.\n"
-                        f"stderr: {result.get('stderr', '')}\n"
-                        f"Code:\n{gen.polars_code}"
-                    ],
-                    "trace": [
-                        f"table_agent: sandbox error – "
-                        f"{(result.get('stderr') or '')[:120]}"
-                    ],
-                }
+            for attempt_num in range(1, self.MAX_FIX_ATTEMPTS + 1):
+                prompt = self._build_polars_prompt(
+                    task=task,
+                    schema_lines=schema_lines,
+                    columns=columns,
+                    rows_count=len(rows),
+                    attempts=attempts,
+                )
+                gen: PolarsCodeGeneration = await structured_llm.ainvoke(
+                    [SystemMessage(content=prompt)]
+                )
+                last_code = gen.polars_code
 
-            parsed = json.loads(result["stdout"])
+                sandbox_code = (
+                    "import json, base64\n"
+                    "import polars as pl\n\n"
+                    f'_raw = json.loads(base64.b64decode("{data_b64}").decode())\n'
+                    "df = pl.DataFrame(_raw)\n\n"
+                    f"{gen.polars_code}\n\n"
+                    'print(json.dumps({"columns": result_df.columns, '
+                    '"rows": result_df.to_dicts(), '
+                    '"row_count": result_df.height}, default=str))\n'
+                )
+
+                result = await execute_code_in_sandbox(sandbox_code)
+
+                if result.get("success"):
+                    parsed = json.loads(result["stdout"])
+                    logger.info(
+                        "table_agent: %d rows on attempt %d",
+                        parsed["row_count"],
+                        attempt_num,
+                    )
+                    return {
+                        "worker_results": [
+                            f"TABLE_AGENT SUCCESS: {parsed['row_count']} rows, "
+                            f"columns={parsed['columns']} (attempt {attempt_num})."
+                        ],
+                        "artifacts": {
+                            "latest_data": {
+                                "rows": parsed["rows"],
+                                "columns": parsed["columns"],
+                                "row_count": parsed["row_count"],
+                                "truncated": False,
+                                "query": f"[polars transformation] {task[:100]}",
+                            }
+                        },
+                        "trace": [
+                            f"table_agent: {parsed['row_count']} rows, "
+                            f"cols={parsed['columns']} (attempt {attempt_num})"
+                        ],
+                    }
+
+                last_error = (result.get("stderr") or "").strip()
+                attempts.append({"code": gen.polars_code, "stderr": last_error})
+                logger.info(
+                    "table_agent: attempt %d failed — %s",
+                    attempt_num,
+                    last_error[:120],
+                )
+
             return {
                 "worker_results": [
-                    f"TABLE_AGENT SUCCESS: {parsed['row_count']} rows, "
-                    f"columns={parsed['columns']}."
+                    f"TABLE_AGENT ERROR: all {self.MAX_FIX_ATTEMPTS} sandbox "
+                    f"attempts failed.\nLast stderr: {last_error[:1500]}\n"
+                    f"Last code:\n{last_code}"
                 ],
-                "artifacts": {
-                    "latest_data": {
-                        "rows": parsed["rows"],
-                        "columns": parsed["columns"],
-                        "row_count": parsed["row_count"],
-                        "truncated": False,
-                        "query": f"[polars transformation] {task[:100]}",
-                    }
-                },
                 "trace": [
-                    f"table_agent: {parsed['row_count']} rows, cols={parsed['columns']}"
+                    f"table_agent: failed after {self.MAX_FIX_ATTEMPTS} "
+                    f"attempts – {last_error[:120]}"
                 ],
             }
         except Exception as exc:
@@ -768,37 +1088,48 @@ YOUR TASK:
 
 
 class DownloaderAgent:
+    """Downloads a World Bank indicator's full table via the downloader_extra service.
+
+    The supervisor is expected to have already used sql_agent to discover
+    the exact `indicator_id` and `db_id` (via the `databases` →
+    `database_indicators` exploration) and to have included those values
+    verbatim in the worker task. This agent extracts them and calls
+    `/ingest`, which fetches every (economy, year) row for that indicator
+    from the World Bank API and persists them to the `indicators` table.
+    """
+
+    EXTRACT_SYSTEM_PROMPT = (
+        "You extract the exact World Bank `indicator_id` (string, e.g. "
+        "'NY.GDP.MKTP.CD') and `db_id` (integer database id, e.g. 2) from "
+        "the supervisor's task description. The supervisor has ALREADY "
+        "discovered these values via sql_agent's exploration of the "
+        "`database_indicators` table — your job is purely to read them out "
+        "of the task text. NEVER invent or guess values. If the task does "
+        "not contain a clear indicator_id and db_id, return the closest "
+        "literal values you can find."
+    )
+
     def __init__(self, llm: ChatOpenAI):
         self.llm = llm
 
     async def ainvoke(self, state: AgentState) -> dict:
         task = state["isolated_worker_task"]
-        logger.info("downloader_agent: starting indicator download")
+        logger.info("downloader_agent: extracting indicator id from task")
         try:
-            catalog_text = get_world_bank_catalog_text()
-            system_prompt = f"""You are a World Bank data specialist.
-Determine which indicator to download based on the task.
-
-ALREADY DOWNLOADED INDICATORS:
-{catalog_text}
-
-Only download indicators NOT already in the list above.
-Use valid World Bank indicator IDs (e.g. NY.GDP.MKTP.CD) and database IDs.
-
-YOUR TASK:
-{task}"""
-
             structured_llm = self.llm.with_structured_output(DownloadIndicatorPlan)
             plan: DownloadIndicatorPlan = await structured_llm.ainvoke(
-                [SystemMessage(content=system_prompt)]
+                [
+                    SystemMessage(content=self.EXTRACT_SYSTEM_PROMPT),
+                    HumanMessage(content=f"SUPERVISOR TASK:\n{task}"),
+                ]
             )
 
-            result = await download_indicator(plan.indicator_id, plan.db_id)
             logger.info(
-                "downloader_agent: downloading indicator=%s db=%d",
+                "downloader_agent: calling /ingest indicator=%s db=%s",
                 plan.indicator_id,
                 plan.db_id,
             )
+            result = await download_indicator(plan.indicator_id, plan.db_id)
 
             if not result.get("success", False):
                 error = result.get("error") or result.get("detail", "Unknown error")
@@ -807,7 +1138,10 @@ YOUR TASK:
                         f"DOWNLOADER_AGENT ERROR: {error} "
                         f"(indicator={plan.indicator_id}, db={plan.db_id})"
                     ],
-                    "trace": [f"downloader_agent: failed – {error}"],
+                    "trace": [
+                        f"downloader_agent: failed – {plan.indicator_id}/"
+                        f"{plan.db_id} – {error}"
+                    ],
                 }
 
             status = result.get("status", "success")
@@ -815,10 +1149,13 @@ YOUR TASK:
             return {
                 "worker_results": [
                     f"DOWNLOADER_AGENT SUCCESS: indicator={plan.indicator_id}, "
-                    f"db={plan.db_id}, rows_inserted={rows_inserted}, status={status}."
+                    f"db={plan.db_id}, rows_inserted={rows_inserted}, "
+                    f"status={status}. The full (economy, year, value) table for "
+                    f"this indicator is now stored in the `indicators` table — "
+                    f"route back to sql_agent to fetch it."
                 ],
                 "trace": [
-                    f"downloader_agent: {plan.indicator_id} – "
+                    f"downloader_agent: {plan.indicator_id}/{plan.db_id} – "
                     f"{rows_inserted} rows, status={status}"
                 ],
             }
@@ -841,7 +1178,11 @@ class ChatAgent:
                 "You are a helpful macroeconomic analyst assistant. "
                 "Synthesise information, explain economic concepts, or provide "
                 "conversational responses. Use markdown formatting. "
-                "Be concise but thorough."
+                "Be concise but thorough. "
+                "For mathematical expressions, use Streamlit-compatible "
+                "markdown math syntax: inline as `$expr$` and block as "
+                "`$$expr$$`. Never use `\\(...\\)` or `\\[...\\]` delimiters — "
+                "they will not render in the chat UI."
             )
 
             structured_llm = self.llm.with_structured_output(ChatSynthesis)
@@ -886,6 +1227,7 @@ class MacroAgentGraph:
         self.max_retries = max_retries
         self.recursion_limit = recursion_limit
 
+        self.guardrail = GuardrailAgent(llm=self.llm)
         self.supervisor = MacroSupervisorAgent(llm=self.llm, max_retries=max_retries)
         self.sql_agent = SQLAgent(llm=self.llm)
         self.plotly_agent = PlotlyAgent(llm=self.llm)
@@ -900,6 +1242,7 @@ class MacroAgentGraph:
     def _build_graph(self):
         builder = StateGraph(AgentState)
 
+        builder.add_node("guardrail", self.guardrail.ainvoke)
         builder.add_node("supervisor", self.supervisor.ainvoke)
         builder.add_node("sql_agent", self.sql_agent.ainvoke)
         builder.add_node("plotly_agent", self.plotly_agent.ainvoke)
@@ -909,7 +1252,13 @@ class MacroAgentGraph:
         builder.add_node("downloader_agent", self.downloader_agent.ainvoke)
         builder.add_node("chat_agent", self.chat_agent.ainvoke)
 
-        builder.set_entry_point("supervisor")
+        builder.set_entry_point("guardrail")
+
+        builder.add_conditional_edges(
+            "guardrail",
+            lambda state: "blocked" if state.get("guardrail_blocked") else "ok",
+            {"blocked": END, "ok": "supervisor"},
+        )
 
         builder.add_conditional_edges(
             "supervisor",
@@ -947,82 +1296,126 @@ class MacroAgentGraph:
             "last_worker": "",
             "retry_count": 0,
             "trace": [],
+            "guardrail_blocked": False,
+            "guardrail_message": "",
         }
 
-    @staticmethod
-    def _build_progress_updates(trace: list[str]) -> list[str]:
-        updates: list[str] = []
-        for entry in trace:
-            if entry.startswith("Router:"):
-                updates.append(entry)
-            elif ":" in entry:
-                worker = entry.split(":", 1)[0].strip()
-                detail = entry.split(":", 1)[-1].strip()
-                if "exception" in detail or "error" in detail.lower():
-                    updates.append(f"{worker}: error — {detail}")
-                else:
-                    updates.append(f"{worker}: {detail}")
-            else:
-                updates.append(entry)
-        return updates
+    FINAL_SYNTHESIS_SYSTEM_PROMPT = (
+        "You are the streaming output channel of the macroeconomic dashboard's "
+        "router agent. The router has already composed the final answer in the "
+        "SUPERVISOR DRAFT. Your job is to deliver that draft to the user, "
+        "preserving its content as faithfully as possible.\n\n"
+        "STRICT RULES:\n"
+        "- Output the supervisor draft verbatim whenever it is well-formed. "
+        "  Only adjust if the draft has obvious markdown/formatting glitches "
+        "  or accidentally exposes implementation details (worker names, "
+        "  retries, SQL, sandbox, tracebacks). In that case, fix the leak in "
+        "  place but keep every fact, number, citation and URL intact.\n"
+        "- Never invent new facts, numbers or sources that are not in the "
+        "  draft or worker results.\n"
+        "- Do NOT embed the full data table in your reply. The dashboard "
+        "  renders it separately in an expander. A short markdown table of "
+        "  2–4 hand-picked headline figures is acceptable.\n"
+        "- When a chart artifact exists, the dashboard ALREADY renders the "
+        "  rendered Plotly chart in the chat above your answer. Refer to it "
+        "  as 'the chart above' and only describe what the user can see. "
+        "  NEVER include Plotly code, JSON figure specs, fenced ```python``` "
+        "  code blocks, axis-by-axis listings, or any technical chart "
+        "  implementation details in your reply.\n"
+        "- For mathematical expressions, use Streamlit-compatible markdown "
+        "  math: inline as `$expr$` and block as `$$expr$$`. Never use "
+        "  `\\(...\\)` or `\\[...\\]` — they will not render in the chat UI.\n"
+        "- When citing news articles, keep their source URLs as markdown links.\n"
+        "- Never apologise for technical issues. If the data was unavailable, "
+        "  state it politely without revealing the internal failure mode."
+    )
 
     @staticmethod
-    def _extract_response(final_state: dict) -> dict:
-        response = final_state.get("isolated_worker_task", "")
-        if not response:
-            results = list(final_state.get("worker_results", []))
-            response = results[-1] if results else "I could not process your request."
-        trace = list(final_state.get("trace", []))
-        return {
-            "response": response,
-            "route": "orchestrated",
-            "trace": trace,
-            "progress_updates": MacroAgentGraph._build_progress_updates(trace),
-            "artifacts": dict(final_state.get("artifacts", {})),
-        }
+    def _format_worker_results(state: dict) -> str:
+        results = state.get("worker_results") or []
+        if not results:
+            return "(no worker results)"
+        return "\n---\n".join(str(r) for r in results)
 
-    def invoke(self, message: str, chat_history: list[dict] | None = None) -> dict:
-        state = self._build_initial_state(message, chat_history or [])
-        try:
-            final = self.graph.invoke(
-                state, config={"recursion_limit": self.recursion_limit}
-            )
-        except Exception as exc:
-            logger.exception("Graph invoke failed")
-            return {
-                "response": f"An error occurred: {exc}",
-                "route": "error",
-                "trace": [f"graph error: {exc}"],
-                "artifacts": {},
-            }
-        return self._extract_response(final)
+    @staticmethod
+    def _last_user_message(state: dict) -> str:
+        for msg in reversed(state.get("messages", [])):
+            if isinstance(msg, HumanMessage):
+                return str(msg.content)
+        return ""
 
-    async def ainvoke(
-        self, message: str, chat_history: list[dict] | None = None
-    ) -> dict:
-        state = self._build_initial_state(message, chat_history or [])
-        try:
-            final = await self.graph.ainvoke(
-                state, config={"recursion_limit": self.recursion_limit}
+    async def _stream_final_synthesis(
+        self,
+        state: dict,
+        supervisor_draft: str,
+    ):
+        """Re-emit the final answer as a token stream.
+
+        Uses a separate, non-structured streaming call seeded with the
+        supervisor's drafted answer plus the worker context, so the user
+        sees tokens incrementally instead of one atomic blob.
+        """
+        artifacts = state.get("artifacts", {}) or {}
+        has_plot = isinstance(artifacts.get("latest_plotly"), dict) and bool(
+            artifacts["latest_plotly"].get("figure_json")
+        )
+        latest_data = artifacts.get("latest_data") or artifacts.get("latest_table")
+        has_data = (
+            isinstance(latest_data, dict)
+            and bool(latest_data.get("rows") or latest_data.get("records"))
+        )
+
+        artifact_hints: list[str] = []
+        if has_plot:
+            artifact_hints.append("A plot has been rendered above your answer.")
+        if has_data:
+            artifact_hints.append(
+                "A data table is shown below your answer in an expander."
             )
-        except Exception as exc:
-            logger.exception("Graph ainvoke failed")
-            return {
-                "response": f"An error occurred: {exc}",
-                "route": "error",
-                "trace": [f"graph error: {exc}"],
-                "artifacts": {},
-            }
-        return self._extract_response(final)
+        artifact_block = (
+            "\n".join(f"- {h}" for h in artifact_hints) or "- No artifacts."
+        )
+
+        user_question = self._last_user_message(state)
+        worker_block = self._format_worker_results(state)
+        draft_block = supervisor_draft.strip() or "(no draft)"
+
+        user_prompt = (
+            f"USER QUESTION:\n{user_question}\n\n"
+            f"WORKER RESULTS (internal — do NOT quote verbatim):\n{worker_block}\n\n"
+            f"ARTIFACTS AVAILABLE TO THE UI:\n{artifact_block}\n\n"
+            f"SUPERVISOR DRAFT (deliver this to the user; preserve verbatim "
+            f"unless it leaks internals or is malformed):\n{draft_block}\n\n"
+            "Stream the final answer for the user now."
+        )
+
+        async for chunk in self.llm.astream(
+            [
+                SystemMessage(content=self.FINAL_SYNTHESIS_SYSTEM_PROMPT),
+                HumanMessage(content=user_prompt),
+            ]
+        ):
+            delta = getattr(chunk, "content", "") or ""
+            if delta:
+                yield delta
 
     async def astream_events(
         self, message: str, chat_history: list[dict] | None = None
     ):
-        """Yield progress dicts as each graph node completes, then a final result."""
+        """Yield events the API layer relays to the chat UI.
+
+        Event types:
+          - {"type": "step", "node": <node_name>}
+          - {"type": "token", "delta": <str>}
+          - {"type": "final", "response": <str>, "artifacts": {...}}
+          - {"type": "error", "response": <str>}
+
+        Intermediate text from sub-agents is intentionally never emitted.
+        """
         state = self._build_initial_state(message, chat_history or [])
-        accumulated_trace: list[str] = []
         accumulated_artifacts: dict[str, Any] = {}
         last_isolated_task = ""
+        final_state: dict[str, Any] = {}
 
         try:
             async for chunk in self.graph.astream(
@@ -1031,8 +1424,8 @@ class MacroAgentGraph:
                 for node_name, output in chunk.items():
                     if not isinstance(output, dict):
                         continue
-                    trace_entries = output.get("trace", [])
-                    accumulated_trace.extend(trace_entries)
+
+                    yield {"type": "step", "node": node_name}
 
                     if output.get("artifacts"):
                         accumulated_artifacts.update(output["artifacts"])
@@ -1040,20 +1433,70 @@ class MacroAgentGraph:
                     if output.get("isolated_worker_task"):
                         last_isolated_task = output["isolated_worker_task"]
 
-                    progress = self._build_progress_updates(trace_entries)
-                    yield {
-                        "type": "progress",
-                        "node": node_name,
-                        "updates": progress,
-                    }
+                    if output.get("guardrail_blocked"):
+                        final_state = {
+                            "guardrail_blocked": True,
+                            "guardrail_message": output.get("guardrail_message", ""),
+                        }
+                    elif output.get("guardrail_message"):
+                        final_state["guardrail_message"] = output["guardrail_message"]
 
-            all_progress = self._build_progress_updates(accumulated_trace)
+                    for key in ("worker_results",):
+                        if output.get(key):
+                            final_state.setdefault(key, [])
+                            final_state[key].extend(output[key])
+
+                    if output.get("messages"):
+                        final_state.setdefault("messages", [])
+                        final_state["messages"].extend(output["messages"])
+
+            yield {"type": "step", "node": "FINISH"}
+
+            if final_state.get("guardrail_blocked"):
+                refusal = (
+                    final_state.get("guardrail_message")
+                    or "I can only help with macroeconomics, politics, "
+                    "sociology, data science and related dashboard topics."
+                )
+                for ch in refusal:
+                    yield {"type": "token", "delta": ch}
+                yield {
+                    "type": "final",
+                    "response": refusal,
+                    "artifacts": {},
+                }
+                return
+
+            stream_state = {
+                "messages": state["messages"],
+                "worker_results": final_state.get("worker_results", []),
+                "artifacts": accumulated_artifacts,
+            }
+
+            collected: list[str] = []
+            try:
+                async for delta in self._stream_final_synthesis(
+                    stream_state, last_isolated_task
+                ):
+                    collected.append(delta)
+                    yield {"type": "token", "delta": delta}
+            except Exception as exc:
+                logger.exception("Final synthesis streaming failed")
+                fallback = last_isolated_task or "I could not produce a response."
+                if not collected:
+                    for ch in fallback:
+                        yield {"type": "token", "delta": ch}
+                yield {
+                    "type": "final",
+                    "response": "".join(collected) or fallback,
+                    "artifacts": accumulated_artifacts,
+                }
+                return
+
+            full_answer = "".join(collected) or last_isolated_task
             yield {
                 "type": "final",
-                "response": last_isolated_task or "No answer returned.",
-                "route": "orchestrated",
-                "trace": accumulated_trace,
-                "progress_updates": all_progress,
+                "response": full_answer,
                 "artifacts": accumulated_artifacts,
             }
         except Exception as exc:
@@ -1061,8 +1504,4 @@ class MacroAgentGraph:
             yield {
                 "type": "error",
                 "response": f"An error occurred: {exc}",
-                "route": "error",
-                "trace": accumulated_trace,
-                "progress_updates": self._build_progress_updates(accumulated_trace),
-                "artifacts": accumulated_artifacts,
             }

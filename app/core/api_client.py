@@ -75,45 +75,6 @@ def forecast_timeseries(
         ) from exc
 
 
-def agent_chat(
-    user_message: str,
-    chat_history: list[dict[str, str]] | None = None,
-    base_url: str | None = None,
-) -> dict[str, Any]:
-    resolved_base_url = resolve_agent_base_url(base_url)
-    payload = {
-        "message": user_message,
-        "user_message": user_message,
-        "chat_history": chat_history or [],
-    }
-    try:
-        log_http_request(
-            resolved_base_url,
-            "/chat",
-            "POST",
-            summary=(
-                f"message_length={len(user_message)} "
-                f"history_items={len(chat_history or [])}"
-            ),
-        )
-        response = requests.post(f"{resolved_base_url}/chat", json=payload, timeout=300)
-        response.raise_for_status()
-        response_payload = response.json()
-
-        if isinstance(response_payload, dict):
-            if "answer" not in response_payload and "response" in response_payload:
-                response_payload["answer"] = str(response_payload.get("response", ""))
-            if "mode" not in response_payload and "route_taken" in response_payload:
-                response_payload["mode"] = str(
-                    response_payload.get("route_taken", "unknown")
-                )
-            return response_payload
-
-        return {"answer": str(response_payload), "mode": "unknown"}
-    except requests.HTTPError as exc:
-        raise RuntimeError("No available agent base URL candidates for /chat") from exc
-
-
 def agent_chat_stream(
     user_message: str,
     chat_history: list[dict[str, str]] | None = None,
@@ -121,7 +82,6 @@ def agent_chat_stream(
 ):
     resolved_base_url = resolve_agent_base_url(base_url)
     payload = {
-        "message": user_message,
         "user_message": user_message,
         "chat_history": chat_history or [],
     }
@@ -141,10 +101,7 @@ def agent_chat_stream(
             timeout=(10, 300),
             stream=True,
         ) as response:
-            if response.status_code == 404:
-                return
             response.raise_for_status()
-            saw_event = False
             for raw_line in response.iter_lines(decode_unicode=False):
                 if isinstance(raw_line, bytes):
                     line = raw_line.decode("utf-8", errors="replace").strip()
@@ -156,22 +113,16 @@ def agent_chat_stream(
                     line = line.removeprefix("data:").strip()
                 if not line or line.startswith(":"):
                     continue
-                saw_event = True
                 try:
                     yield json.loads(line)
                 except json.JSONDecodeError as exc:
                     raise RuntimeError(
                         f"Invalid streaming payload from agent service: {exc}"
                     ) from exc
-
-            if not saw_event:
-                raise RuntimeError("Agent streaming endpoint returned no events.")
-            return
     except requests.HTTPError as exc:
         raise RuntimeError(
             "No available agent base URL candidates for /chat/stream"
         ) from exc
-    yield {"type": "final", **agent_chat(user_message, chat_history, resolved_base_url)}
 
 
 def interpret_plot_image(

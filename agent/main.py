@@ -11,7 +11,6 @@ import yaml
 from agent.graph import MacroAgentGraph
 from agent.schemas import (
     ChatRequest,
-    ChatResponse,
     PlotInterpretationRequest,
     PlotInterpretationResponse,
 )
@@ -21,7 +20,6 @@ from agent.tools import configure_runtime
 CONFIG_PATH = "config.yaml"
 ENV_FILE_PATH = ".env"
 DATABASE_SCHEMA_PATH = "database_schema.yaml"
-WORLD_BANK_CATALOG_PATH = "_configs/world_bank_download_config.json"
 NEWS_TOPICS_PATH = "_configs/news_download_config.json"
 
 CONFIG = yaml.safe_load(open(CONFIG_PATH))
@@ -56,7 +54,6 @@ OPENAI_EMBEDDING_MODEL = SHARED_CFG.get(
 
 configure_runtime(
     database_schema_path=DATABASE_SCHEMA_PATH,
-    world_bank_catalog_path=WORLD_BANK_CATALOG_PATH,
     news_topics_path=NEWS_TOPICS_PATH,
     qdrant_url=QDRANT_URL,
     qdrant_api_key=QDRANT_API_KEY,
@@ -121,25 +118,6 @@ def list_models() -> dict[str, list[str]]:
         return {"models": [AGENT_MODEL or ""]}
 
 
-@app.post("/chat", response_model=ChatResponse)
-async def process_chat(request: ChatRequest):
-    try:
-        result = await _get_macro_agent().ainvoke(
-            message=request.user_message,
-            chat_history=[m.model_dump() for m in request.chat_history],
-        )
-        return ChatResponse(
-            answer=str(result.get("response", "")),
-            mode=str(result.get("route", "orchestrated")),
-            model=AGENT_MODEL or "",
-            trace=result.get("trace", []),
-            progress_updates=result.get("progress_updates", []),
-            artifacts=result.get("artifacts", {}),
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
 @app.post("/chat/stream")
 async def process_chat_stream(request: ChatRequest):
     agent = _get_macro_agent()
@@ -150,31 +128,25 @@ async def process_chat_stream(request: ChatRequest):
             message=request.user_message,
             chat_history=chat_history,
         ):
-            event_type = event.get("type", "progress")
-            if event_type == "final":
+            event_type = event.get("type", "step")
+            if event_type == "step":
+                payload = {"type": "step", "node": event.get("node", "")}
+            elif event_type == "token":
+                payload = {"type": "token", "delta": event.get("delta", "")}
+            elif event_type == "final":
                 payload = {
                     "type": "final",
                     "answer": str(event.get("response", "")),
-                    "mode": str(event.get("route", "orchestrated")),
                     "model": AGENT_MODEL or "",
-                    "trace": event.get("trace", []),
-                    "progress_updates": event.get("progress_updates", []),
                     "artifacts": event.get("artifacts", {}),
                 }
             elif event_type == "error":
                 payload = {
                     "type": "error",
                     "answer": str(event.get("response", "")),
-                    "trace": event.get("trace", []),
-                    "progress_updates": event.get("progress_updates", []),
-                    "artifacts": event.get("artifacts", {}),
                 }
             else:
-                payload = {
-                    "type": "progress",
-                    "node": event.get("node", ""),
-                    "updates": event.get("updates", []),
-                }
+                continue
             yield f"data: {json.dumps(payload, default=str)}\n\n"
 
     return StreamingResponse(

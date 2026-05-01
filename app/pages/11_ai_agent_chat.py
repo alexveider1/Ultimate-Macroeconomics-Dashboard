@@ -1,16 +1,44 @@
 import hashlib
+import re
 
 import polars as pl
 import plotly.io as pio
 import streamlit as st
 
 from core.app_logging import log_page_render
-from core.api_client import agent_chat, agent_chat_stream
+from core.api_client import agent_chat_stream
 from core.plotting import apply_plotly_theme
 
 
 CHAT_STATE_KEY = "agent_chat_messages"
 TABLE_PREVIEW_LIMIT = 100
+
+STEP_DISPLAY_NAMES = {
+    "guardrail": "guardrail",
+    "supervisor": "router",
+    "sql_agent": "sql_agent",
+    "plotly_agent": "plotly_agent",
+    "table_agent": "table_agent",
+    "rag_agent": "rag_agent",
+    "web_search": "web_search",
+    "downloader_agent": "downloader_agent",
+    "chat_agent": "chat_agent",
+    "FINISH": "FINISH",
+}
+
+
+_LATEX_BLOCK_RE = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)
+_LATEX_INLINE_RE = re.compile(r"\\\((.+?)\\\)", re.DOTALL)
+
+
+def _normalize_math_delimiters(text: str) -> str:
+    """Convert LaTeX-style `\\(...\\)` and `\\[...\\]` into Streamlit-friendly
+    `$...$` / `$$...$$` so math renders in `st.markdown`."""
+    if not text or "\\" not in text:
+        return text
+    text = _LATEX_BLOCK_RE.sub(lambda m: f"$$\n{m.group(1).strip()}\n$$", text)
+    text = _LATEX_INLINE_RE.sub(lambda m: f"${m.group(1).strip()}$", text)
+    return text
 
 
 def _ensure_chat_state() -> None:
@@ -22,111 +50,81 @@ def _as_artifacts(value: object) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _coerce_latest_data_to_table_artifact(data_artifact: object) -> dict | None:
-    if not isinstance(data_artifact, dict):
+def _build_data_table_view(artifacts: dict) -> dict | None:
+    """Materialise the data table that should appear under the answer."""
+    data = artifacts.get("latest_table") or artifacts.get("latest_data")
+    if not isinstance(data, dict):
         return None
 
-    rows = data_artifact.get("rows", [])
-    columns = [str(column) for column in data_artifact.get("columns", []) or []]
-    if not isinstance(rows, list) or not rows:
+    rows = data.get("rows") or data.get("records") or []
+    rows = [r for r in rows if isinstance(r, dict)]
+    if not rows:
         return None
 
-    full_records = [row for row in rows if isinstance(row, dict)]
-    if not full_records:
-        return None
+    full_df = pl.DataFrame(rows)
+    columns = [str(c) for c in (data.get("columns") or full_df.columns)]
+    for column in columns:
+        if column not in full_df.columns:
+            full_df = full_df.with_columns(pl.lit(None).alias(column))
+    full_df = full_df.select(columns)
 
-    full_df = pl.DataFrame(full_records)
     preview_df = full_df.head(TABLE_PREVIEW_LIMIT)
-    if columns:
-        for column in columns:
-            if column not in full_df.columns:
-                full_df = full_df.with_columns(pl.lit(None).alias(column))
-            if column not in preview_df.columns:
-                preview_df = preview_df.with_columns(pl.lit(None).alias(column))
-        full_df = full_df.select(columns)
-        preview_df = preview_df.select(columns)
 
     file_name = "agent_query_result.csv"
-    query_text = str(data_artifact.get("query", "") or "").strip().lower()
+    query_text = str(data.get("query", "") or "").strip().lower()
     if " from " in query_text:
         relation_name = query_text.split(" from ", 1)[1].split()[0].strip('"')
         if relation_name:
             safe_name = "".join(
-                character if character.isalnum() or character in {"_", "-"} else "_"
-                for character in relation_name
+                ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in relation_name
             ).strip("_")
             if safe_name:
                 file_name = f"{safe_name}.csv"
 
     return {
-        "row_count": int(data_artifact.get("row_count") or full_df.height),
-        "preview_row_count": int(preview_df.height),
-        "columns": columns or [str(column) for column in full_df.columns],
-        "records": preview_df.to_dicts(),
-        "table_text": preview_df.to_pandas().to_string(index=False),
+        "preview_df": preview_df,
+        "row_count": int(data.get("row_count") or full_df.height),
+        "preview_row_count": preview_df.height,
         "csv_text": full_df.write_csv(),
         "file_name": file_name,
-        "truncated": bool(data_artifact.get("truncated", False)),
-        "source": "latest_data",
+        "truncated": bool(data.get("truncated", False)),
     }
 
 
-def _render_table_artifact(table_artifact: object, message_key: str) -> None:
-    if not isinstance(table_artifact, dict):
+def _render_data_expander(artifacts: dict, message_key: str) -> None:
+    view = _build_data_table_view(artifacts)
+    if view is None:
         return
 
-    preview_records = table_artifact.get("records", [])
-    columns = [str(column) for column in table_artifact.get("columns", []) or []]
-    row_count = int(table_artifact.get("row_count") or 0)
-    preview_row_count = int(table_artifact.get("preview_row_count") or 0)
-    truncated = bool(table_artifact.get("truncated", False))
-    csv_text = str(table_artifact.get("csv_text", "") or "")
-    file_name = str(
-        table_artifact.get("file_name", "agent_table_result.csv")
-        or "agent_table_result.csv"
-    )
-
-    if preview_records:
-        preview_df = pl.DataFrame(preview_records)
-        if columns:
-            for column in columns:
-                if column not in preview_df.columns:
-                    preview_df = preview_df.with_columns(pl.lit(None).alias(column))
-            preview_df = preview_df.select(columns)
-
-        dataframe_height = max(
-            180,
-            min(640, 35 * (min(preview_df.height, TABLE_PREVIEW_LIMIT) + 1)),
-        )
+    with st.expander("Show data table", expanded=False):
+        preview_df = view["preview_df"]
+        dataframe_height = max(180, min(640, 35 * (preview_df.height + 1)))
         st.dataframe(
             preview_df,
             use_container_width=True,
             hide_index=True,
             height=dataframe_height,
         )
-    elif row_count > 0:
-        st.info(
-            f"Table generated with {row_count} row(s), but no preview rows were returned."
-        )
-    else:
-        return
 
-    if row_count > preview_row_count > 0:
-        st.caption(
-            f"Showing the first {preview_row_count} row(s) of {row_count}. Download includes the full table."
-        )
-    elif truncated and row_count > 0:
-        st.caption(
-            f"The SQL result was truncated to {row_count} row(s) before rendering. The download contains the same returned rows."
-        )
-    elif row_count > 0:
-        st.caption(f"Table contains {row_count} row(s).")
+        row_count = view["row_count"]
+        preview_row_count = view["preview_row_count"]
+        if row_count > preview_row_count > 0:
+            st.caption(
+                f"Showing the first {preview_row_count} of {row_count} row(s). "
+                "Download includes the full table."
+            )
+        elif view["truncated"] and row_count > 0:
+            st.caption(
+                f"The result was truncated to {row_count} row(s). "
+                "The download contains the same returned rows."
+            )
+        elif row_count > 0:
+            st.caption(f"Table contains {row_count} row(s).")
 
-    if csv_text:
         st.download_button(
             "Download full table as CSV",
-            data=csv_text.encode("utf-8"),
-            file_name=file_name,
+            data=view["csv_text"].encode("utf-8"),
+            file_name=view["file_name"],
             mime="text/csv",
             key=f"{message_key}_table_download",
             use_container_width=False,
@@ -155,33 +153,18 @@ def _render_plot_artifact(plot_artifact: object, message_key: str) -> None:
     st.plotly_chart(figure, use_container_width=True, key=f"{message_key}_plot")
 
 
-def _render_progress_updates(progress_updates: object) -> None:
-    if not isinstance(progress_updates, list) or not progress_updates:
+def _render_execution_log(steps: list[str], placeholder, finished: bool) -> None:
+    if not steps:
+        placeholder.empty()
         return
-
-    with st.expander("Execution updates", expanded=False):
-        st.markdown(
-            "\n".join(
-                f"- {str(item)}" for item in progress_updates if str(item).strip()
-            )
-        )
+    arrow_chain = " → ".join(STEP_DISPLAY_NAMES.get(s, s) for s in steps)
+    suffix = "" if finished else " …"
+    placeholder.markdown(f"`{arrow_chain}{suffix}`")
 
 
 def _render_assistant_artifacts(artifacts: dict, message_key: str) -> None:
-    _render_progress_updates(artifacts.get("progress_updates"))
     _render_plot_artifact(artifacts.get("latest_plotly"), message_key=message_key)
-    display_preferences = artifacts.get("display_preferences")
-    if (
-        isinstance(display_preferences, dict)
-        and display_preferences.get("show_table") is False
-    ):
-        return
-    table_artifact = artifacts.get("latest_table")
-    if not isinstance(table_artifact, dict):
-        table_artifact = _coerce_latest_data_to_table_artifact(
-            artifacts.get("latest_data")
-        )
-    _render_table_artifact(table_artifact, message_key=message_key)
+    _render_data_expander(artifacts, message_key=message_key)
 
 
 def _render_messages() -> None:
@@ -189,7 +172,16 @@ def _render_messages() -> None:
         role = message.get("role", "assistant")
         content = str(message.get("content", ""))
         with st.chat_message(role):
-            st.markdown(content)
+            steps = message.get("steps") if role == "assistant" else None
+            if steps:
+                arrow_chain = " → ".join(
+                    STEP_DISPLAY_NAMES.get(s, s) for s in steps
+                )
+                st.markdown(f"`{arrow_chain}`")
+            if role == "assistant":
+                st.markdown(_normalize_math_delimiters(content))
+            else:
+                st.markdown(content)
             artifacts = _as_artifacts(message.get("artifacts"))
             if role == "assistant":
                 _render_assistant_artifacts(
@@ -209,6 +201,15 @@ def _trim_history_for_api() -> list[dict[str, str]]:
     return history
 
 
+def _dedupe_step(steps: list[str], node: str) -> None:
+    """Append node unless it is identical to the last step."""
+    if not node:
+        return
+    if steps and steps[-1] == node:
+        return
+    steps.append(node)
+
+
 def _handle_chat() -> None:
     prompt = st.chat_input("Ask the AI analyst...")
     if not prompt:
@@ -219,69 +220,74 @@ def _handle_chat() -> None:
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        pending_key = (
+        message_key = (
             f"pending_{len(st.session_state[CHAT_STATE_KEY])}_"
             f"{hashlib.sha256(prompt.encode('utf-8')).hexdigest()[:12]}"
         )
 
-        progress_container = st.empty()
-        progress_items: list[str] = []
-        result = None
+        log_placeholder = st.empty()
+        answer_placeholder = st.empty()
+
+        steps: list[str] = []
+        answer_buffer: list[str] = []
+        artifacts: dict = {}
+        final_answer = ""
+        error_text = ""
 
         try:
             for event in agent_chat_stream(
                 user_message=prompt,
                 chat_history=_trim_history_for_api(),
             ):
-                event_type = event.get("type", "progress")
-                if event_type == "progress":
-                    updates = event.get("updates", [])
-                    progress_items.extend(updates)
-                    if progress_items:
-                        progress_container.markdown(
-                            "**Agent is working...**\n"
-                            + "\n".join(f"- {u}" for u in progress_items)
+                event_type = event.get("type", "")
+                if event_type == "step":
+                    _dedupe_step(steps, str(event.get("node", "")))
+                    _render_execution_log(steps, log_placeholder, finished=False)
+                elif event_type == "token":
+                    delta = str(event.get("delta", ""))
+                    if delta:
+                        answer_buffer.append(delta)
+                        answer_placeholder.markdown(
+                            _normalize_math_delimiters("".join(answer_buffer))
                         )
-                elif event_type in ("final", "error"):
-                    result = event
+                elif event_type == "final":
+                    final_answer = str(event.get("answer", "")) or "".join(
+                        answer_buffer
+                    )
+                    artifacts = _as_artifacts(event.get("artifacts"))
                     break
-        except Exception:
-            result = None
+                elif event_type == "error":
+                    error_text = str(event.get("answer", "Agent error."))
+                    break
+        except Exception as exc:
+            error_text = f"Agent request failed: {exc}"
 
-        if result is None:
-            progress_container.empty()
-            with st.spinner("Agent is working..."):
-                try:
-                    result = agent_chat(
-                        user_message=prompt,
-                        chat_history=_trim_history_for_api(),
-                    )
-                except Exception as exc:
-                    error_text = f"Agent request failed: {exc}"
-                    st.error(error_text)
-                    st.session_state[CHAT_STATE_KEY].append(
-                        {"role": "assistant", "content": error_text, "artifacts": {}}
-                    )
-                    return
+        _render_execution_log(steps, log_placeholder, finished=True)
 
-        progress_container.empty()
+        if error_text and not final_answer:
+            answer_placeholder.error(error_text)
+            st.session_state[CHAT_STATE_KEY].append(
+                {
+                    "role": "assistant",
+                    "content": error_text,
+                    "artifacts": {},
+                    "steps": steps,
+                }
+            )
+            return
 
-        answer = str(result.get("answer", "No answer returned."))
-        artifacts = _as_artifacts(result.get("artifacts"))
-        progress_updates = result.get("progress_updates") or result.get("trace") or []
-        if progress_items and not progress_updates:
-            progress_updates = progress_items
-        artifacts["progress_updates"] = progress_updates
+        if not final_answer:
+            final_answer = "".join(answer_buffer) or "No answer returned."
 
-        st.markdown(answer)
-        _render_assistant_artifacts(artifacts, message_key=pending_key)
+        answer_placeholder.markdown(_normalize_math_delimiters(final_answer))
+        _render_assistant_artifacts(artifacts, message_key=message_key)
 
         st.session_state[CHAT_STATE_KEY].append(
             {
                 "role": "assistant",
-                "content": answer,
+                "content": final_answer,
                 "artifacts": artifacts,
-                "trace": result.get("trace", []),
+                "steps": steps,
             }
         )
 

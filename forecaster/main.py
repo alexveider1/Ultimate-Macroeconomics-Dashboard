@@ -6,14 +6,17 @@ from fastapi import FastAPI, HTTPException
 from schemas import ForecastPoint, ForecastRequest, ForecastResponse
 from forecasters.core.base import BaseForecaster
 
-CONFIG = yaml.safe_load(open("config.yaml"))
-FORECASTER_CONFIG = CONFIG.get("forecaster")
+CONFIG_PATH = "config.yaml"
+
+with open(CONFIG_PATH) as f:
+    CONFIG = yaml.safe_load(f)
+FORECASTER_CONFIG = CONFIG.get("forecaster", {})
 
 ARIMA_AVAILABLE = bool(FORECASTER_CONFIG.get("ARIMA_AVAILABLE"))
-
 PROPHET_AVAILABLE = bool(FORECASTER_CONFIG.get("PROPHET_AVAILABLE"))
 CHRONOS_AVAILABLE = bool(FORECASTER_CONFIG.get("CHRONOS_AVAILABLE"))
 CHRONOS_MODEL_NAME = FORECASTER_CONFIG.get("CHRONOS_MODEL")
+CHRONOS_DEFAULT_MODEL_NAME = "amazon/chronos-t5-small"
 
 _model_cache: dict[str, BaseForecaster] = {}
 
@@ -74,33 +77,31 @@ app = FastAPI(
 
 
 @app.get("/")
-def root():
+def root() -> dict[str, str]:
     return {"message": "Welcome to the Time Series Forecasting API"}
 
 
 @app.get("/health")
-def health_check():
+def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
 @app.get("/models")
-def list_models():
-    available_models = []
+def list_models() -> dict[str, list[str]]:
+    available_models: list[str] = []
     if ARIMA_AVAILABLE:
         available_models.append("arima")
     if PROPHET_AVAILABLE:
         available_models.append("prophet")
     if CHRONOS_AVAILABLE:
-        if CHRONOS_MODEL_NAME is not None:
-            available_models.append(f"chronos ({CHRONOS_MODEL_NAME})")
-        else:
-            available_models.append("chronos (chronos-t5-small)")
+        chronos_label = CHRONOS_MODEL_NAME or CHRONOS_DEFAULT_MODEL_NAME
+        available_models.append(f"chronos ({chronos_label})")
 
     return {"available_models": available_models}
 
 
 @app.post("/predict", response_model=ForecastResponse)
-def generate_prediction(request: ForecastRequest):
+def generate_prediction(request: ForecastRequest) -> ForecastResponse:
     df = pl.DataFrame({"ds": request.dates, "y": request.values}).with_columns(
         pl.col("ds").str.to_datetime(strict=False)
     )

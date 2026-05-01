@@ -11,9 +11,13 @@ if [ -f "$MARKER_FILE" ]; then
 fi
 
 echo "Starting one-time downloader run..."
-python main.py
-
-touch "$MARKER_FILE"
-echo "Downloader run completed. Marker created at $MARKER_FILE"
+if python main.py; then
+  touch "$MARKER_FILE"
+  echo "Downloader run completed. Marker created at $MARKER_FILE"
+else
+  status=$?
+  echo "Downloader run FAILED (exit code $status). Marker NOT created." >&2
+  exit "$status"
+fi
 
 exec tail -f /dev/null

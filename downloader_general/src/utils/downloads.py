@@ -153,8 +153,8 @@ def _download_source_indicators(
 
 def _download_config(path: str) -> dict:
     """Download config for downloads"""
-    download_config = json.load(open(path))
-    return download_config
+    with open(path) as f:
+        return json.load(f)
 
 
 def _get_sql_config(username: str, password: str, host: str, port: int, db: str) -> str:

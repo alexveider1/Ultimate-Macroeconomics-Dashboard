@@ -22,7 +22,8 @@ ENV_FILE_PATH = ".env"
 DATABASE_SCHEMA_PATH = "database_schema.yaml"
 NEWS_TOPICS_PATH = "_configs/news_download_config.json"
 
-CONFIG = yaml.safe_load(open(CONFIG_PATH))
+with open(CONFIG_PATH) as f:
+    CONFIG = yaml.safe_load(f)
 
 load_dotenv(dotenv_path=ENV_FILE_PATH)
 

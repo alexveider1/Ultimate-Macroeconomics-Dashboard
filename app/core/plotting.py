@@ -23,8 +23,13 @@ from core.postgres_client import (
 )
 from core.theming import PLOTLY_TEMPLATE_NAME, get_color, get_colorway
 
-CONFIG = yaml.safe_load(open("config.yaml"))
-FORECASTER_BASE_URL = f"http://forecaster:{CONFIG.get('forecaster').get('port')}"
+CONFIG_PATH = "config.yaml"
+
+with open(CONFIG_PATH) as f:
+    CONFIG = yaml.safe_load(f)
+FORECASTER_BASE_URL = (
+    f"http://forecaster:{CONFIG.get('forecaster', {}).get('port', 8001)}"
+)
 
 
 def apply_plotly_theme(fig: go.Figure) -> go.Figure:

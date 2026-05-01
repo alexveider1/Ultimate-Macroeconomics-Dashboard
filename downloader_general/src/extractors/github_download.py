@@ -44,11 +44,11 @@ class NewsDownloader(BaseNewsDownloader):
         qdrant_host: str,
         qdrant_port: str,
         config_path: str,
-        openai_base_url: str = None,
+        openai_base_url: str | None = None,
         openai_embedding_model: str = "openai/text-embedding-3-small",
         openai_token_limit: int = 8192,
         openai_model_dimensions: int = 1536,
-    ):
+    ) -> None:
         self.env_path = env_file
         self.github_api_url = "https://api.github.com"
 
@@ -72,12 +72,14 @@ class NewsDownloader(BaseNewsDownloader):
         self.openai_model_dimensions = openai_model_dimensions
         self.embedding_encoding = self._build_embedding_encoding()
 
-    def _initialize_connections(self):
+    def _initialize_connections(self) -> bool:
         load_dotenv(self.env_path)
-        try:
-            openai_api_key = os.getenv("OPENAI_API_KEY")
-        except Exception as exc:
-            logger.exception(exc, extra={"message": "Couldn't retrieve OpenAI api key"})
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            logger.error(
+                "OPENAI_API_KEY is not set; news embeddings cannot be generated"
+            )
+            return False
         self.openai_client = OpenAI(
             base_url=self.openai_base_url, api_key=openai_api_key
         )
@@ -128,7 +130,7 @@ class NewsDownloader(BaseNewsDownloader):
         except Exception:
             return encoding_for_model(model_name)
 
-    def _truncate_for_embedding(self, text, article_path):
+    def _truncate_for_embedding(self, text: str, article_path: str) -> str:
         if self.embedding_encoding is not None:
             token_ids = self.embedding_encoding.encode(text)
             token_count = len(token_ids)
@@ -166,7 +168,7 @@ class NewsDownloader(BaseNewsDownloader):
         )
         return text[:max_chars]
 
-    def download_repository(self):
+    def download_repository(self) -> bool:
         repo_url = self.repo_url
         os.makedirs(self.save_path, exist_ok=True)
 
@@ -190,7 +192,7 @@ class NewsDownloader(BaseNewsDownloader):
         self.is_downloaded = clone_result is not None
         return self.is_downloaded
 
-    def parse_repository(self):
+    def parse_repository(self) -> None:
         metadata = {}
         source_datasets_dir = os.path.join(self.save_path, "News_Datasets")
         allowed_topics = self.download_config
@@ -305,7 +307,7 @@ class NewsDownloader(BaseNewsDownloader):
         self.parsed_metadata = metadata
         self.is_parsed = True
 
-    def clean_repository(self):
+    def clean_repository(self) -> None:
         preserved_dirs = {
             os.path.abspath(metadata_entry["extracted_dir"])
             for metadata_entries in self.parsed_metadata.values()
@@ -327,7 +329,7 @@ class NewsDownloader(BaseNewsDownloader):
                     os.chmod(item_path, 0o700)
                     os.remove(item_path)
 
-    def get_embeddings(self, texts):
+    def get_embeddings(self, texts: list[str]) -> list[list[float]]:
         try:
             response = self.openai_client.embeddings.create(
                 input=texts, model=self.openai_embedding_model
@@ -342,7 +344,7 @@ class NewsDownloader(BaseNewsDownloader):
             logger.exception("Getting embeddings failed", exc_info=exc)
             return []
 
-    def upload_to_qdrant(self):
+    def upload_to_qdrant(self) -> None:
         for collection_name, metadata_entries in self.parsed_metadata.items():
             self.qdrant_client.recreate_collection(
                 collection_name=collection_name,
@@ -419,7 +421,7 @@ class NewsDownloader(BaseNewsDownloader):
 
             sleep(self.download_retry_delay_seconds)
 
-    def run(self):
+    def run(self) -> None:
         if not self.download_repository():
             return
         self.parse_repository()

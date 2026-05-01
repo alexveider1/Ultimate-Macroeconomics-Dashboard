@@ -1,9 +1,18 @@
 import numpy as np
+import yaml
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from sklearn.cluster import DBSCAN, KMeans
 from sklearn.manifold import TSNE
 
 from schemas import ClusterRequest, ClusterResponse
+
+CONFIG_PATH = "config.yaml"
+ENV_FILE_PATH = ".env"
+
+with open(CONFIG_PATH) as f:
+    CONFIG = yaml.safe_load(f)
+load_dotenv(ENV_FILE_PATH)
 
 VIZ_X_COL = "__viz_x"
 VIZ_Y_COL = "__viz_y"
@@ -80,7 +89,7 @@ def _build_visual_projection(
     if n_features == 2:
         return feature_matrix, "feature_space", [feature_columns[0], feature_columns[1]]
 
-    if n_rows < 2:
+    if n_rows < 5:
         return (
             feature_matrix[:, :2],
             "feature_space",
@@ -91,7 +100,6 @@ def _build_visual_projection(
         )
 
     perplexity = min(30.0, float(n_rows - 1))
-    perplexity = max(1.0, perplexity)
 
     projection = TSNE(
         n_components=2,

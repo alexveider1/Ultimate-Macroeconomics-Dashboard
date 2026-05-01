@@ -82,7 +82,7 @@ class YahooDownloader(BaseYahooDownloader):
             assets,
         )
 
-    def _initialize_connections(self, host, port, db):
+    def _initialize_connections(self, host: str, port: int, db: str) -> bool:
         load_dotenv(self.env_path)
         username = os.getenv("POSTGRES_USERNAME")
         password = os.getenv("POSTGRES_PASSWORD")
@@ -99,7 +99,9 @@ class YahooDownloader(BaseYahooDownloader):
         self.successful_connections = _sql_test
         return self.successful_connections
 
-    def download_historical_data(self, ticker_id, category, period="max"):
+    def download_historical_data(
+        self, ticker_id: str, category: str, period: str = "max"
+    ) -> None:
         logger.info(f"Starting download of historical data (ticker={ticker_id})")
 
         ticker_obj = yf.Ticker(ticker_id)
@@ -151,7 +153,9 @@ class YahooDownloader(BaseYahooDownloader):
 
         logger.info(f"Finished download of historical data (ticker={ticker_id})")
 
-    def download_metadata(self, ticker_id, asset_name, category) -> bool:
+    def download_metadata(
+        self, ticker_id: str, asset_name: str | None, category: str
+    ) -> bool:
         logger.info(f"Starting download of metadata (ticker={ticker_id})")
 
         ticker_obj = yf.Ticker(ticker_id)
@@ -193,7 +197,7 @@ class YahooDownloader(BaseYahooDownloader):
         logger.info(f"Finished download of metadata (ticker={ticker_id})")
         return True
 
-    def download_category(self, category, assets):
+    def download_category(self, category: str, assets: Any) -> None:
         logger.info(f"Starting downloads for category: {category}")
 
         normalized_assets = list(self._normalize_assets(category, assets))
@@ -220,7 +224,7 @@ class YahooDownloader(BaseYahooDownloader):
 
         logger.info(f"Finished downloads for category: {category}")
 
-    def run(self):
+    def run(self) -> None:
         bootstrap_schema_group(self.sql_uri, self.database_schema, self.SCHEMA_GROUP)
         for category, assets in self.download_config.items():
             self.download_category(category, assets)

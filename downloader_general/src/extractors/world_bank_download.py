@@ -38,9 +38,9 @@ class WorldBankDownloader(BaseWorldBankDownloader):
     def __init__(
         self,
         env_path: str,
-        download_config_path: str = None,
+        download_config_path: str | None = None,
         database_schema: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> None:
         self.env_path = env_path
         self.download_config = _download_config(download_config_path)
         self.sql_uri = None
@@ -60,7 +60,7 @@ class WorldBankDownloader(BaseWorldBankDownloader):
     def _table_def(self, table_name: str) -> Dict[str, Any]:
         return get_table_definition(self.database_schema, self.SCHEMA_GROUP, table_name)
 
-    def _initialize_connections(self, host, port, db):
+    def _initialize_connections(self, host: str, port: int, db: str) -> bool:
         load_dotenv(self.env_path)
         username, password = (
             os.getenv("POSTGRES_USERNAME"),
@@ -133,7 +133,7 @@ class WorldBankDownloader(BaseWorldBankDownloader):
             "statistical_concept_and_methodology": None,
         }
 
-    def download_basic_tables(self):
+    def download_basic_tables(self) -> None:
         logger.info("Starting download of World Bank basic tables")
         source_records = _call_with_retries(
             operation_name="source.list",
@@ -184,7 +184,7 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         logger.info("Finished downloading World Bank source indicators")
         logger.info("Finished download of World Bank basic tables")
 
-    def download_db(self, indicator_id, db):
+    def download_db(self, indicator_id: str, db: int) -> None:
         logger.info(
             f"Starting download of World Bank indicator data (indicator_id={indicator_id}, db={db})"
         )
@@ -263,7 +263,7 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         )
         sleep(10)
 
-    def download_metadata(self, indicator_id, db):
+    def download_metadata(self, indicator_id: str, db: int) -> None:
         logger.info(
             f"Starting download of World Bank indicator metadata (indicator_id={indicator_id}, db={db})"
         )
@@ -321,7 +321,7 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         )
         sleep(10)
 
-    def run(self):
+    def run(self) -> None:
         bootstrap_schema_group(self.sql_uri, self.database_schema, self.SCHEMA_GROUP)
         self.download_basic_tables()
         download_dictionary = {}

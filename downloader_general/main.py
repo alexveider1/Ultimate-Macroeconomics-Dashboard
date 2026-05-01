@@ -18,6 +18,21 @@ class _TqdmHandler(logging.StreamHandler):
             self.handleError(record)
 
 
+CONFIG_PATH = "config.yaml"
+
+
+def _require(mapping: dict, *path: str) -> object:
+    """Look up a nested config key and raise a clear error if any segment is missing."""
+    current: object = mapping
+    for segment in path:
+        if not isinstance(current, dict) or segment not in current:
+            raise KeyError(
+                f"Missing required config key '{'.'.join(path)}' in {CONFIG_PATH}"
+            )
+        current = current[segment]
+    return current
+
+
 def main() -> None:
     """Main function to run the downloaders."""
     container_data_dir = os.path.join("_container_data")
@@ -39,25 +54,29 @@ def main() -> None:
         ],
     )
 
-    args = yaml.safe_load(open("config.yaml"))
-    env_file = args["shared"]["env_file"]
-    postgres_host = args["postgres"]["host"]
-    postgres_port = args["postgres"]["port"]
-    postgres_db = args["postgres"]["database"]
-    qdrant_host = args["qdrant"]["host"]
-    qdrant_port = args["qdrant"]["port"]
-    database_schema_path = args["shared"]["database_schema"]
+    with open(CONFIG_PATH) as f:
+        args = yaml.safe_load(f)
+
+    env_file = _require(args, "shared", "env_file")
+    postgres_host = _require(args, "postgres", "host")
+    postgres_port = _require(args, "postgres", "port")
+    postgres_db = _require(args, "postgres", "database")
+    qdrant_host = _require(args, "qdrant", "host")
+    qdrant_port = _require(args, "qdrant", "port")
+    database_schema_path = _require(args, "shared", "database_schema")
     database_schema = load_database_schema(database_schema_path)
-    world_bank_download_config = args["shared"]["world_bank_download_config"]
-    news_download_config = args["shared"]["news_download_config"]
-    yahoo_download_config = args["shared"]["yahoo_download_config"]
-    repo_url = args["downloader_general"]["repo_url"]
-    openai_base_url = args["shared"]["openai_base_url"]
-    openai_embedding_model = args["shared"]["openai_embedding_model"]
-    openai_embedding_model_max_tokens = args["shared"][
-        "openai_embedding_model_max_tokens"
-    ]
-    openai_model_dimensions = args["shared"]["openai_embedding_model_dimensions"]
+    world_bank_download_config = _require(args, "shared", "world_bank_download_config")
+    news_download_config = _require(args, "shared", "news_download_config")
+    yahoo_download_config = _require(args, "shared", "yahoo_download_config")
+    repo_url = _require(args, "downloader_general", "repo_url")
+    openai_base_url = _require(args, "shared", "openai_base_url")
+    openai_embedding_model = _require(args, "shared", "openai_embedding_model")
+    openai_embedding_model_max_tokens = _require(
+        args, "shared", "openai_embedding_model_max_tokens"
+    )
+    openai_model_dimensions = _require(
+        args, "shared", "openai_embedding_model_dimensions"
+    )
 
     world_bank_downloader = WorldBankDownloader(
         env_path=env_file,

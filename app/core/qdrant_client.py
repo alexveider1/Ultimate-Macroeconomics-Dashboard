@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import List, Dict, Any, Optional
 
@@ -8,8 +9,14 @@ from qdrant_client.http import models
 
 from core.app_logging import log_vector_query
 
-CONFIG = yaml.safe_load(open("config.yaml"))
-load_dotenv(".env")
+CONFIG_PATH = "config.yaml"
+ENV_FILE_PATH = ".env"
+
+with open(CONFIG_PATH) as f:
+    CONFIG = yaml.safe_load(f)
+load_dotenv(ENV_FILE_PATH)
+
+logger = logging.getLogger(__name__)
 
 _QDRANT_HOST = CONFIG.get("qdrant", {}).get("host", "vector_db")
 _QDRANT_PORT = CONFIG.get("qdrant", {}).get("port", 6333)
@@ -34,7 +41,8 @@ def is_qdrant_available(client: Optional[QdrantClient] = None) -> bool:
     try:
         client.get_collections()
         return True
-    except Exception:
+    except Exception as exc:
+        logger.warning("Qdrant health check failed: %s", exc)
         return False
 
 
@@ -44,7 +52,8 @@ def list_collections(client: Optional[QdrantClient] = None) -> List[str]:
     try:
         response = client.get_collections()
         return [item.name for item in response.collections]
-    except Exception:
+    except Exception as exc:
+        logger.warning("Qdrant list_collections failed: %s", exc)
         return []
 
 
@@ -81,7 +90,10 @@ def scroll_collection(
                 break
 
         return all_records
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Qdrant scroll_collection failed for '%s': %s", collection_name, exc
+        )
         return []
 
 
@@ -107,7 +119,13 @@ def get_point(
         if points:
             return points[0]
         return None
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Qdrant get_point failed for '%s' id=%s: %s",
+            collection_name,
+            point_id,
+            exc,
+        )
         return None
 
 
@@ -173,5 +191,10 @@ def find_nearest_embeddings(
             )
 
         return hits[:limit]
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Qdrant find_nearest_embeddings failed for '%s': %s",
+            collection_name,
+            exc,
+        )
         return []

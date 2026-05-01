@@ -1,3 +1,4 @@
+import logging
 import os
 import yaml
 import connectorx as cx
@@ -8,12 +9,22 @@ from typing import Iterable
 from dotenv import load_dotenv
 from core.app_logging import log_sql_query
 
-CONFIG = yaml.safe_load(open("config.yaml"))
-load_dotenv(".env")
-SQL_URL = f"postgresql://{os.getenv('POSTGRES_USERNAME')}:{os.getenv('POSTGRES_PASSWORD')}@{CONFIG.get('postgres').get('host')}:{CONFIG.get('postgres').get('port')}/{CONFIG.get('postgres').get('database')}"
-POSTGRES_TARGET = (
-    f"{CONFIG.get('postgres').get('host')}:{CONFIG.get('postgres').get('port')}"
+CONFIG_PATH = "config.yaml"
+ENV_FILE_PATH = ".env"
+
+with open(CONFIG_PATH) as f:
+    CONFIG = yaml.safe_load(f)
+load_dotenv(ENV_FILE_PATH)
+
+_PG = CONFIG.get("postgres", {})
+SQL_URL = (
+    f"postgresql://"
+    f"{os.getenv('POSTGRES_USERNAME')}:{os.getenv('POSTGRES_PASSWORD')}"
+    f"@{_PG.get('host')}:{_PG.get('port')}/{_PG.get('database')}"
 )
+POSTGRES_TARGET = f"{_PG.get('host')}:{_PG.get('port')}"
+
+logger = logging.getLogger(__name__)
 
 
 def _sql_string(value: str) -> str:
@@ -26,7 +37,7 @@ def _sql_string(value: str) -> str:
     return "'" + raw.replace("'", "''") + "'"
 
 
-def _normalize_country_codes(country_code) -> list[str]:
+def _normalize_country_codes(country_code: str | Iterable[str]) -> list[str]:
     if isinstance(country_code, str):
         normalized = country_code.strip()
         if not normalized or normalized.upper() == "ALL":
@@ -51,8 +62,8 @@ def _normalize_country_codes(country_code) -> list[str]:
 def fetch_postgres_data(
     sql_uri: str | None = SQL_URL,
     query: str | None = None,
-    partition_on: str = None,
-    partitions: int = None,
+    partition_on: str | None = None,
+    partitions: int | None = None,
 ) -> pl.DataFrame:
     log_sql_query(query or "", target=POSTGRES_TARGET)
     try:
@@ -67,7 +78,10 @@ def fetch_postgres_data(
         else:
             df = cx.read_sql(sql_uri, query, return_type="polars")
         return df
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Partitioned read failed, retrying without partitions: %s", exc
+        )
         df = cx.read_sql(sql_uri, query, return_type="polars")
         return df
 

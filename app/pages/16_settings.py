@@ -7,7 +7,8 @@ from core.theming import get_active_theme_name, list_theme_names, set_active_the
 
 
 CONFIG_PATH = "config.yaml"
-CONFIG = yaml.safe_load(open(CONFIG_PATH))
+with open(CONFIG_PATH) as f:
+    CONFIG = yaml.safe_load(f)
 
 
 def _resolve_agent_base_url() -> str:

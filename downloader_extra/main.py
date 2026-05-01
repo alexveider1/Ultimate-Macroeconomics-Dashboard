@@ -12,9 +12,19 @@ from schema import Base, IngestRequest, IngestResponse
 from client_wb import fetch_and_store_indicator
 
 
-CONFIG = yaml.safe_load(open("config.yaml"))
-load_dotenv(".env")
-SQL_URI = f"postgresql+psycopg2://{os.getenv('POSTGRES_USERNAME')}:{os.getenv('POSTGRES_PASSWORD')}@{CONFIG.get('postgres').get('host')}:{CONFIG.get('postgres').get('port')}/{CONFIG.get('postgres').get('database')}"
+CONFIG_PATH = "config.yaml"
+ENV_FILE_PATH = ".env"
+
+with open(CONFIG_PATH) as f:
+    CONFIG = yaml.safe_load(f)
+load_dotenv(ENV_FILE_PATH)
+
+_PG = CONFIG.get("postgres", {})
+SQL_URI = (
+    f"postgresql+psycopg2://"
+    f"{os.getenv('POSTGRES_USERNAME')}:{os.getenv('POSTGRES_PASSWORD')}"
+    f"@{_PG.get('host')}:{_PG.get('port')}/{_PG.get('database')}"
+)
 
 
 def _create_engine(sql_uri: str):
@@ -64,17 +74,17 @@ app = FastAPI(
 
 
 @app.get("/")
-def root():
+def root() -> dict[str, str]:
     return {"message": "Welcome to the Macroeconomics Data Ingestion Service!"}
 
 
 @app.get("/health")
-def health_check():
+def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
 @app.get("/indicators")
-def list_indicators():
+def list_indicators() -> dict[str, list[str]]:
     with app.state.engine.connect() as conn:
         rows = conn.execute(
             text("SELECT DISTINCT indicator_id FROM indicators ORDER BY indicator_id")

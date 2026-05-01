@@ -1,10 +1,14 @@
+import logging
+
 import requests
 import wbgapi as wb
 import polars as pl
 from sqlalchemy import create_engine, text
 
+logger = logging.getLogger(__name__)
 
-def _fetch_indicator_data_via_api(indicator_id: str, db: int) -> list:
+
+def _fetch_indicator_data_via_api(indicator_id: str, db: int) -> list[dict]:
     """Fallback for sources where wbgapi's /sources/{db}/series/... URL returns empty JSON.
     Uses the standard WB v2 /country/all/indicator/{id}?source={db} endpoint instead."""
     rows = []
@@ -49,13 +53,20 @@ def fetch_and_store_indicator(indicator_id: str, wb_db_id: int, sql_uri: str) ->
             numericTimeKeys=True,
         )
         rows = list(records)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "wbgapi primary fetch failed for indicator_id=%s db=%s: %s; "
+            "falling back to v2 REST endpoint",
+            indicator_id,
+            wb_db_id,
+            exc,
+        )
         rows = []
 
     if rows:
         df = pl.DataFrame(rows)
         economy_column = "economy"
-        year_column = "date"
+        year_column = "time"
 
         df_transformed = df.select(
             [

@@ -3,9 +3,8 @@
 All notable changes to **Ultimate Macroeconomics Dashboard** are documented in this file.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Versions before v0.6 are reconstructed from the git history (`git log` per tag boundary) and may collapse several commits into a single bullet.
 
-## [v0.6] — 2026-05-01
+## [v0.6]
 
 The "hosting-ready" release. Adds an alternate deployment topology for public VPS hosting (on the `hosting` branch), introduces in-session LLM token-usage accounting, and removes the runtime theme picker.
 
@@ -22,7 +21,7 @@ The "hosting-ready" release. Adds an alternate deployment topology for public VP
 ### Removed
 - **Runtime theme picker** from the Settings page. The dropdown, "Apply theme" button and the code that rewrote `app/.streamlit/config.toml` are gone. `core/theming.set_active_theme`, `list_theme_names`, `get_active_theme_name`, and the `_sync_streamlit_config` helpers were removed (they had no remaining callers).
 
-## [v0.5] — b525697
+## [v0.5]
 
 ### Added
 - `_container_data/.env.example` to make the required environment variables explicit.
@@ -34,7 +33,7 @@ The "hosting-ready" release. Adds an alternate deployment topology for public VP
 - `downloader_general`, `downloader_extra` and `forecaster` received reliability fixes around file handling and configuration loading.
 - Minor adjustments in `agent/main.py`, `app/core/plotting.py` and `app/pages/16_settings.py`.
 
-## [v0.4] — be71a0e
+## [v0.4]
 
 ### Added
 - **Theming system** under `_container_data/themes.yaml` plus `app/core/theming.py`:
@@ -47,7 +46,7 @@ The "hosting-ready" release. Adds an alternate deployment topology for public VP
 - All dashboard pages migrated off hard-coded chart colours and onto the new theme tokens (`get_color`, `get_colorway`).
 - `app/.streamlit/config.toml` now derives from the active theme rather than holding fixed colours.
 
-## [v0.3] — 25e8f12
+## [v0.3]
 
 ### Added
 - **Multi-agent architecture** for the AI analyst built on LangGraph. `agent/agent/graph.py` was rewritten end-to-end (~1k lines) to introduce:
@@ -64,7 +63,7 @@ The "hosting-ready" release. Adds an alternate deployment topology for public VP
 ### Removed
 - The legacy single-prompt agent path in `app/core/api_client.py` and the older `10_ai_agent_chat.py` page.
 
-## [v0.2] — cdf240c
+## [v0.2]
 
 ### Added
 - Six new dashboard pages: Governance & Institutions, Technology & Innovation, Health & Wellbeing, Education & Human Capital, Environment, **AI Analyst**, **Custom Plot Constructor**, **Clustering Sandbox**, **Yahoo Finance**, **News Explorer**, and the first **Settings** page.
@@ -78,7 +77,7 @@ The "hosting-ready" release. Adds an alternate deployment topology for public VP
 - `downloader_extra/client_wb.py`, `downloader_general/main.py` and the `world_bank` / `yahoo` / `github` extractors hardened against API timeouts and partial pages.
 - README polished and a `TODO` file added.
 
-## [v0.1] — 0e8ca80 (Initial commit)
+## [Initial commit]
 
 ### Added
 - Initial scaffolding of the project: ten-container `docker-compose.yaml`, the Streamlit `app` skeleton with the first World Bank indicator pages, the `agent` FastAPI service, `forecaster`, `clustering`, `downloader_general`, `downloader_extra`, `python_sandbox`, plus `db` (PostgreSQL) and `vector_db` (Qdrant).

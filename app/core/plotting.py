@@ -15,6 +15,7 @@ from core.api_client import (
     forecast_timeseries,
     interpret_plot_image,
 )
+from core.token_usage import record_usage
 from core.postgres_client import (
     get_world_bank_country_mapping,
     get_world_bank_indicator,
@@ -790,6 +791,7 @@ class GraphBox:
             mode=mode,
             chart_context=chart_context,
         )
+        record_usage(response.get("usage"))
         description = str(response.get("description", "")).strip()
         if not description:
             description = "No interpretation returned."

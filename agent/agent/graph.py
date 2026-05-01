@@ -1223,6 +1223,7 @@ class MacroAgentGraph:
             api_key=api_key,
             temperature=0,
             max_retries=3,
+            stream_usage=True,
         )
         self.max_retries = max_retries
         self.recursion_limit = recursion_limit
@@ -1348,6 +1349,7 @@ class MacroAgentGraph:
         self,
         state: dict,
         supervisor_draft: str,
+        config: dict | None = None,
     ):
         """Re-emit the final answer as a token stream.
 
@@ -1393,14 +1395,18 @@ class MacroAgentGraph:
             [
                 SystemMessage(content=self.FINAL_SYNTHESIS_SYSTEM_PROMPT),
                 HumanMessage(content=user_prompt),
-            ]
+            ],
+            config=config or {},
         ):
             delta = getattr(chunk, "content", "") or ""
             if delta:
                 yield delta
 
     async def astream_events(
-        self, message: str, chat_history: list[dict] | None = None
+        self,
+        message: str,
+        chat_history: list[dict] | None = None,
+        usage_tracker: Any | None = None,
     ):
         """Yield events the API layer relays to the chat UI.
 
@@ -1417,10 +1423,14 @@ class MacroAgentGraph:
         last_isolated_task = ""
         final_state: dict[str, Any] = {}
 
+        graph_config: dict[str, Any] = {"recursion_limit": self.recursion_limit}
+        synth_config: dict[str, Any] = {}
+        if usage_tracker is not None:
+            graph_config["callbacks"] = [usage_tracker]
+            synth_config["callbacks"] = [usage_tracker]
+
         try:
-            async for chunk in self.graph.astream(
-                state, config={"recursion_limit": self.recursion_limit}
-            ):
+            async for chunk in self.graph.astream(state, config=graph_config):
                 for node_name, output in chunk.items():
                     if not isinstance(output, dict):
                         continue
@@ -1476,7 +1486,7 @@ class MacroAgentGraph:
             collected: list[str] = []
             try:
                 async for delta in self._stream_final_synthesis(
-                    stream_state, last_isolated_task
+                    stream_state, last_isolated_task, config=synth_config
                 ):
                     collected.append(delta)
                     yield {"type": "token", "delta": delta}

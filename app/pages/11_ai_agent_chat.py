@@ -8,6 +8,7 @@ import streamlit as st
 from core.app_logging import log_page_render
 from core.api_client import agent_chat_stream
 from core.plotting import apply_plotly_theme
+from core.token_usage import record_usage
 
 
 CHAT_STATE_KEY = "agent_chat_messages"
@@ -255,6 +256,7 @@ def _handle_chat() -> None:
                         answer_buffer
                     )
                     artifacts = _as_artifacts(event.get("artifacts"))
+                    record_usage(event.get("usage"))
                     break
                 elif event_type == "error":
                     error_text = str(event.get("answer", "Agent error."))

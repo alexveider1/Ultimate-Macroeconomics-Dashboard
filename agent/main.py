@@ -13,8 +13,10 @@ from agent.schemas import (
     ChatRequest,
     PlotInterpretationRequest,
     PlotInterpretationResponse,
+    TokenUsage,
 )
 from agent.tools import configure_runtime
+from agent.usage import UsageTracker
 
 
 CONFIG_PATH = "config.yaml"
@@ -123,11 +125,13 @@ def list_models() -> dict[str, list[str]]:
 async def process_chat_stream(request: ChatRequest):
     agent = _get_macro_agent()
     chat_history = [m.model_dump() for m in request.chat_history]
+    usage_tracker = UsageTracker()
 
     async def event_generator():
         async for event in agent.astream_events(
             message=request.user_message,
             chat_history=chat_history,
+            usage_tracker=usage_tracker,
         ):
             event_type = event.get("type", "step")
             if event_type == "step":
@@ -140,6 +144,7 @@ async def process_chat_stream(request: ChatRequest):
                     "answer": str(event.get("response", "")),
                     "model": AGENT_MODEL or "",
                     "artifacts": event.get("artifacts", {}),
+                    "usage": usage_tracker.snapshot(default_model=AGENT_MODEL or ""),
                 }
             elif event_type == "error":
                 payload = {
@@ -206,10 +211,19 @@ async def interpret_plot(request: PlotInterpretationRequest):
         if completion.choices and completion.choices[0].message is not None:
             description = str(completion.choices[0].message.content or "").strip()
 
+        usage = getattr(completion, "usage", None)
+        token_usage = TokenUsage(
+            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+            total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+            model=AGENT_MODEL or "",
+        )
+
         return PlotInterpretationResponse(
             description=description or "No interpretation returned.",
             mode=request.mode,
             model=AGENT_MODEL or "",
+            usage=token_usage,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

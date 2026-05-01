@@ -3,14 +3,13 @@
 > Set of features to implement and bugs to be fixed
 
 ## Short-term
-* Improve hard-coded colors so they would fit general color palette more, make more 
+* 
 
 ## Medium-term
 * Complete complex testing of agent (create a table with set of tasks to solve and results of agent execution)
 
 ## Long-term
-* Set up authorization module
-* Fully prepare application for hosting
+* 
 
 ## Backlog
 * Implement new data sources: Maddison Project Database

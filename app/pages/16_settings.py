@@ -3,7 +3,11 @@ import yaml
 
 from core.app_logging import log_page_render
 from core.api_client import list_agent_models, resolve_agent_base_url
-from core.theming import get_active_theme_name, list_theme_names, set_active_theme
+from core.token_usage import (
+    get_session_token_usage,
+    reset_session_token_usage,
+    total_session_tokens,
+)
 
 
 CONFIG_PATH = "config.yaml"
@@ -36,36 +40,8 @@ def _write_shared_config(config_data: dict):
 
 log_page_render("System Settings")
 st.title("System Settings")
-st.caption("Configure dashboard-wide visualization preferences.")
+st.caption("Configure the AI model and review session token usage.")
 
-available_themes = list_theme_names()
-active_theme = get_active_theme_name()
-active_index = (
-    available_themes.index(active_theme) if active_theme in available_themes else 0
-)
-
-selected_theme = st.selectbox(
-    "Dashboard theme",
-    options=available_themes,
-    index=active_index,
-    help="Controls Streamlit page colors, Plotly chart background, and series colors. Defined in themes.yaml.",
-)
-
-if selected_theme != active_theme:
-    if st.button(f"Apply theme '{selected_theme}'", type="primary"):
-        try:
-            written_config = set_active_theme(selected_theme)
-            st.warning(
-                f"Theme saved. Restart the app container for the change to take effect. "
-                f"(Streamlit reads page colors from config.toml only at server startup.)"
-            )
-            st.caption(f"Streamlit config rewritten at: {written_config}")
-        except Exception as exc:
-            st.error(f"Could not apply theme: {exc}")
-else:
-    st.success(f"Active theme: {active_theme}")
-
-st.divider()
 st.subheader("AI Model")
 
 config_data, loaded_from = _read_shared_config()
@@ -120,3 +96,38 @@ if save_clicked:
 
 if loaded_from:
     st.caption(f"Config loaded from: {loaded_from}")
+
+st.divider()
+st.subheader("Session token usage")
+st.caption(
+    "Tokens consumed by the AI agent during this Streamlit session. "
+    "Counts reset when you reload the browser tab or click the button below."
+)
+
+usage_by_model = get_session_token_usage()
+if not usage_by_model:
+    st.info("No tokens consumed yet in this session.")
+else:
+    table_rows = [
+        {
+            "Model": model,
+            "Prompt": usage.get("prompt_tokens", 0),
+            "Completion": usage.get("completion_tokens", 0),
+            "Total": usage.get("total_tokens", 0),
+        }
+        for model, usage in sorted(usage_by_model.items())
+    ]
+    totals = total_session_tokens()
+    table_rows.append(
+        {
+            "Model": "ALL",
+            "Prompt": totals["prompt_tokens"],
+            "Completion": totals["completion_tokens"],
+            "Total": totals["total_tokens"],
+        }
+    )
+    st.dataframe(table_rows, hide_index=True, width="stretch")
+
+if st.button("Reset token counter", width="content"):
+    reset_session_token_usage()
+    st.rerun()

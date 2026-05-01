@@ -219,7 +219,15 @@ class PlotInterpretationRequest(BaseModel):
     chart_context: str = ""
 
 
+class TokenUsage(BaseModel):
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    model: str = ""
+
+
 class PlotInterpretationResponse(BaseModel):
     description: str
     mode: str
     model: str
+    usage: TokenUsage | None = None

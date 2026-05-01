@@ -1,15 +1,25 @@
 name: Ultimate_Macroeconomics_Dashboard
 
 services:
-  
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: always
+    container_name: nginx
+    ports:
+      - 80:80
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app:
+        condition: service_started
+
   db:
     image: postgres:18
     restart: always
     container_name: postgres_db
     env_file:
       - ./_container_data/.env
-    ports:
-      - 5432:5432
     volumes:
       - postgres_data:/var/lib/postgresql
       - ./_container_data/init-user.sh:/docker-entrypoint-initdb.d/init-user.sh:ro
@@ -19,7 +29,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-    
+
   db_init:
     image: postgres:18
     restart: "no"
@@ -38,11 +48,9 @@ services:
     container_name: qdrant_db
     env_file:
       - ./_container_data/.env
-    ports:
-      - 6333:6333
     volumes:
       - qdrant_data:/qdrant/storage
-  
+
   downloader_general:
     build:
       context: downloader_general
@@ -71,8 +79,6 @@ services:
     container_name: app
     env_file:
       - ./_container_data/.env
-    ports:
-      - 8501:8501
     depends_on:
       db:
         condition: service_healthy
@@ -105,8 +111,6 @@ services:
     container_name: agent
     env_file:
       - ./_container_data/.env
-    ports:
-      - 8000:8000
     depends_on:
       db:
         condition: service_healthy
@@ -123,7 +127,7 @@ services:
       - ./_container_data/database_schema.yaml:/app/database_schema.yaml:ro
       - ./_container_data/_configs:/app/_configs:ro
       - ./_container_data/agent:/app/_container_data
-  
+
   forecaster:
     build:
       context: forecaster
@@ -131,8 +135,6 @@ services:
     container_name: forecaster
     env_file:
       - ./_container_data/.env
-    ports:
-      - 8001:8001
     depends_on:
       db:
         condition: service_healthy
@@ -161,8 +163,6 @@ services:
     container_name: clustering
     env_file:
       - ./_container_data/.env
-    ports:
-      - 8002:8002
     depends_on:
       db:
         condition: service_healthy
@@ -183,8 +183,6 @@ services:
     container_name: downloader_extra
     env_file:
       - ./_container_data/.env
-    ports:
-      - 8003:8003
     depends_on:
       db:
         condition: service_healthy
@@ -205,8 +203,6 @@ services:
     container_name: python_sandbox
     env_file:
       - ./_container_data/.env
-    ports:
-      - 8004:8004
     depends_on:
       db:
         condition: service_healthy
@@ -223,6 +219,7 @@ services:
 networks:
   default:
     driver: bridge
+    internal: false
 
 volumes:
   postgres_data:

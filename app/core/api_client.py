@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from core.app_logging import log_http_request
+from core.session import llm_auth_headers
 
 
 def _resolve_base_url(
@@ -100,6 +101,7 @@ def agent_chat_stream(
             json=payload,
             timeout=(10, 300),
             stream=True,
+            headers=llm_auth_headers(),
         ) as response:
             response.raise_for_status()
             for raw_line in response.iter_lines(decode_unicode=False):
@@ -151,6 +153,7 @@ def interpret_plot_image(
             f"{resolved_base_url}/plots/interpret",
             json=payload,
             timeout=90,
+            headers=llm_auth_headers(),
         )
         response.raise_for_status()
         result = response.json()
@@ -210,7 +213,11 @@ def list_agent_models(base_url: str | None = None) -> list[str]:
     resolved_base_url = resolve_agent_base_url(base_url)
     try:
         log_http_request(resolved_base_url, "/models", "GET")
-        response = requests.get(f"{resolved_base_url}/models", timeout=30)
+        response = requests.get(
+            f"{resolved_base_url}/models",
+            timeout=30,
+            headers=llm_auth_headers(),
+        )
         response.raise_for_status()
         payload = response.json()
 

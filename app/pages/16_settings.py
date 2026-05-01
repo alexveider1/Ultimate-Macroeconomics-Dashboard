@@ -3,6 +3,7 @@ import yaml
 
 from core.app_logging import log_page_render
 from core.api_client import list_agent_models, resolve_agent_base_url
+from core.session import clear_llm_creds, get_llm_creds
 from core.token_usage import (
     get_session_token_usage,
     reset_session_token_usage,
@@ -38,10 +39,42 @@ def _write_shared_config(config_data: dict):
         raise PermissionError("Could not write config.yaml from this runtime context.")
 
 
+def _mask(value: str) -> str:
+    if not value:
+        return "(unset)"
+    if len(value) <= 8:
+        return "*" * len(value)
+    return f"{value[:4]}…{value[-4:]}"
+
+
 log_page_render("System Settings")
 st.title("System Settings")
-st.caption("Configure the AI model and review session token usage.")
+st.caption(
+    "Review the LLM credentials in use this session, configure the agent "
+    "model, and monitor token usage."
+)
 
+st.subheader("LLM credentials (this session)")
+
+session_creds = get_llm_creds()
+if session_creds:
+    st.markdown(
+        f"- **Base URL:** `{session_creds.get('base_url', '')}`\n"
+        f"- **API key:** `{_mask(session_creds.get('api_key', ''))}`\n"
+        f"- **Model override:** "
+        f"`{session_creds.get('model') or '(server default)'}`"
+    )
+    st.caption(
+        "Credentials live only in your browser session. Sign out to clear "
+        "them and force the credential form on the next request."
+    )
+    if st.button("Sign out / clear credentials", width="content"):
+        clear_llm_creds()
+        st.rerun()
+else:
+    st.info("No LLM credentials in this session yet.")
+
+st.divider()
 st.subheader("AI Model")
 
 config_data, loaded_from = _read_shared_config()

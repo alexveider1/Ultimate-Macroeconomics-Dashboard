@@ -1,5 +1,6 @@
 import streamlit as st
 
+from core.session import require_llm_creds
 from core.theming import register_plotly_template
 
 st.set_page_config(
@@ -12,6 +13,8 @@ st.set_page_config(
 st.logo("assets/logo.png")
 
 register_plotly_template()
+
+require_llm_creds()
 
 
 def init_global_state():

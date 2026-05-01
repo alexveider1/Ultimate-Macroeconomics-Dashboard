@@ -1,9 +1,8 @@
 import json
 import os
-from functools import lru_cache
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from openai import OpenAI
 from starlette.responses import StreamingResponse
 import yaml
@@ -30,9 +29,14 @@ with open(CONFIG_PATH) as f:
 load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 SHARED_CFG = CONFIG.get("shared", {})
-AGENT_MODEL = SHARED_CFG.get("openai_llm_model")
-OPENAI_API_BASE_URL = SHARED_CFG.get("openai_base_url")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+DEFAULT_AGENT_MODEL = SHARED_CFG.get("openai_llm_model") or ""
+EMBEDDING_BASE_URL = SHARED_CFG.get("openai_base_url") or ""
+# In the hosting build OPENAI_API_KEY is reserved for embeddings / RAG only.
+# Chat / agentic LLM credentials are supplied per request via X-LLM-* headers.
+EMBEDDING_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_EMBEDDING_MODEL = SHARED_CFG.get(
+    "openai_embedding_model", "text-embedding-3-small"
+)
 
 PYTHON_SANDBOX_BASE_URL = (
     f"http://python_sandbox:{CONFIG.get('python_sandbox', {}).get('port')}"
@@ -51,9 +55,6 @@ POSTGRES_DATABASE_URI = (
     f"@{CONFIG.get('postgres', {}).get('host')}:{CONFIG.get('postgres', {}).get('port')}"
     f"/{CONFIG.get('postgres', {}).get('database')}"
 )
-OPENAI_EMBEDDING_MODEL = SHARED_CFG.get(
-    "openai_embedding_model", "text-embedding-3-small"
-)
 
 configure_runtime(
     database_schema_path=DATABASE_SCHEMA_PATH,
@@ -63,34 +64,34 @@ configure_runtime(
     postgres_database_uri=POSTGRES_DATABASE_URI,
     python_sandbox_base_url=PYTHON_SANDBOX_BASE_URL,
     downloader_extra_base_url=DOWNLOADER_EXTRA_BASE_URL,
-    openai_api_key=OPENAI_API_KEY or "",
-    openai_base_url=OPENAI_API_BASE_URL or "",
+    openai_api_key=EMBEDDING_API_KEY,
+    openai_base_url=EMBEDDING_BASE_URL,
     openai_embedding_model=OPENAI_EMBEDDING_MODEL,
 )
 
 
-def _require_api_key() -> str:
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not configured.")
-    return OPENAI_API_KEY
+def _resolve_llm_creds(
+    base_url: str | None,
+    api_key: str | None,
+    model: str | None,
+) -> tuple[str, str, str]:
+    """Pull per-session LLM credentials out of request headers.
 
-
-@lru_cache(maxsize=1)
-def _get_openai_client() -> OpenAI:
-    return OpenAI(
-        base_url=OPENAI_API_BASE_URL,
-        api_key=_require_api_key(),
-        max_retries=5,
-    )
-
-
-@lru_cache(maxsize=1)
-def _get_macro_agent() -> MacroAgentGraph:
-    return MacroAgentGraph(
-        base_url=OPENAI_API_BASE_URL or "",
-        model_name=AGENT_MODEL or "",
-        api_key=_require_api_key(),
-    )
+    Raises 401 if the caller has not supplied them. The chat / agentic LLM
+    is intentionally NOT readable from the agent container's environment in
+    this build — operators of the hosted dashboard never hold the user's key.
+    """
+    base_url = (base_url or "").strip()
+    api_key = (api_key or "").strip()
+    if not base_url or not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Missing LLM credentials. Provide X-LLM-Base-URL and "
+                "X-LLM-API-Key request headers."
+            ),
+        )
+    return base_url, api_key, (model or "").strip() or DEFAULT_AGENT_MODEL
 
 
 app = FastAPI(
@@ -102,7 +103,7 @@ app = FastAPI(
 
 @app.get("/")
 def root() -> dict[str, str]:
-    return {"status": "ok", "model": AGENT_MODEL or ""}
+    return {"status": "ok", "model": DEFAULT_AGENT_MODEL}
 
 
 @app.get("/health")
@@ -111,19 +112,33 @@ def health() -> dict[str, str]:
 
 
 @app.get("/models")
-def list_models() -> dict[str, list[str]]:
-    if not OPENAI_API_KEY:
-        return {"models": [AGENT_MODEL or ""]}
+def list_models(
+    x_llm_base_url: str | None = Header(default=None, alias="X-LLM-Base-URL"),
+    x_llm_api_key: str | None = Header(default=None, alias="X-LLM-API-Key"),
+) -> dict[str, list[str]]:
+    base_url = (x_llm_base_url or "").strip()
+    api_key = (x_llm_api_key or "").strip()
+    if not base_url or not api_key:
+        return {"models": [DEFAULT_AGENT_MODEL] if DEFAULT_AGENT_MODEL else []}
     try:
-        models = _get_openai_client().models.list()
+        client = OpenAI(base_url=base_url, api_key=api_key, max_retries=2)
+        models = client.models.list()
         return {"models": [m.id for m in models.data]}
     except Exception:
-        return {"models": [AGENT_MODEL or ""]}
+        return {"models": [DEFAULT_AGENT_MODEL] if DEFAULT_AGENT_MODEL else []}
 
 
 @app.post("/chat/stream")
-async def process_chat_stream(request: ChatRequest):
-    agent = _get_macro_agent()
+async def process_chat_stream(
+    request: ChatRequest,
+    x_llm_base_url: str | None = Header(default=None, alias="X-LLM-Base-URL"),
+    x_llm_api_key: str | None = Header(default=None, alias="X-LLM-API-Key"),
+    x_llm_model: str | None = Header(default=None, alias="X-LLM-Model"),
+):
+    base_url, api_key, model = _resolve_llm_creds(
+        x_llm_base_url, x_llm_api_key, x_llm_model
+    )
+    agent = MacroAgentGraph(base_url=base_url, model_name=model, api_key=api_key)
     chat_history = [m.model_dump() for m in request.chat_history]
     usage_tracker = UsageTracker()
 
@@ -142,9 +157,9 @@ async def process_chat_stream(request: ChatRequest):
                 payload = {
                     "type": "final",
                     "answer": str(event.get("response", "")),
-                    "model": AGENT_MODEL or "",
+                    "model": model,
                     "artifacts": event.get("artifacts", {}),
-                    "usage": usage_tracker.snapshot(default_model=AGENT_MODEL or ""),
+                    "usage": usage_tracker.snapshot(default_model=model),
                 }
             elif event_type == "error":
                 payload = {
@@ -163,9 +178,17 @@ async def process_chat_stream(request: ChatRequest):
 
 
 @app.post("/plots/interpret", response_model=PlotInterpretationResponse)
-async def interpret_plot(request: PlotInterpretationRequest):
+async def interpret_plot(
+    request: PlotInterpretationRequest,
+    x_llm_base_url: str | None = Header(default=None, alias="X-LLM-Base-URL"),
+    x_llm_api_key: str | None = Header(default=None, alias="X-LLM-API-Key"),
+    x_llm_model: str | None = Header(default=None, alias="X-LLM-Model"),
+):
+    base_url, api_key, model = _resolve_llm_creds(
+        x_llm_base_url, x_llm_api_key, x_llm_model
+    )
     try:
-        client = _get_openai_client()
+        client = OpenAI(base_url=base_url, api_key=api_key, max_retries=5)
 
         if request.mode == "no_hallucinations":
             system_prompt = (
@@ -188,7 +211,7 @@ async def interpret_plot(request: PlotInterpretationRequest):
             user_text += f"\nContext: {request.chart_context.strip()}"
 
         completion = client.chat.completions.create(
-            model=AGENT_MODEL,
+            model=model,
             temperature=temperature,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -216,14 +239,16 @@ async def interpret_plot(request: PlotInterpretationRequest):
             prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
             completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
             total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
-            model=AGENT_MODEL or "",
+            model=model,
         )
 
         return PlotInterpretationResponse(
             description=description or "No interpretation returned.",
             mode=request.mode,
-            model=AGENT_MODEL or "",
+            model=model,
             usage=token_usage,
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

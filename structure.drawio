@@ -1,0 +1,64 @@
+<mxfile host="65bd71144e">
+    <diagram name="IT_Structure_Classic" id="E6kbDoRg4YTXhb1ni7zy">
+        <mxGraphModel dx="2790" dy="2226" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" background="#1a1a2e" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="2" value="" style="group" vertex="1" connectable="0" parent="1">
+                    <mxGeometry x="-500" y="40" width="1320" height="1010" as="geometry"/>
+                </mxCell>
+                <mxCell id="node-dashboard" value="Dashboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1565c0;strokeColor=#ffffff;fontColor=#ffffff;fontSize=16;fontStyle=1;strokeWidth=3;" parent="2" vertex="1">
+                    <mxGeometry x="495" width="330" height="114.03225806451613" as="geometry"/>
+                </mxCell>
+                <mxCell id="container-fastapi" value="FastAPI Services" style="container=1;collapsible=0;fillColor=#1e3a5f;strokeColor=#ffffff;fontColor=#ffffff;fontSize=14;fontStyle=1;align=center;verticalAlign=top;whiteSpace=wrap;html=1;rounded=1;strokeWidth=3;" parent="2" vertex="1">
+                    <mxGeometry y="211.7741935483871" width="891" height="390.9677419354839" as="geometry"/>
+                </mxCell>
+                <mxCell id="node-agent" value="agent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2d5986;strokeColor=#ffffff;fontColor=#ffffff;fontSize=12;fontStyle=1;strokeWidth=2;" parent="container-fastapi" vertex="1">
+                    <mxGeometry x="66" y="81.4516129032258" width="231" height="89.59677419354838" as="geometry"/>
+                </mxCell>
+                <mxCell id="node-downloader-extra" value="downloader_extra" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2d5986;strokeColor=#ffffff;fontColor=#ffffff;fontSize=12;fontStyle=1;strokeWidth=2;" parent="container-fastapi" vertex="1">
+                    <mxGeometry x="330" y="81.4516129032258" width="231" height="89.59677419354838" as="geometry"/>
+                </mxCell>
+                <mxCell id="node-python-sandbox" value="python_sandbox" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2d5986;strokeColor=#ffffff;fontColor=#ffffff;fontSize=12;fontStyle=1;strokeWidth=2;" parent="container-fastapi" vertex="1">
+                    <mxGeometry x="594" y="81.4516129032258" width="231" height="89.59677419354838" as="geometry"/>
+                </mxCell>
+                <mxCell id="node-clustering" value="clustering" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2d5986;strokeColor=#ffffff;fontColor=#ffffff;fontSize=12;fontStyle=1;strokeWidth=2;" parent="container-fastapi" vertex="1">
+                    <mxGeometry x="198" y="211.7741935483871" width="231" height="89.59677419354838" as="geometry"/>
+                </mxCell>
+                <mxCell id="node-forecaster" value="forecaster" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2d5986;strokeColor=#ffffff;fontColor=#ffffff;fontSize=12;fontStyle=1;strokeWidth=2;" parent="container-fastapi" vertex="1">
+                    <mxGeometry x="462" y="211.7741935483871" width="231" height="89.59677419354838" as="geometry"/>
+                </mxCell>
+                <mxCell id="container-storage" value="Storage" style="container=1;collapsible=0;fillColor=#1e3a5f;strokeColor=#ffffff;fontColor=#ffffff;fontSize=14;fontStyle=1;align=center;verticalAlign=top;whiteSpace=wrap;html=1;rounded=1;strokeWidth=3;" parent="2" vertex="1">
+                    <mxGeometry x="990" y="211.7741935483871" width="330" height="358.38709677419354" as="geometry"/>
+                </mxCell>
+                <mxCell id="node-postgresql" value="PostgreSQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2d5986;strokeColor=#ffffff;fontColor=#ffffff;fontSize=12;fontStyle=1;strokeWidth=2;" parent="container-storage" vertex="1">
+                    <mxGeometry x="33" y="81.45161290322581" width="264" height="89.59677419354838" as="geometry"/>
+                </mxCell>
+                <mxCell id="node-qdrant" value="Qdrant" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2d5986;strokeColor=#ffffff;fontColor=#ffffff;fontSize=12;fontStyle=1;strokeWidth=2;" parent="container-storage" vertex="1">
+                    <mxGeometry x="33" y="203.62903225806457" width="264" height="89.59677419354838" as="geometry"/>
+                </mxCell>
+                <mxCell id="container-datafetch" value="Data Fetching" style="container=1;collapsible=0;fillColor=#1e3a5f;strokeColor=#ffffff;fontColor=#ffffff;fontSize=14;fontStyle=1;align=center;verticalAlign=top;whiteSpace=wrap;html=1;rounded=1;strokeWidth=3;" parent="2" vertex="1">
+                    <mxGeometry x="990" y="651.6129032258063" width="330" height="358.38709677419354" as="geometry"/>
+                </mxCell>
+                <mxCell id="node-downloader-gen" value="downloader_general" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2d5986;strokeColor=#ffffff;fontColor=#ffffff;fontSize=12;fontStyle=1;strokeWidth=2;" parent="container-datafetch" vertex="1">
+                    <mxGeometry x="33" y="81.45161290322581" width="264" height="89.59677419354838" as="geometry"/>
+                </mxCell>
+                <mxCell id="node-db-init" value="db_init" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2d5986;strokeColor=#ffffff;fontColor=#ffffff;fontSize=12;fontStyle=1;strokeWidth=2;" parent="container-datafetch" vertex="1">
+                    <mxGeometry x="33" y="203.62903225806457" width="264" height="89.59677419354838" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-datafetch-storage" value="" style="endArrow=block;endFill=1;html=1;rounded=0;strokeColor=#ffffff;strokeWidth=2;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" parent="2" source="container-datafetch" target="container-storage" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-dashboard-fastapi" value="" style="endArrow=block;endFill=1;html=1;rounded=0;strokeColor=#ffffff;strokeWidth=2;exitX=0;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="2" source="node-dashboard" target="container-fastapi" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-dashboard-storage" value="" style="endArrow=block;endFill=1;html=1;rounded=0;strokeColor=#ffffff;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="2" source="node-dashboard" target="container-storage" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-storage-fastapi" value="" style="endArrow=block;endFill=1;html=1;rounded=0;strokeColor=#ffffff;strokeWidth=2;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="2" source="container-storage" target="container-fastapi" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

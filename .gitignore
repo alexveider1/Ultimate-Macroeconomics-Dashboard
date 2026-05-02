@@ -23,3 +23,12 @@ logs/
 /_container_data/downloader_general/.download_completed
 
 .claude/
+
+*.aux
+*.fls
+*.out
+*.toc
+*.gz
+*.fdb_latexmk
+
+*.bkp

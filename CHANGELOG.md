@@ -4,6 +4,17 @@ All notable changes to **Ultimate Macroeconomics Dashboard** are documented in t
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.7]
+
+Improvements of descriptions for the dashboard
+
+### Added
+- `.drawio` and `.png` diagrams with description of dashboard architecture and agentic system architecture
+- Renamed `TODO` into `TODO.md`
+- updated `.gitignore`
+- presentation of the dashboard
+- text of the dashboard introduction in $\LaTeX$ and its compiled version in `.pptx`
+
 ## [v0.6]
 
 The "hosting-ready" release. Adds an alternate deployment topology for public VPS hosting (on the `hosting` branch), introduces in-session LLM token-usage accounting, and removes the runtime theme picker.

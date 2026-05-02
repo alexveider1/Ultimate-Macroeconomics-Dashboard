@@ -40,13 +40,14 @@ The project follows a strict micro-service design and is composed of 10 `Docker`
 
 ## Illustrations
 
-|                          |                       |
-| ------------------------ | --------------------- |
-| ![](app/assets/logo.png) | ![](app/assets/1.png) |
-| ![](app/assets/2.png)    | ![](app/assets/3.png) |
-| ![](app/assets/4.png)    | ![](app/assets/5.png) |
-| ![](app/assets/6.png)    | ![](app/assets/7.png) |
-| ![](app/assets/8.png)    | ![](app/assets/9.png) |
+|                               |                                  |
+| ----------------------------- | -------------------------------- |
+| ![](app/assets/structure.png) | ![](app/assets/ai_structure.png) |
+| ![](app/assets/logo.png)      | ![](app/assets/1.png)            |
+| ![](app/assets/2.png)         | ![](app/assets/3.png)            |
+| ![](app/assets/4.png)         | ![](app/assets/5.png)            |
+| ![](app/assets/6.png)         | ![](app/assets/7.png)            |
+| ![](app/assets/8.png)         | ![](app/assets/9.png)            |
 
 ## LLM Requirements
 The dashboard relies heavily on agentic infrastructure, so the LLM you connect must satisfy a specific feature set. These requirements are met by virtually every recent flagship model from major providers (`OpenAI`, `Google`, `Anthropic`, `Qwen`, `DeepSeek`). Older models or models from smaller providers may break some functionality. Powerful cloud models from paid APIs are recommended; local models served via [`vLLM`](https://github.com/vllm-project/vllm) on a high-performance GPU also work.

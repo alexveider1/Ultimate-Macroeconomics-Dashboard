@@ -13,7 +13,7 @@
 
 ## Long-term
 
-*
+* Add page with data from [FRED](https://fred.stlouisfed.org/)
 
 ## Backlog
 

@@ -14,6 +14,8 @@
 ## Long-term
 
 * Add page with data from [FRED](https://fred.stlouisfed.org/)
+* Migrate frontend to Reacts + NextJS + Apache E-Charts
+* Add interactive graph networks for visualizing connections between countries in global economy
 
 ## Backlog
 

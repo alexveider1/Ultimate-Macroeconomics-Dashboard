@@ -5,6 +5,7 @@
 ## Short-term
 
 * Add consistent across countries selector for countries
+* Completely remove tqdm progress bars
 
 ## Medium-term
 

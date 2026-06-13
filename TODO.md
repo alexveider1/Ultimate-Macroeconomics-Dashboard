@@ -23,6 +23,7 @@
 * Voice output from AI-agent
 * Setting up development environment for deep Claude Code integration
 * Page on dashboard with educational videos about how used in the project ML/DL models work
+* Add option to store data in cloud services
 
 ## Backlog
 

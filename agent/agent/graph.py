@@ -278,9 +278,7 @@ class MacroSupervisorAgent:
             return "\n---\n".join(results)
         older = results[:-keep_verbatim]
         recent = results[-keep_verbatim:]
-        older_block = "\n".join(
-            f"- (earlier) {r.splitlines()[0][:200]}" for r in older
-        )
+        older_block = "\n".join(f"- (earlier) {r.splitlines()[0][:200]}" for r in older)
         return (
             f"EARLIER RESULTS (summarised — full text dropped to keep prompt small):\n"
             f"{older_block}\n\n"
@@ -1385,9 +1383,7 @@ class MacroAgentGraph:
                 }
                 return
 
-            draft = self._sanitize_draft(last_isolated_task) or (
-                "I could not produce a response."
-            )
+            draft = self._sanitize_draft(last_isolated_task) or ("I could not produce a response.")
 
             collected: list[str] = []
             try:

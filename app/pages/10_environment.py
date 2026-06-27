@@ -83,9 +83,7 @@ def _render_renewable_vs_pm25_overview() -> None:
         return
 
     selected_countries = {
-        str(code).strip().upper()
-        for code in get_shared_selected_countries()
-        if str(code).strip()
+        str(code).strip().upper() for code in get_shared_selected_countries() if str(code).strip()
     }
     year_df = year_df.with_columns(
         pl.when(pl.col("economy").is_in(list(selected_countries)))

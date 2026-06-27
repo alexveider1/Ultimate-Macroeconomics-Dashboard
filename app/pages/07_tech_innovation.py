@@ -87,9 +87,7 @@ def _render_rd_vs_hightech_overview() -> None:
         return
 
     selected_countries = {
-        str(code).strip().upper()
-        for code in get_shared_selected_countries()
-        if str(code).strip()
+        str(code).strip().upper() for code in get_shared_selected_countries() if str(code).strip()
     }
     year_df = year_df.with_columns(
         pl.when(pl.col("economy").is_in(list(selected_countries)))
@@ -196,9 +194,7 @@ def _render_digital_adoption_deep_dive() -> None:
         return
 
     selected_iso_codes = [
-        str(c).strip().upper()
-        for c in get_shared_selected_countries()
-        if str(c).strip()
+        str(c).strip().upper() for c in get_shared_selected_countries() if str(c).strip()
     ][:DIGITAL_MAX_LINES]
 
     country_map = get_world_bank_country_mapping()

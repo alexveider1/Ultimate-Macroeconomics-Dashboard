@@ -81,9 +81,7 @@ def _render_inflation_vs_rate_overview() -> None:
         return
 
     selected_countries = {
-        str(code).strip().upper()
-        for code in get_shared_selected_countries()
-        if str(code).strip()
+        str(code).strip().upper() for code in get_shared_selected_countries() if str(code).strip()
     }
     year_df = year_df.with_columns(
         pl.when(pl.col("economy").is_in(list(selected_countries)))
@@ -225,9 +223,7 @@ def _render_inflation_heatmap_deep_dive() -> None:
     z = []
     y_labels = []
     selected_iso_codes = {
-        str(c).strip().upper()
-        for c in get_shared_selected_countries()
-        if str(c).strip()
+        str(c).strip().upper() for c in get_shared_selected_countries() if str(c).strip()
     }
     matrix_dict = {row["economy"]: row for row in matrix_df.to_dicts()}
     for econ in ordered_econ:

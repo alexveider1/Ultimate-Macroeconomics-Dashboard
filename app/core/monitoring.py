@@ -177,7 +177,9 @@ def _docker_client() -> httpx.Client | None:
     if not os.path.exists(DOCKER_SOCKET):
         return None
     transport = httpx.HTTPTransport(uds=DOCKER_SOCKET)
-    return httpx.Client(transport=transport, base_url="http://localhost", timeout=DOCKER_STATS_TIMEOUT)
+    return httpx.Client(
+        transport=transport, base_url="http://localhost", timeout=DOCKER_STATS_TIMEOUT
+    )
 
 
 def _cpu_percent(stats: dict[str, Any]) -> float:
@@ -226,9 +228,7 @@ def _fetch_one_container_stats(container: dict[str, Any]) -> ContainerStats | No
     if client is None:
         return None
     try:
-        stats = client.get(
-            f"/containers/{container_id}/stats", params={"stream": "false"}
-        ).json()
+        stats = client.get(f"/containers/{container_id}/stats", params={"stream": "false"}).json()
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Stats fetch failed for %s: %s", name, exc)
         return None

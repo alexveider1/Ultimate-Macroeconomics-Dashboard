@@ -375,7 +375,9 @@ class WorldBankDownloader(BaseWorldBankDownloader):
             logging.info(f"Starting downloads for World Bank database (db_id={db_id})")
             with ThreadPoolExecutor(max_workers=self.max_parallel_indicators) as executor:
                 futures = {
-                    executor.submit(self._download_indicator_pair, indicator_id, db_id): indicator_id
+                    executor.submit(
+                        self._download_indicator_pair, indicator_id, db_id
+                    ): indicator_id
                     for indicator_id in indicator_ids
                 }
                 for future in tqdm(

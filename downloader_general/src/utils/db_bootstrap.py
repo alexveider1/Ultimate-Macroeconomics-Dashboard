@@ -41,8 +41,7 @@ def ensure_llm_role(sql_uri: str, llm_username: str, llm_password: str) -> None:
     """
     if not llm_username or not llm_password:
         logger.warning(
-            "Skipping LLM role bootstrap: POSTGRES_LLM_USER / "
-            "POSTGRES_LLM_PASSWORD not set."
+            "Skipping LLM role bootstrap: POSTGRES_LLM_USER / POSTGRES_LLM_PASSWORD not set."
         )
         return
 

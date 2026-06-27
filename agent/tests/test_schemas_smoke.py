@@ -17,7 +17,10 @@ from agent.schemas import (
 def test_chat_request_accepts_history() -> None:
     req = ChatRequest(
         user_message="What is GDP?",
-        chat_history=[ChatMessage(role="user", content="hi"), ChatMessage(role="assistant", content="hello")],
+        chat_history=[
+            ChatMessage(role="user", content="hi"),
+            ChatMessage(role="assistant", content="hello"),
+        ],
     )
     assert len(req.chat_history) == 2
     assert req.chat_history[0].role == "user"

@@ -230,9 +230,7 @@ def _render_visuals(
     x_axis_title = visualization_labels[0] if len(visualization_labels) > 0 else scatter_x
     y_axis_title = visualization_labels[1] if len(visualization_labels) > 1 else scatter_y
     z_axis_title = (
-        visualization_labels[2]
-        if is_3d and len(visualization_labels) > 2
-        else (scatter_z or "")
+        visualization_labels[2] if is_3d and len(visualization_labels) > 2 else (scatter_z or "")
     )
 
     plot_df = result_df.to_pandas()
@@ -259,8 +257,7 @@ def _render_visuals(
         for cluster_label in unique_clusters:
             sub = plot_df[plot_df["cluster_label"] == cluster_label]
             hovertemplate = (
-                "<b>%{text}</b><br>%{customdata[0]}<br>"
-                "Cluster: %{customdata[1]}<extra></extra>"
+                "<b>%{text}</b><br>%{customdata[0]}<br>Cluster: %{customdata[1]}<extra></extra>"
             )
             if is_3d:
                 scatter_fig.add_trace(
@@ -500,9 +497,7 @@ def render_page() -> None:
                     st.number_input("min_samples", min_value=1, max_value=25, value=5)
                 )
         elif method == "spectral":
-            spectral_n_clusters = st.slider(
-                "n_clusters", min_value=2, max_value=12, value=4
-            )
+            spectral_n_clusters = st.slider("n_clusters", min_value=2, max_value=12, value=4)
             spectral_affinity = st.radio(
                 "affinity",
                 options=["rbf", "nearest_neighbors"],
@@ -513,13 +508,9 @@ def render_page() -> None:
                     "gamma", min_value=0.01, max_value=5.0, value=1.0, step=0.01
                 )
             else:
-                spectral_n_neighbors = st.slider(
-                    "n_neighbors", min_value=2, max_value=25, value=10
-                )
+                spectral_n_neighbors = st.slider("n_neighbors", min_value=2, max_value=25, value=10)
         elif method == "hierarchical":
-            hierarchical_n_clusters = st.slider(
-                "n_clusters", min_value=2, max_value=12, value=4
-            )
+            hierarchical_n_clusters = st.slider("n_clusters", min_value=2, max_value=12, value=4)
             hierarchical_linkage = st.selectbox(
                 "linkage",
                 options=["ward", "complete", "average", "single"],
@@ -712,18 +703,14 @@ def render_page() -> None:
                 cluster_df = cluster_df.with_columns(pl.col("economy").alias("country_name"))
 
             default_mode = (
-                "feature_space"
-                if len(selected_indicators) <= effective_output_dim
-                else "tsne"
+                "feature_space" if len(selected_indicators) <= effective_output_dim else "tsne"
             )
             st.session_state[RESULT_STATE_KEY] = {
                 "result_df": cluster_df,
                 "feature_columns": selected_indicators,
                 "feature_label_by_id": feature_label_by_id,
                 "feature_mode_by_indicator": feature_mode_by_indicator,
-                "visualization_mode": str(
-                    api_result.get("visualization_mode", default_mode)
-                ),
+                "visualization_mode": str(api_result.get("visualization_mode", default_mode)),
                 "visualization_columns": visualization_columns,
                 "visualization_labels": visualization_labels,
                 "method": method,

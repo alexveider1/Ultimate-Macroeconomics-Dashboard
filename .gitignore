@@ -82,7 +82,7 @@ logs/
 *~
 
 # Local Claude Code state
-.claude/
+.claude/settings.local.json
 
 # ---------------------------------------------------------------------------
 # OS

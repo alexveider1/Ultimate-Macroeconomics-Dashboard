@@ -470,9 +470,7 @@ class NewsDownloader(BaseNewsDownloader):
                         continue
                     if points:
                         # qdrant_client is thread-safe; upserts can overlap freely.
-                        self.qdrant_client.upsert(
-                            collection_name=collection_name, points=points
-                        )
+                        self.qdrant_client.upsert(collection_name=collection_name, points=points)
 
             sleep(self.download_retry_delay_seconds)
 

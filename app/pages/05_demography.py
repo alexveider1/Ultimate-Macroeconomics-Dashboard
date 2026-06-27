@@ -202,9 +202,7 @@ def _render_age_structure_deep_dive() -> None:
     )
 
     selected_iso_codes = {
-        str(c).strip().upper()
-        for c in get_shared_selected_countries()
-        if str(c).strip()
+        str(c).strip().upper() for c in get_shared_selected_countries() if str(c).strip()
     }
     snapshot = snapshot.with_columns(
         pl.when(pl.col("economy").is_in(list(selected_iso_codes)))

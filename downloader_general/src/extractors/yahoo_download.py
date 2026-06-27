@@ -219,9 +219,7 @@ class YahooDownloader(BaseYahooDownloader):
 
         normalized_assets = list(self._normalize_assets(category, assets))
         tasks = [
-            (asset.get("id"), asset.get("name"))
-            for asset in normalized_assets
-            if asset.get("id")
+            (asset.get("id"), asset.get("name")) for asset in normalized_assets if asset.get("id")
         ]
         skipped = len(normalized_assets) - len(tasks)
         if skipped:

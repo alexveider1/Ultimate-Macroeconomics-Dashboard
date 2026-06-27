@@ -75,14 +75,16 @@ Other config files in `_container_data/`:
 
 ### `app` (Streamlit)
 
-Entry point `app/app.py` registers the Plotly template, sets up `st.session_state` (chat history, per-service health flags), declares the multi-page navigation, and shows a one-time data disclaimer dialog. Pages live under `app/pages/` and are numbered `01_…` through `16_…` for ordering; the numbers also encode the v0.3 navigation renormalisation. Shared infrastructure is in `app/core/`:
+Entry point `app/app.py` registers the Plotly template, sets up `st.session_state` (chat history, per-service health flags), declares the multi-page navigation, and shows a one-time data disclaimer dialog. Pages live under `app/pages/`, numbered `01_…` through `18_…` for ordering (there is no `16_`; the numbering also encodes the v0.3 navigation renormalisation). The indicator pages (`01`–`10`) are **config-driven** — they call `render_page_from_config` (`app/pages/page_utils.py`) with section keys from `world_bank_download_config.json` rather than hand-rolling charts; `17_token_usage.py` and `18_monitoring.py` are the two ops pages. Shared infrastructure is in `app/core/`:
 
 - `api_client.py` — typed wrappers around every backend HTTP endpoint (forecaster, agent SSE stream, clustering, plot interpretation, downloader_extra). Always use these wrappers rather than `requests.post` directly — they handle the base-URL resolution and request logging.
 - `postgres_client.py` / `qdrant_client.py` — connection helpers with retries (hardened in v0.5).
 - `plotting.py` — Plotly helpers; pages call `get_color` / `get_colorway` rather than hard-coding hex values, so palette swaps work via `themes.yaml`.
 - `theming.py` — registers the `"app"` Plotly template from the active theme.
-- `token_usage.py` — in-memory aggregator displayed on the Settings page; cleared on session end.
+- `token_usage.py` — in-memory aggregator shown on the **Token Usage page** (`17_token_usage.py`); cleared on session end. `token_usage_store.py` is the separate Postgres-backed persistence layer (writes via the superuser role).
+- `monitoring.py` — service-health probing + container stats behind the **Monitoring page** (`18_monitoring.py`). It hits each service's `/health` (`/_stcore/health` for Streamlit, a TCP/SQL probe for bare Postgres) and reads per-container CPU/memory/network from the Docker Engine API over a **read-only `/var/run/docker.sock`** bind-mounted into `app`. That mount is required for the Monitoring page and is declared only in `docker-compose.yaml`, not `config.yaml`.
 - `app_logging.py` — centralised page-render and HTTP-request logging.
+- `page_helpers.py` / `pages/page_utils.py` — shared dashboard-page rendering helpers (config-driven indicator renderer + common indicator-slice cleaning) extracted from per-page duplication; new indicator pages should reuse these rather than re-implementing the slice/clean/plot flow.
 
 ### `agent` (LangGraph supervisor)
 
@@ -141,3 +143,14 @@ For incremental WB indicator additions during a live stack, the agent's `downloa
 - DB access: the `app` keeps `connectorx` for bulk Polars reads; the `agent`'s `sql_agent` worker keeps raw `text()` because the LLM generates dynamic SQL. Everywhere else uses SQLAlchemy ORM (`select`/`delete`/`Session`) on `Mapped` models — don't sprinkle new `text()` calls.
 - Postgres database name resolution: every client (`app/core/postgres_client.py`, `agent/main.py`, `downloader_extra/main.py`, `downloader_general/main.py`) reads `os.getenv("POSTGRES_DB") or config["postgres"]["database"]`. `POSTGRES_DB` in `.env` is the source of truth; `config.yaml`'s `postgres.database` is the fallback when the env var is unset. The postgres image itself only honours `POSTGRES_DB` at first volume init — changing the value on a populated volume requires re-creating the DB or wiping the volume.
 - News page embedding panels (`app/pages/15_news.py: _render_embedding_map` and `_render_distance_histogram`) run only when their `st.form_submit_button` is clicked and cache the result in `st.session_state` so picking a different article re-draws the highlight on the cached projection without re-clustering. The scatter highlights the selected article using the `selected_marker` theme token; add that token to any custom theme before shipping it.
+
+## Rules of repo
+
+- Use only `uv` and `pnpm` for package management
+- Use `ruff` and `es-lint` for linting/formatting code
+- Use `ty` for static type checking
+- Never push to github
+- In commits messages use short and simple
+messages
+- Tests for each service should be written
+- For frontend testing use playwright, don't finish until web ui looks clean and smooth, without bugs and visual problems

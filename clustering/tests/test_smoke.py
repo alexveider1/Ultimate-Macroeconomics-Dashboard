@@ -32,7 +32,9 @@ def _project(matrix: np.ndarray, columns: list[str], **overrides: Any):
     return _build_visual_projection(matrix, columns, **kwargs)
 
 
-def _blobs(rng: np.random.Generator, centers: list[tuple[float, ...]], per_cluster: int = 10) -> np.ndarray:
+def _blobs(
+    rng: np.random.Generator, centers: list[tuple[float, ...]], per_cluster: int = 10
+) -> np.ndarray:
     """Generate well-separated Gaussian blobs around ``centers``."""
     return np.vstack(
         [rng.normal(loc=np.array(c), scale=0.4, size=(per_cluster, len(c))) for c in centers]
@@ -107,9 +109,7 @@ def test_build_visual_projection_passthrough_pads_with_zero_axis() -> None:
 def test_build_visual_projection_uses_pca_when_requested() -> None:
     rng = np.random.default_rng(seed=42)
     matrix = rng.normal(size=(20, 5))
-    projection, mode, labels = _project(
-        matrix, [f"f{i}" for i in range(5)], reduction_method="pca"
-    )
+    projection, mode, labels = _project(matrix, [f"f{i}" for i in range(5)], reduction_method="pca")
     assert mode == "pca"
     assert labels == ["PC 1", "PC 2"]
     assert projection.shape == (20, 2)

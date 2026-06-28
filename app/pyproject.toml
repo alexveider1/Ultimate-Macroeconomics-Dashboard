@@ -80,9 +80,9 @@ pythonpath = ["."]
 addopts = "-ra --strict-markers --cov --cov-report=term-missing"
 
 [tool.coverage.run]
-source = ["app.py", "core", "pages"]
+source = ["."]
 branch = true
-omit = ["tests/*", "**/__init__.py"]
+omit = ["tests/*", ".venv/*", "**/__init__.py"]
 
 [tool.coverage.report]
 show_missing = true

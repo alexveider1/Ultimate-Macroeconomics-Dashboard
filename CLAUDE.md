@@ -63,9 +63,11 @@ Inside the Compose network, services address each other by container name and th
 
 Important: `docker-compose.yaml` duplicates the ports and bind-mount paths declared in `config.yaml`. Changing a port or path in one file requires changing it in the other. The two files are not auto-synced.
 
+Each service parses the slice of `config.yaml` it needs through a small Pydantic model in its own `config.py` (`load_config(path)` → typed object; access is attribute-based — `CONFIG.postgres.host`, not `CONFIG.get("postgres", {}).get("host")`). Secrets are likewise typed per service via `pydantic-settings` `BaseSettings` in a `settings.py`, and each service declares and receives **only the secrets it actually uses** (least privilege): `clustering` / `forecaster` / `python_sandbox` get none, `agent` gets the read-only LLM role but not the superuser password, `app` gets both Postgres roles + the Qdrant key but no `OPENAI_API_KEY`. `docker-compose.yaml` enforces this at the container boundary — the old blanket `env_file: ./_container_data/.env` is replaced by a per-service `environment:` block that injects only that service's variables via `${VAR}` interpolation. A gitignored root-level `.env` symlink → `_container_data/.env` lets `docker compose up` resolve those `${VAR}`s with the documented command unchanged (alternatively: `docker compose --env-file _container_data/.env up`). There is no shared config/secrets package — each service is its own container with its own `pyproject.toml`, so the tiny models are duplicated per service by design.
+
 Other config files in `_container_data/`:
 
-- `.env` — secrets (Postgres creds, Qdrant API key, `OPENAI_API_KEY`). Never commit; gitignored.
+- `.env` — secrets (Postgres creds, Qdrant API key, `OPENAI_API_KEY`). Never commit; gitignored. No longer blanket-mounted into every container — each service receives only the secrets it uses (see the per-service scoping note above), and a gitignored root `.env` symlink points here so Compose `${VAR}` interpolation resolves.
 - `database_schema.yaml` — column-level documentation of Postgres tables; mounted into `agent` so the SQL worker can ground its queries.
 - `_configs/world_bank_download_config.json` — list of WB indicators grouped by dashboard page. Append here to add indicators on next clean boot; or add at runtime via the AI analyst (it calls `downloader_extra`).
 - `_configs/news_download_config.json` — news topics for the RAG corpus.
@@ -101,11 +103,13 @@ Entry point `app/app.py` registers the Plotly template, sets up `st.session_stat
    - `downloader_agent` — calls `downloader_extra` to ingest WB indicators on demand. Triggered when `sql_agent` returns `last_worker_status = NEEDS_DOWNLOAD`.
    - `chat_agent` — conversational synthesis / general-knowledge answers.
 
+The graph builds **two `ChatOpenAI` instances** (`MacroAgentGraph.__init__`): a strong model (`shared.openai_llm_model`) for the reasoning-heavy roles — `supervisor` (planning + the final answer), `sql_agent`, `plotly_agent`, `chat_agent` — and a fast model (`shared.openai_llm_model_fast`) for the cheap `GuardrailAgent` screen and the lightweight `table_agent` / `rag_agent` / `web_search` / `downloader_agent`. Both share the base URL + API key and differ only by model name; when `openai_llm_model_fast` is unset it falls back to the strong model (the previous single-model behaviour). Vision (`/plots/interpret`) stays on the strong model.
+
 When the supervisor picks FINISH, it writes the **complete polished markdown answer** into `isolated_worker_task` and that draft is streamed to the user verbatim in ~24-char chunks (`MacroAgentGraph._stream_supervisor_draft`). There is no second synthesis LLM call — the supervisor's draft is the answer, with only a small line-level leak filter (`_sanitize_draft`) stripping any line that accidentally contains worker names / sandbox / traceback tokens.
 
 Streaming protocol is SSE on `POST /chat/stream` with `step` / `token` / `final` / `error` events; the `final` event carries the answer plus an `artifacts` dict and a `usage` block. `POST /plots/interpret` is a separate vision endpoint that reads a base64 Plotly screenshot with two modes (`no_hallucinations` strict description vs. analyst interpretation).
 
-Per-LLM-call token accounting is attached via `UsageTracker` (`agent/agent/usage.py`) on every LangChain LLM in the graph (guardrail when it escalates, supervisor, each worker). Worker output schemas live in `agent/agent/schemas.py`; prompt text lives in `agent/agent/prompts.py` and follows a stable-prefix / dynamic-tail layout so provider-side automatic prefix caching can match across requests.
+Per-LLM-call token accounting is attached via `UsageTracker` (`agent/agent/usage.py`) on every LangChain LLM in the graph (guardrail when it escalates, supervisor, each worker) — it's a graph-level callback, so it aggregates across both the strong and fast models automatically and labels each call with the model that served it. Worker output schemas live in `agent/agent/schemas.py`; prompt text lives in `agent/agent/prompts.py` and follows a stable-prefix / dynamic-tail layout so provider-side automatic prefix caching can match across requests.
 
 External backend calls (sandbox, downloader_extra) use one shared `httpx.AsyncClient` from `agent.tools._get_httpx_client()` (closed in the FastAPI shutdown hook); the rendered database-schema text is `functools.lru_cache`d so it isn't re-serialised on every SQL step.
 
@@ -155,3 +159,5 @@ messages
 - Tests for each service should be written
 - For frontend testing use playwright, don't finish until web ui looks clean and smooth, without bugs and visual problems
 - Work only in `dev` branch
+- If something is not even slightly understood by you - always ask user
+- On each step of development, update CLAUDE.md, TODO.md, CHANGELOG.md (only for v0.x commits with tags) and PLAN.md

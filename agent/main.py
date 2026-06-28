@@ -14,16 +14,14 @@ returned in the SSE ``final`` event so the dashboard can show it.
 import asyncio
 import json
 import logging
-import os
 from functools import lru_cache
 from pathlib import Path
 
-import yaml
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from openai import OpenAI, OpenAIError
 from starlette.responses import StreamingResponse
 
+from agent.config import load_config
 from agent.graph import MacroAgentGraph
 from agent.schemas import (
     ChatRequest,
@@ -31,6 +29,7 @@ from agent.schemas import (
     PlotInterpretationResponse,
     TokenUsage,
 )
+from agent.settings import get_settings
 from agent.tools import aclose_runtime_clients, configure_runtime
 from agent.usage import UsageTracker
 
@@ -39,32 +38,29 @@ logger = logging.getLogger(__name__)
 STREAM_TIMEOUT_SECONDS = 300
 
 CONFIG_PATH = Path("config.yaml")
-ENV_FILE_PATH = Path(".env")
 DATABASE_SCHEMA_PATH = Path("database_schema.yaml")
 NEWS_TOPICS_PATH = Path("_configs/news_download_config.json")
 
-CONFIG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+CONFIG = load_config(CONFIG_PATH)
+SETTINGS = get_settings()
 
-load_dotenv(dotenv_path=ENV_FILE_PATH)
+SHARED_CFG = CONFIG.shared
+AGENT_MODEL = SHARED_CFG.openai_llm_model
+AGENT_MODEL_FAST = SHARED_CFG.openai_llm_model_fast
+OPENAI_API_BASE_URL = SHARED_CFG.openai_base_url
+OPENAI_API_KEY = SETTINGS.openai_api_key
 
-SHARED_CFG = CONFIG.get("shared", {})
-AGENT_MODEL = SHARED_CFG.get("openai_llm_model")
-OPENAI_API_BASE_URL = SHARED_CFG.get("openai_base_url")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-PYTHON_SANDBOX_BASE_URL = f"http://python_sandbox:{CONFIG.get('python_sandbox', {}).get('port')}"
-DOWNLOADER_EXTRA_BASE_URL = (
-    f"http://downloader_extra:{CONFIG.get('downloader_extra', {}).get('port')}"
-)
-QDRANT_URL = f"http://{CONFIG.get('qdrant', {}).get('host')}:{CONFIG.get('qdrant', {}).get('port')}"
-QDRANT_API_KEY = os.getenv("QDRANT__SERVICE__API_KEY", "")
+PYTHON_SANDBOX_BASE_URL = f"http://python_sandbox:{CONFIG.python_sandbox.port}"
+DOWNLOADER_EXTRA_BASE_URL = f"http://downloader_extra:{CONFIG.downloader_extra.port}"
+QDRANT_URL = f"http://{CONFIG.qdrant.host}:{CONFIG.qdrant.port}"
+QDRANT_API_KEY = SETTINGS.qdrant_api_key
 POSTGRES_DATABASE_URI = (
     f"postgresql+psycopg2://"
-    f"{os.getenv('POSTGRES_LLM_USER')}:{os.getenv('POSTGRES_LLM_PASSWORD')}"
-    f"@{CONFIG.get('postgres', {}).get('host')}:{CONFIG.get('postgres', {}).get('port')}"
-    f"/{os.getenv('POSTGRES_DB') or CONFIG.get('postgres', {}).get('database')}"
+    f"{SETTINGS.postgres_llm_user}:{SETTINGS.postgres_llm_password}"
+    f"@{CONFIG.postgres.host}:{CONFIG.postgres.port}"
+    f"/{SETTINGS.postgres_db or CONFIG.postgres.database}"
 )
-OPENAI_EMBEDDING_MODEL = SHARED_CFG.get("openai_embedding_model", "text-embedding-3-small")
+OPENAI_EMBEDDING_MODEL = SHARED_CFG.openai_embedding_model
 
 configure_runtime(
     database_schema_path=DATABASE_SCHEMA_PATH,
@@ -103,6 +99,7 @@ def _get_macro_agent() -> MacroAgentGraph:
     return MacroAgentGraph(
         base_url=OPENAI_API_BASE_URL or "",
         model_name=AGENT_MODEL or "",
+        fast_model_name=AGENT_MODEL_FAST or "",
         api_key=_require_api_key(),
     )
 
@@ -123,7 +120,7 @@ async def _close_runtime_clients() -> None:
 @app.get("/")
 def root() -> dict[str, str]:
     """Return ``{"status": "ok", "model": ...}`` for liveness + model echo."""
-    return {"status": "ok", "model": AGENT_MODEL or ""}
+    return {"status": "ok", "model": AGENT_MODEL or "", "fast_model": AGENT_MODEL_FAST or ""}
 
 
 @app.get("/health")

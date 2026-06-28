@@ -15,10 +15,10 @@ import sys
 from pathlib import Path
 
 import tqdm
-import yaml
-from dotenv import load_dotenv
 
+from src.config import load_config
 from src.extractors import NewsDownloader, WorldBankDownloader, YahooDownloader
+from src.settings import load_settings
 from src.utils.db_bootstrap import ensure_llm_role
 from src.utils.downloads import _get_sql_config
 from src.utils.schema import load_database_schema
@@ -46,27 +46,6 @@ class _TqdmHandler(logging.StreamHandler):
 
 CONFIG_PATH = Path("config.yaml")
 DEFAULT_DOWNLOAD_MARKER = Path("_container_data/.download_completed")
-
-
-def _require(mapping: dict, *path: str) -> object:
-    """Look up a nested config key, failing loudly on any missing segment.
-
-    Args:
-        mapping: Root config dict.
-        *path: Sequence of keys to walk into ``mapping``.
-
-    Returns:
-        The value at ``mapping[path[0]][path[1]]...``.
-
-    Raises:
-        KeyError: When any segment is absent.
-    """
-    current: object = mapping
-    for segment in path:
-        if not isinstance(current, dict) or segment not in current:
-            raise KeyError(f"Missing required config key '{'.'.join(path)}' in {CONFIG_PATH}")
-        current = current[segment]
-    return current
 
 
 def main() -> None:
@@ -102,33 +81,31 @@ def main() -> None:
         ],
     )
 
-    args = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    config = load_config(CONFIG_PATH)
+    shared = config.shared
 
-    env_file = _require(args, "shared", "env_file")
-    postgres_host = _require(args, "postgres", "host")
-    postgres_port = _require(args, "postgres", "port")
     # config.yaml holds the fallback DB name; POSTGRES_DB in .env wins because
     # that's the value the postgres image uses on first volume init.
-    load_dotenv(env_file)
-    postgres_db = os.getenv("POSTGRES_DB") or _require(args, "postgres", "database")
-    qdrant_host = _require(args, "qdrant", "host")
-    qdrant_port = _require(args, "qdrant", "port")
-    database_schema_path = _require(args, "shared", "database_schema")
-    database_schema = load_database_schema(database_schema_path)
-    world_bank_download_config = _require(args, "shared", "world_bank_download_config")
-    news_download_config = _require(args, "shared", "news_download_config")
-    yahoo_download_config = _require(args, "shared", "yahoo_download_config")
-    repo_url = _require(args, "downloader_general", "repo_url")
-    openai_base_url = _require(args, "shared", "openai_base_url")
-    openai_embedding_model = _require(args, "shared", "openai_embedding_model")
-    openai_embedding_model_max_tokens = _require(
-        args, "shared", "openai_embedding_model_max_tokens"
-    )
-    openai_model_dimensions = _require(args, "shared", "openai_embedding_model_dimensions")
+    env_file = shared.env_file
+    secrets = load_settings(env_file)
+    postgres_host = config.postgres.host
+    postgres_port = config.postgres.port
+    postgres_db = secrets.postgres_db or config.postgres.database
+    qdrant_host = config.qdrant.host
+    qdrant_port = config.qdrant.port
+    database_schema = load_database_schema(shared.database_schema)
+    world_bank_download_config = shared.world_bank_download_config
+    news_download_config = shared.news_download_config
+    yahoo_download_config = shared.yahoo_download_config
+    repo_url = config.downloader_general.repo_url
+    openai_base_url = shared.openai_base_url
+    openai_embedding_model = shared.openai_embedding_model
+    openai_embedding_model_max_tokens = shared.openai_embedding_model_max_tokens
+    openai_model_dimensions = shared.openai_embedding_model_dimensions
 
     superuser_uri = _get_sql_config(
-        username=os.getenv("POSTGRES_USER", ""),
-        password=os.getenv("POSTGRES_PASSWORD", ""),
+        username=secrets.postgres_user,
+        password=secrets.postgres_password,
         host=str(postgres_host),
         port=int(postgres_port),
         db=str(postgres_db),
@@ -136,8 +113,8 @@ def main() -> None:
     try:
         ensure_llm_role(
             sql_uri=superuser_uri,
-            llm_username=os.getenv("POSTGRES_LLM_USER", ""),
-            llm_password=os.getenv("POSTGRES_LLM_PASSWORD", ""),
+            llm_username=secrets.postgres_llm_user,
+            llm_password=secrets.postgres_llm_password,
         )
     except Exception:
         logging.exception("LLM role bootstrap failed; continuing with downloads")

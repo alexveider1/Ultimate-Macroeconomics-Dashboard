@@ -4,6 +4,26 @@ All notable changes to **Ultimate Macroeconomics Dashboard** are documented in t
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.11]
+
+Typed configuration and least-privilege secrets across every service, plus a two-model agent for cheaper, faster inference.
+
+### Added
+
+- **Typed config per service.** Each service now parses the slice of `config.yaml` it reads through a Pydantic model in its own `config.py` (`load_config(path)` → validated object, attribute access). Replaces the ~10× duplicated `yaml.safe_load(...) + .get("x", {}).get("y")` boilerplate (and the bespoke `_require()` nested-key walker in `downloader_general`); a malformed config now fails at startup with a precise `ValidationError`.
+- **Typed secrets per service (`pydantic-settings`).** Services that use secrets gained a `settings.py` `BaseSettings` model declaring only the variables they read; the Qdrant key's three legacy env-var names collapse into one `AliasChoices` field. Config/settings validation tests added for every service.
+- **`shared.openai_llm_model_fast`** config key naming the agent's fast model (falls back to `openai_llm_model` when unset).
+
+### Changed
+
+- **The agent runs two models.** `MacroAgentGraph` now builds a strong `ChatOpenAI` (`openai_llm_model`) for the reasoning-heavy roles — supervisor (planning + the final answer), `sql_agent`, `plotly_agent`, `chat_agent` — and a fast `ChatOpenAI` (`openai_llm_model_fast`) for the cheap `GuardrailAgent` screen and the lightweight `table_agent` / `rag_agent` / `web_search` / `downloader_agent`. Lower latency and cost on the cheap steps, quality preserved where it matters. `UsageTracker` is a graph-level callback, so per-call token accounting spans both models and labels each call with the model that served it. Vision (`/plots/interpret`) stays on the strong model.
+- **Least-privilege secret injection.** `docker-compose.yaml` no longer mounts the whole `_container_data/.env` into every container via `env_file`. Each service gets a per-service `environment:` block injecting only the secrets it uses via `${VAR}` interpolation: `clustering` / `forecaster` / `python_sandbox` get none, `agent` gets the read-only LLM role (not the superuser password), `app` gets both Postgres roles + the Qdrant key (no `OPENAI_API_KEY`); `db` / `vector_db` / `downloader_extra` get only their own. A gitignored root `.env` symlink → `_container_data/.env` keeps `docker compose up` working unchanged (or run `docker compose --env-file _container_data/.env up`).
+- **Dropped dead `load_dotenv` / `python-dotenv`** from `clustering`, `forecaster`, and `python_sandbox` (they read no secrets); added `pydantic` to `app` / `python_sandbox` and `pydantic-settings` to `app` / `agent` / `downloader_extra` / `downloader_general`.
+
+### Operator notes
+
+- After pulling, create the gitignored root `.env` symlink once — `ln -sfn _container_data/.env .env` — then `docker compose up --build` as before. Set `shared.openai_llm_model_fast` in `config.yaml` to a fast model available on your endpoint (ships as a `gpt-5.4-mini` placeholder; remove the key to fall back to the strong model).
+
 ## [v0.10]
 
 Forecasting expansion (four new models + per-model hyperparameter inputs), forecast-chart polish (dashed history→forecast connector + optional point markers), tighter and cheaper LLM plot descriptions, two embedding-visualisation panels on the News page that ride on the existing clustering service, a `selected_marker` semantic theme token, and a `POSTGRES_DB`-resolution fix that finally lets the env var pick the database name everywhere instead of only at first volume init.

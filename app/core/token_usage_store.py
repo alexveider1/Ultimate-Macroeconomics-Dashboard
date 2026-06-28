@@ -14,22 +14,21 @@ use the superuser role so the agent's read-only role isn't touched.
 from __future__ import annotations
 
 import logging
-import os
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import polars as pl
-import yaml
-from dotenv import load_dotenv
 from sqlalchemy import DateTime, Engine, Integer, String, create_engine, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+
+from core.config import load_config
+from core.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path("config.yaml")
-ENV_FILE_PATH = Path(".env")
 
 
 class Base(DeclarativeBase):
@@ -60,16 +59,15 @@ class TokenUsageRecord(Base):
 
 
 def _sql_uri() -> str:
-    """Build the superuser Postgres URI from ``config.yaml`` + ``.env``."""
+    """Build the superuser Postgres URI from ``config.yaml`` + secrets."""
     if not CONFIG_PATH.is_file():
         raise FileNotFoundError(f"config.yaml not found at {CONFIG_PATH.resolve()}")
-    config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    pg = config.get("postgres", {}) or {}
-    load_dotenv(ENV_FILE_PATH)
+    pg = load_config(CONFIG_PATH).postgres
+    settings = get_settings()
     return (
         f"postgresql+psycopg2://"
-        f"{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
-        f"@{pg.get('host')}:{pg.get('port')}/{os.getenv('POSTGRES_DB')}"
+        f"{settings.postgres_user}:{settings.postgres_password}"
+        f"@{pg.host}:{pg.port}/{settings.postgres_db}"
     )
 
 

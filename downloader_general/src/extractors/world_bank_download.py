@@ -7,7 +7,6 @@ back from ``wbgapi`` to the raw v2 REST endpoint when the former returns empty.
 """
 
 import logging
-import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -16,10 +15,10 @@ from typing import Any, Dict, Optional
 import httpx
 import polars as pl
 import wbgapi as wb
-from dotenv import load_dotenv
 from tqdm import tqdm
 
 from src.core.base_downloaders import BaseWorldBankDownloader
+from src.settings import load_settings
 from src.utils.downloads import (
     _call_with_retries,
     _download_config,
@@ -79,13 +78,13 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         return get_table_definition(self.database_schema, self.SCHEMA_GROUP, table_name)
 
     def _initialize_connections(self, host: str, port: int, db: str) -> bool:
-        load_dotenv(self.env_path)
-        username, password = (
-            os.getenv("POSTGRES_USER"),
-            os.getenv("POSTGRES_PASSWORD"),
-        )
+        secrets = load_settings(self.env_path)
         sql_config = _get_sql_config(
-            username=username, password=password, host=host, port=port, db=db
+            username=secrets.postgres_user,
+            password=secrets.postgres_password,
+            host=host,
+            port=port,
+            db=db,
         )
         if _sql_test := _test_sql(sql_config):
             self.sql_uri = sql_config

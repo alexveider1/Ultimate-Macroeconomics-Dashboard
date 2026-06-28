@@ -7,32 +7,30 @@ endpoint short-circuits when the indicator is already present (returns
 :mod:`client_wb` on a worker thread so the event loop stays free.
 """
 
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import yaml
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from client_wb import fetch_and_store_indicator
+from config import load_config
 from schema import Base, IngestRequest, IngestResponse, MacroIndicator
+from settings import get_settings
 
 CONFIG_PATH = Path("config.yaml")
-ENV_FILE_PATH = Path(".env")
 
-CONFIG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-load_dotenv(ENV_FILE_PATH)
+CONFIG = load_config(CONFIG_PATH)
+SETTINGS = get_settings()
 
-_PG = CONFIG.get("postgres", {})
-_PG_DATABASE = os.getenv("POSTGRES_DB") or _PG.get("database")
+_PG = CONFIG.postgres
+_PG_DATABASE = SETTINGS.postgres_db or _PG.database
 SQL_URI = (
     f"postgresql+psycopg2://"
-    f"{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
-    f"@{_PG.get('host')}:{_PG.get('port')}/{_PG_DATABASE}"
+    f"{SETTINGS.postgres_user}:{SETTINGS.postgres_password}"
+    f"@{_PG.host}:{_PG.port}/{_PG_DATABASE}"
 )
 
 

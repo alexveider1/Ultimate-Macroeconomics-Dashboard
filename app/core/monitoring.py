@@ -25,7 +25,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import yaml
+
+from core.config import AppConfig, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -80,30 +81,23 @@ class ContainerStats:
     status: str
 
 
-def _load_config() -> dict[str, Any]:
+def _load_config() -> AppConfig:
     if not CONFIG_PATH.is_file():
-        return {}
-    return yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+        return AppConfig()
+    return load_config(CONFIG_PATH)
 
 
 def _http_targets() -> list[tuple[str, str]]:
     """Return ``[(service_name, health_url), ...]`` for every HTTP-probed service."""
     cfg = _load_config()
-
-    def port(section: str, default: int) -> int:
-        return int((cfg.get(section) or {}).get("port", default))
-
-    qdrant_host = (cfg.get("qdrant") or {}).get("host", "vector_db")
-    qdrant_port = (cfg.get("qdrant") or {}).get("port", 6333)
-
     return [
-        ("agent", f"http://agent:{port('agent', 8000)}/health"),
-        ("forecaster", f"http://forecaster:{port('forecaster', 8001)}/health"),
-        ("clustering", f"http://clustering:{port('clustering', 8002)}/health"),
-        ("downloader_extra", f"http://downloader_extra:{port('downloader_extra', 8003)}/health"),
-        ("python_sandbox", f"http://python_sandbox:{port('python_sandbox', 8004)}/health"),
-        ("app", f"http://app:{port('app', 8501)}/_stcore/health"),
-        ("vector_db", f"http://{qdrant_host}:{qdrant_port}/readyz"),
+        ("agent", f"http://agent:{cfg.agent.port}/health"),
+        ("forecaster", f"http://forecaster:{cfg.forecaster.port}/health"),
+        ("clustering", f"http://clustering:{cfg.clustering.port}/health"),
+        ("downloader_extra", f"http://downloader_extra:{cfg.downloader_extra.port}/health"),
+        ("python_sandbox", f"http://python_sandbox:{cfg.python_sandbox.port}/health"),
+        ("app", f"http://app:{cfg.app.port}/_stcore/health"),
+        ("vector_db", f"http://{cfg.qdrant.host}:{cfg.qdrant.port}/readyz"),
     ]
 
 
@@ -132,9 +126,9 @@ def _probe_http(service: str, url: str) -> HealthResult:
 
 
 def _probe_postgres() -> HealthResult:
-    cfg = _load_config().get("postgres") or {}
-    host = str(cfg.get("host", "db"))
-    port = int(cfg.get("port", 5432))
+    pg = _load_config().postgres
+    host = pg.host
+    port = pg.port
     start = _monotonic_ms()
     try:
         with socket.create_connection((host, port), timeout=HEALTH_PROBE_TIMEOUT):

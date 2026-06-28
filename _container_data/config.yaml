@@ -7,6 +7,7 @@ shared:
   yahoo_download_config: _configs/yahoo_download_config.json
   openai_base_url: https://api.openai.com/v1
   openai_llm_model: gpt-5.4
+  openai_llm_model_fast: gpt-5.4-mini
   openai_embedding_model: openai/text-embedding-3-small
   openai_embedding_model_max_tokens: 8192
   openai_embedding_model_dimensions: 1536

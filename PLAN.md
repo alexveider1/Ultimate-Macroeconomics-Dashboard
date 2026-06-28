@@ -23,6 +23,8 @@
 | Dev workflow | **Tests + coverage gates + agent eval harness** — built *first* as the correctness safety net |
 | Backups | **Nightly `pg_dump` + Qdrant snapshots** pushed to an `rclone` remote, with retention + restore script |
 
+> **Status (v0.11):** Phase 1 *config* + *secrets* and Phase 2b *agent two-model routing* are implemented — pragmatically. Because each service is its own container with its own `pyproject.toml` (no shared package), config/secrets use **per-service** Pydantic `config.py` + `pydantic-settings` `settings.py` rather than one shared `Settings`, and least privilege is enforced by **per-service `environment:` scoping in `docker-compose.yaml`** (each container gets only the secrets it uses) instead of Docker `secrets:` file-mounts. `SecretStr` log-masking and a BFF-wide shared model remain open follow-ups.
+
 ---
 
 ## Roadmap at a glance

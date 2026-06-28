@@ -7,34 +7,27 @@ informative empty state instead of crashing when Qdrant is down.
 """
 
 import logging
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import yaml
-from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 from core.app_logging import log_vector_query
+from core.config import load_config
+from core.settings import get_settings
 
 CONFIG_PATH = Path("config.yaml")
-ENV_FILE_PATH = Path(".env")
 
-CONFIG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-load_dotenv(ENV_FILE_PATH)
+CONFIG = load_config(CONFIG_PATH)
+SETTINGS = get_settings()
 
 logger = logging.getLogger(__name__)
 
-_QDRANT_HOST = CONFIG.get("qdrant", {}).get("host", "vector_db")
-_QDRANT_PORT = CONFIG.get("qdrant", {}).get("port", 6333)
+_QDRANT_HOST = CONFIG.qdrant.host
+_QDRANT_PORT = CONFIG.qdrant.port
 _QDRANT_URL = f"http://{_QDRANT_HOST}:{_QDRANT_PORT}"
-_QDRANT_API_KEY = (
-    os.getenv("QDRANT_API_KEY")
-    or os.getenv("QDRANT__API_KEY")
-    or os.getenv("QDRANT__SERVICE__API_KEY")
-    or None
-)
+_QDRANT_API_KEY = SETTINGS.qdrant_api_key or None
 
 _DEFAULT_CLIENT = QdrantClient(
     url=_QDRANT_URL,

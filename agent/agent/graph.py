@@ -1178,31 +1178,50 @@ class MacroAgentGraph:
         self,
         base_url: str,
         model_name: str,
+        fast_model_name: str,
         api_key: str,
         max_retries: int = 3,
         recursion_limit: int = 30,
     ):
-        """Construct one ``ChatOpenAI`` instance and assemble the StateGraph."""
-        self.llm = ChatOpenAI(
-            base_url=base_url,
-            model=model_name,
-            api_key=api_key,
-            temperature=0,
-            max_retries=3,
-            stream_usage=True,
-        )
+        """Build the strong/fast ``ChatOpenAI`` pair and assemble the StateGraph.
+
+        The two models share the endpoint and credentials but differ in
+        capability. ``smart_llm`` (``model_name``) does the reasoning-heavy
+        work — planning, SQL/Plotly code generation and the final answer —
+        while ``fast_llm`` (``fast_model_name``) handles the cheap in-scope
+        screen and the lightweight workers to cut latency and cost. An empty
+        ``fast_model_name`` falls back to the strong model, preserving the
+        previous single-model behaviour. ``UsageTracker`` is attached at the
+        graph level, so token accounting spans both models automatically.
+        """
+
+        def _build_llm(model: str) -> ChatOpenAI:
+            return ChatOpenAI(
+                base_url=base_url,
+                model=model,
+                api_key=api_key,
+                temperature=0,
+                max_retries=3,
+                stream_usage=True,
+            )
+
+        self.smart_llm = _build_llm(model_name)
+        self.fast_llm = _build_llm(fast_model_name or model_name)
         self.max_retries = max_retries
         self.recursion_limit = recursion_limit
 
-        self.guardrail = GuardrailAgent(llm=self.llm)
-        self.supervisor = MacroSupervisorAgent(llm=self.llm, max_retries=max_retries)
-        self.sql_agent = SQLAgent(llm=self.llm)
-        self.plotly_agent = PlotlyAgent(llm=self.llm)
-        self.table_agent = TableAgent(llm=self.llm)
-        self.rag_agent = RAGAgent(llm=self.llm)
-        self.web_search_agent = WebSearchAgent(llm=self.llm)
-        self.downloader_agent = DownloaderAgent(llm=self.llm)
-        self.chat_agent = ChatAgent(llm=self.llm)
+        # Strong model: planning, code generation and the final answer.
+        self.supervisor = MacroSupervisorAgent(llm=self.smart_llm, max_retries=max_retries)
+        self.sql_agent = SQLAgent(llm=self.smart_llm)
+        self.plotly_agent = PlotlyAgent(llm=self.smart_llm)
+        self.chat_agent = ChatAgent(llm=self.smart_llm)
+
+        # Fast model: in-scope screening + lightweight workers.
+        self.guardrail = GuardrailAgent(llm=self.fast_llm)
+        self.table_agent = TableAgent(llm=self.fast_llm)
+        self.rag_agent = RAGAgent(llm=self.fast_llm)
+        self.web_search_agent = WebSearchAgent(llm=self.fast_llm)
+        self.downloader_agent = DownloaderAgent(llm=self.fast_llm)
 
         self.graph = self._build_graph()
 

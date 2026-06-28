@@ -21,7 +21,6 @@ from uuid import uuid4
 from zipfile import ZipFile
 
 import httpx
-from dotenv import load_dotenv
 from git import Repo
 from openai import OpenAI
 from qdrant_client import QdrantClient, models
@@ -29,6 +28,7 @@ from tiktoken import encoding_for_model
 from tqdm import tqdm
 
 from src.core.base_downloaders import BaseNewsDownloader
+from src.settings import load_settings
 from src.utils.downloads import (
     CloneProgress,
     _call_with_retries,
@@ -100,14 +100,14 @@ class NewsDownloader(BaseNewsDownloader):
         self.max_parallel_embed_batches = 4
 
     def _initialize_connections(self) -> bool:
-        load_dotenv(self.env_path)
-        openai_api_key = os.getenv("OPENAI_API_KEY")
+        secrets = load_settings(self.env_path)
+        openai_api_key = secrets.openai_api_key
         if not openai_api_key:
             logger.error("OPENAI_API_KEY is not set; news embeddings cannot be generated")
             return False
         self.openai_client = OpenAI(base_url=self.openai_base_url, api_key=openai_api_key)
         try:
-            qdrant_api_key = os.getenv("QDRANT_API_KEY") or os.getenv("QDRANT__SERVICE__API_KEY")
+            qdrant_api_key = secrets.qdrant_api_key or None
             response = _call_with_retries(
                 operation_name="github_api_probe",
                 request_callable=lambda: httpx.get(self.github_api_url, timeout=30.0),

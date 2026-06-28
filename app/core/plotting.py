@@ -19,7 +19,6 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import polars as pl
 import streamlit as st
-import yaml
 from plotly.colors import hex_to_rgb
 
 from core.api_client import (
@@ -27,6 +26,7 @@ from core.api_client import (
     interpret_plot_image,
 )
 from core.assets import get_markup_template, render_markup_template
+from core.config import load_config
 from core.postgres_client import (
     get_world_bank_country_mapping,
     get_world_bank_indicator,
@@ -45,8 +45,8 @@ from core.token_usage_store import record_persistent
 
 CONFIG_PATH = Path("config.yaml")
 
-CONFIG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-FORECASTER_BASE_URL = f"http://forecaster:{CONFIG.get('forecaster', {}).get('port', 8001)}"
+CONFIG = load_config(CONFIG_PATH)
+FORECASTER_BASE_URL = f"http://forecaster:{CONFIG.forecaster.port}"
 
 
 def apply_plotly_theme(fig: go.Figure) -> go.Figure:

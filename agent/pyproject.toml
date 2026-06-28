@@ -34,6 +34,7 @@ dependencies = [
     "psycopg2-binary==2.9.11",
     "pydantic==2.12.3",
     "pydantic-core==2.41.4",
+    "pydantic-settings==2.14.2",
     "python-dotenv==1.2.1",
     "pyyaml==6.0.3",
     "qdrant-client==1.17.0",

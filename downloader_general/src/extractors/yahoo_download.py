@@ -6,7 +6,6 @@ fetches run on a thread pool because each call is independent.
 """
 
 import logging
-import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -14,10 +13,10 @@ from typing import Any, Dict, Iterable, Optional
 
 import polars as pl
 import yfinance as yf
-from dotenv import load_dotenv
 from tqdm import tqdm
 
 from src.core.base_downloaders import BaseYahooDownloader
+from src.settings import load_settings
 from src.utils.downloads import (
     _call_with_retries,
     _download_config,
@@ -97,12 +96,13 @@ class YahooDownloader(BaseYahooDownloader):
         )
 
     def _initialize_connections(self, host: str, port: int, db: str) -> bool:
-        load_dotenv(self.env_path)
-        username = os.getenv("POSTGRES_USER")
-        password = os.getenv("POSTGRES_PASSWORD")
-
+        secrets = load_settings(self.env_path)
         self.sql_uri = _get_sql_config(
-            username=username, password=password, host=host, port=port, db=db
+            username=secrets.postgres_user,
+            password=secrets.postgres_password,
+            host=host,
+            port=port,
+            db=db,
         )
 
         if _sql_test := _test_sql(self.sql_uri):

@@ -92,26 +92,24 @@ def setup_routing():
     p_token_usage = st.Page("pages/17_token_usage.py", title="Token Usage", icon="🪙")
     p_monitoring = st.Page("pages/18_monitoring.py", title="Monitoring", icon="🛰️")
 
-    pg = st.navigation(
-        {
-            "Dashboard": [
-                p_basic_indicators,
-                p_economy_structure,
-                p_finance_monetary,
-                p_trade,
-                p_demography,
-                p_governance,
-                p_tech_innovations,
-                p_health_wellbeing,
-                p_education_human_capital,
-                p_environment,
-            ],
-            "Other data": [p_yahoo_finance, p_news],
-            "Constructors": [p_custom_plot, p_cluster],
-            "AI": [p_agent],
-            "Settings": [p_token_usage, p_monitoring],
-        }
-    )
+    pg = st.navigation({
+        "Dashboard": [
+            p_basic_indicators,
+            p_economy_structure,
+            p_finance_monetary,
+            p_trade,
+            p_demography,
+            p_governance,
+            p_tech_innovations,
+            p_health_wellbeing,
+            p_education_human_capital,
+            p_environment,
+        ],
+        "Other data": [p_yahoo_finance, p_news],
+        "Constructors": [p_custom_plot, p_cluster],
+        "AI": [p_agent],
+        "Settings": [p_token_usage, p_monitoring],
+    })
 
     return pg
 

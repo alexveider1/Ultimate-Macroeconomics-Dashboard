@@ -11,8 +11,6 @@ from pathlib import Path
 
 import numpy as np
 import umap
-import yaml
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from sklearn.cluster import (
@@ -26,13 +24,12 @@ from sklearn.cluster import (
 from sklearn.decomposition import PCA, KernelPCA
 from sklearn.manifold import TSNE
 
+from config import load_config
 from schemas import ClusterRequest, ClusterResponse
 
 CONFIG_PATH = Path("config.yaml")
-ENV_FILE_PATH = Path(".env")
 
-CONFIG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-load_dotenv(ENV_FILE_PATH)
+CONFIG = load_config(CONFIG_PATH)
 
 VIZ_X_COL = "__viz_x"
 VIZ_Y_COL = "__viz_y"

@@ -8,35 +8,33 @@ clicks on the same page don't re-query Postgres.
 """
 
 import logging
-import os
 from pathlib import Path
 from typing import Iterable
 
 import connectorx as cx
 import polars as pl
 import streamlit as st
-import yaml
-from dotenv import load_dotenv
 
 from core.app_logging import log_sql_query
+from core.config import load_config
+from core.settings import get_settings
 
 CONFIG_PATH = Path("config.yaml")
-ENV_FILE_PATH = Path(".env")
 
-CONFIG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-load_dotenv(ENV_FILE_PATH)
+CONFIG = load_config(CONFIG_PATH)
+SETTINGS = get_settings()
 
-_PG = CONFIG.get("postgres", {})
+_PG = CONFIG.postgres
 # Database name source of truth is POSTGRES_DB in .env (the postgres image only
 # reads it from there on first volume init). config.yaml's `database` stays as
 # a fallback for environments that don't set the env var.
-_PG_DATABASE = os.getenv("POSTGRES_DB") or _PG.get("database")
+_PG_DATABASE = SETTINGS.postgres_db or _PG.database
 SQL_URL = (
     f"postgresql://"
-    f"{os.getenv('POSTGRES_LLM_USER')}:{os.getenv('POSTGRES_LLM_PASSWORD')}"
-    f"@{_PG.get('host')}:{_PG.get('port')}/{_PG_DATABASE}"
+    f"{SETTINGS.postgres_llm_user}:{SETTINGS.postgres_llm_password}"
+    f"@{_PG.host}:{_PG.port}/{_PG_DATABASE}"
 )
-POSTGRES_TARGET = f"{_PG.get('host')}:{_PG.get('port')}"
+POSTGRES_TARGET = f"{_PG.host}:{_PG.port}"
 
 logger = logging.getLogger(__name__)
 

@@ -13,10 +13,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import polars as pl
-import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
+from config import load_config
 from forecasters.core.base import BaseForecaster
 from schemas import ForecastPoint, ForecastRequest, ForecastResponse
 
@@ -24,13 +24,13 @@ logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(os.environ.get("FORECASTER_CONFIG_PATH", "config.yaml"))
 
-CONFIG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-FORECASTER_CONFIG = CONFIG.get("forecaster", {})
+CONFIG = load_config(CONFIG_PATH)
+FORECASTER_CONFIG = CONFIG.forecaster
 
-ARIMA_AVAILABLE = bool(FORECASTER_CONFIG.get("ARIMA_AVAILABLE"))
-PROPHET_AVAILABLE = bool(FORECASTER_CONFIG.get("PROPHET_AVAILABLE"))
-CHRONOS_AVAILABLE = bool(FORECASTER_CONFIG.get("CHRONOS_AVAILABLE"))
-CHRONOS_MODEL_NAME = FORECASTER_CONFIG.get("CHRONOS_MODEL")
+ARIMA_AVAILABLE = FORECASTER_CONFIG.ARIMA_AVAILABLE
+PROPHET_AVAILABLE = FORECASTER_CONFIG.PROPHET_AVAILABLE
+CHRONOS_AVAILABLE = FORECASTER_CONFIG.CHRONOS_AVAILABLE
+CHRONOS_MODEL_NAME = FORECASTER_CONFIG.CHRONOS_MODEL
 CHRONOS_DEFAULT_MODEL_NAME = "amazon/chronos-t5-small"
 
 # `auto_arima`, `arima`, `sarima` share the ARIMA dep stack (pmdarima / statsmodels)

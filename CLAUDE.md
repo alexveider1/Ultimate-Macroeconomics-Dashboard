@@ -154,3 +154,4 @@ For incremental WB indicator additions during a live stack, the agent's `downloa
 messages
 - Tests for each service should be written
 - For frontend testing use playwright, don't finish until web ui looks clean and smooth, without bugs and visual problems
+- Work only in `dev` branch

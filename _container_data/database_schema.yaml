@@ -233,3 +233,82 @@ databases:
         category:
           type: TEXT
           description: Group the asset belongs to ("Indices" or "Companies"). Duplicates yahoo_metadata.category for query convenience.
+
+  binance:
+
+    binance_metadata:
+      primary_key: [symbol]
+      foreign_keys: []
+      columns:
+        symbol:
+          type: TEXT
+          description: Binance spot trading-pair symbol (e.g. "BTCUSDT"). Primary identifier of the pair and join key used by binance_historical_prices.symbol.
+        base_asset:
+          type: TEXT
+          description: Base asset / coin code of the pair (e.g. "BTC" for BTCUSDT). The actual cryptocurrency being priced.
+        quote_asset:
+          type: TEXT
+          description: Quote asset the coin is priced in; always "USDT" with the current download config.
+        status:
+          type: TEXT
+          description: Binance trading status reported by exchangeInfo (e.g. "TRADING").
+        rank:
+          type: INTEGER
+          description: Popularity rank by trailing-24h quote volume at download time; 1 is the most actively traded of the selected coins.
+        description:
+          type: TEXT
+          description: Short human-readable description synthesized from documented Binance fields (base/quote assets, spot status, popularity rank).
+        last_price:
+          type: DOUBLE PRECISION
+          description: Last traded price (in the quote asset) from the 24h ticker snapshot taken at download time.
+        price_change_percent_24h:
+          type: DOUBLE PRECISION
+          description: Percentage price change over the trailing 24h window at download time.
+        high_24h:
+          type: DOUBLE PRECISION
+          description: Highest traded price over the trailing 24h window at download time.
+        low_24h:
+          type: DOUBLE PRECISION
+          description: Lowest traded price over the trailing 24h window at download time.
+        quote_volume_24h:
+          type: DOUBLE PRECISION
+          description: Trailing-24h traded volume expressed in the quote asset (USDT); the metric used to rank coin popularity.
+        trade_count_24h:
+          type: BIGINT
+          description: Number of trades executed over the trailing 24h window at download time.
+
+    binance_historical_prices:
+      primary_key: [date, symbol]
+      foreign_keys:
+        - columns: [symbol]
+          references_table: binance_metadata
+          references_columns: [symbol]
+          enforce: true
+      columns:
+        date:
+          type: TIMESTAMP WITHOUT TIME ZONE
+          description: Open time of the daily candle. Stored as a naive UTC timestamp (timezone stripped), one row per trading day per symbol.
+        open:
+          type: DOUBLE PRECISION
+          description: Opening price (in the quote asset) for the daily candle.
+        high:
+          type: DOUBLE PRECISION
+          description: Highest traded price during the daily candle.
+        low:
+          type: DOUBLE PRECISION
+          description: Lowest traded price during the daily candle.
+        close:
+          type: DOUBLE PRECISION
+          description: Closing price (in the quote asset) for the daily candle.
+        volume:
+          type: DOUBLE PRECISION
+          description: Base-asset volume traded during the candle. Stored as a double because crypto volumes are fractional (unlike Yahoo's integer share counts).
+        quote_volume:
+          type: DOUBLE PRECISION
+          description: Quote-asset (USDT) volume traded during the candle.
+        symbol:
+          type: TEXT
+          description: Binance spot trading-pair symbol. References binance_metadata.symbol.
+        base_asset:
+          type: TEXT
+          description: Base asset / coin code (e.g. "BTC"). Duplicates binance_metadata.base_asset for query convenience.

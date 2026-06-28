@@ -38,6 +38,7 @@ from core.theming import (
     get_color,
     get_colorway,
     get_confidence_band_alpha,
+    get_diverging_colorscale,
     get_sequential_colorscale,
 )
 from core.token_usage import record_usage
@@ -66,6 +67,158 @@ def apply_plotly_theme(fig: go.Figure) -> go.Figure:
 
 def _apply_plotly_template(fig: go.Figure) -> go.Figure:
     """Internal alias kept for readability inside the chart builders."""
+    return apply_plotly_theme(fig)
+
+
+def build_candlestick_plot(
+    df: pl.DataFrame,
+    date_col: str,
+    open_col: str,
+    high_col: str,
+    low_col: str,
+    close_col: str,
+    title: str = "",
+) -> go.Figure:
+    """Build a themed candlestick chart from one series' OHLC history.
+
+    Args:
+        df: Source frame with at least the OHLC + date columns.
+        date_col / open_col / high_col / low_col / close_col: Column names.
+        title: Chart title.
+
+    Returns:
+        A themed ``go.Figure``; shows a placeholder annotation when the frame is
+        empty or missing a required column.
+    """
+    fig = go.Figure()
+    required_cols = [date_col, open_col, high_col, low_col, close_col]
+
+    if df.is_empty() or any(col not in df.columns for col in required_cols):
+        fig.add_annotation(text="No OHLC data available for candlestick chart.", showarrow=False)
+        fig.update_layout(title=title)
+        return apply_plotly_theme(fig)
+
+    prepared_df = (
+        df.select(required_cols)
+        .drop_nulls(required_cols)
+        .sort(date_col)
+        .unique(subset=[date_col], keep="last", maintain_order=True)
+        .sort(date_col)
+    )
+    if prepared_df.is_empty():
+        fig.add_annotation(text="No OHLC data available for candlestick chart.", showarrow=False)
+        fig.update_layout(title=title)
+        return apply_plotly_theme(fig)
+
+    fig.add_trace(
+        go.Candlestick(
+            x=prepared_df[date_col].to_list(),
+            open=prepared_df[open_col].to_list(),
+            high=prepared_df[high_col].to_list(),
+            low=prepared_df[low_col].to_list(),
+            close=prepared_df[close_col].to_list(),
+            name="OHLC",
+            increasing_line_color=get_color("positive"),
+            decreasing_line_color=get_color("negative"),
+        )
+    )
+    fig.update_layout(
+        title=title,
+        margin=dict(l=20, r=20, t=40, b=20),
+        xaxis_rangeslider_visible=False,
+        yaxis_title="Price",
+        hovermode="x",
+    )
+    return apply_plotly_theme(fig)
+
+
+def build_correlation_heatmap(
+    df: pl.DataFrame,
+    date_col: str,
+    series_col: str,
+    value_col: str,
+    title: str = "",
+    label_map: Optional[Dict[str, str]] = None,
+) -> go.Figure:
+    """Build a Pearson-correlation heatmap of every series pair in ``df``.
+
+    Pivots ``df`` to one column per ``series_col`` value and correlates each
+    pair on their overlapping observations.
+
+    Args:
+        df: Long-format frame (one row per date/series).
+        date_col: Date column used as the pivot index.
+        series_col: Column identifying each series (one heatmap axis tick each).
+        value_col: Numeric column to correlate (e.g. daily returns).
+        title: Chart title.
+        label_map: Optional ``series → display label`` map used in hover text.
+
+    Returns:
+        A themed ``go.Figure``; placeholder annotation when fewer than two
+        series are available.
+    """
+    fig = go.Figure()
+
+    if df.is_empty() or any(col not in df.columns for col in [date_col, series_col, value_col]):
+        fig.add_annotation(text="No data available for correlation heatmap.", showarrow=False)
+        fig.update_layout(title=title)
+        return apply_plotly_theme(fig)
+
+    pivot = (
+        df.select([date_col, series_col, value_col])
+        .pivot(values=value_col, index=date_col, on=series_col, aggregate_function="last")
+        .sort(date_col)
+    )
+    series = [col for col in pivot.columns if col != date_col]
+    if len(series) < 2:
+        fig.add_annotation(
+            text="Need at least two series to compute correlations.", showarrow=False
+        )
+        fig.update_layout(title=title)
+        return apply_plotly_theme(fig)
+
+    def _label(name: str) -> str:
+        if not label_map:
+            return name
+        display = label_map.get(name, name)
+        return display if display and display != name else name
+
+    corr_rows: list[list[float]] = []
+    customdata_rows: list[list[list[str]]] = []
+    for row_series in series:
+        row_vals: list[float] = []
+        row_customdata: list[list[str]] = []
+        for col_series in series:
+            pair_df = pivot.select(
+                [
+                    pl.col(row_series).cast(pl.Float64).alias("x"),
+                    pl.col(col_series).cast(pl.Float64).alias("y"),
+                ]
+            ).drop_nulls()
+            row_customdata.append([_label(row_series), _label(col_series)])
+            if pair_df.height < 2:
+                row_vals.append(0.0)
+                continue
+            corr_val = pair_df.select(pl.corr("x", "y")).item()
+            row_vals.append(float(corr_val) if corr_val is not None else 0.0)
+        corr_rows.append(row_vals)
+        customdata_rows.append(row_customdata)
+
+    fig.add_trace(
+        go.Heatmap(
+            z=corr_rows,
+            x=series,
+            y=series,
+            customdata=customdata_rows,
+            zmin=-1,
+            zmax=1,
+            zmid=0,
+            colorscale=get_diverging_colorscale(),
+            colorbar_title="Corr",
+            hovertemplate=get_markup_template("correlation_heatmap_hovertemplate"),
+        )
+    )
+    fig.update_layout(title=title, margin=dict(l=10, r=10, t=40, b=10))
     return apply_plotly_theme(fig)
 
 

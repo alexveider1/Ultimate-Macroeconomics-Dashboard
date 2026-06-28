@@ -12,6 +12,7 @@ VALID: dict = {
         "world_bank_download_config": "_configs/world_bank_download_config.json",
         "news_download_config": "_configs/news_download_config.json",
         "yahoo_download_config": "_configs/yahoo_download_config.json",
+        "binance_download_config": "_configs/binance_download_config.json",
         "openai_base_url": "https://api.openai.com/v1",
         "openai_embedding_model": "text-embedding-3-small",
         "openai_embedding_model_max_tokens": 8192,

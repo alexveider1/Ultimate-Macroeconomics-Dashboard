@@ -250,6 +250,45 @@ def get_all_yahoo_metadata() -> pl.DataFrame:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def get_all_binance_historical_prices() -> pl.DataFrame:
+    """Return the complete daily OHLCV history for every Binance coin.
+
+    Returns an empty frame (rather than raising) when the table doesn't exist —
+    a deployment whose volume predates the crypto tables shouldn't crash the
+    Crypto page.
+    """
+    query = (
+        "SELECT date, open, high, low, close, volume, quote_volume, symbol, base_asset "
+        "FROM binance_historical_prices "
+        "WHERE date IS NOT NULL AND close IS NOT NULL AND symbol IS NOT NULL"
+    )
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("Binance historical prices unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_all_binance_metadata() -> pl.DataFrame:
+    """Return one master-data row per Binance coin (ranked by 24h volume).
+
+    Empty frame on a missing table, mirroring
+    :func:`get_all_binance_historical_prices`.
+    """
+    query = (
+        "SELECT symbol, base_asset, quote_asset, status, rank, description, last_price, "
+        "price_change_percent_24h, high_24h, low_24h, quote_volume_24h, trade_count_24h "
+        "FROM binance_metadata"
+    )
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("Binance metadata unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_world_bank_country_mapping() -> pl.DataFrame:
     """Return ``(id, value)`` for every WB economy with both fields set."""
     query = "SELECT id, value FROM countries WHERE id IS NOT NULL AND value IS NOT NULL"

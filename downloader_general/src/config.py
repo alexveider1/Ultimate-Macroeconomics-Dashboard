@@ -19,6 +19,7 @@ class SharedConfig(BaseModel):
     world_bank_download_config: str
     news_download_config: str
     yahoo_download_config: str
+    binance_download_config: str
     openai_base_url: str
     openai_embedding_model: str
     openai_embedding_model_max_tokens: int

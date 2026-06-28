@@ -15,7 +15,12 @@ import sys
 from pathlib import Path
 
 from src.config import load_config
-from src.extractors import NewsDownloader, WorldBankDownloader, YahooDownloader
+from src.extractors import (
+    BinanceDownloader,
+    NewsDownloader,
+    WorldBankDownloader,
+    YahooDownloader,
+)
 from src.settings import load_settings
 from src.utils.db_bootstrap import ensure_llm_role
 from src.utils.downloads import _get_sql_config
@@ -74,6 +79,7 @@ def main() -> None:
     world_bank_download_config = shared.world_bank_download_config
     news_download_config = shared.news_download_config
     yahoo_download_config = shared.yahoo_download_config
+    binance_download_config = shared.binance_download_config
     repo_url = config.downloader_general.repo_url
     openai_base_url = shared.openai_base_url
     openai_embedding_model = shared.openai_embedding_model
@@ -141,6 +147,18 @@ def main() -> None:
         db=postgres_db,
     ):
         yahoo_downloader.run()
+
+    binance_downloader = BinanceDownloader(
+        env_path=env_file,
+        download_config_path=binance_download_config,
+        database_schema=database_schema,
+    )
+    if binance_downloader._initialize_connections(
+        host=postgres_host,
+        port=postgres_port,
+        db=postgres_db,
+    ):
+        binance_downloader.run()
 
     # Mark the one-shot download as completed so future container starts
     # only re-apply the bootstrap and skip the multi-hour ingestion.

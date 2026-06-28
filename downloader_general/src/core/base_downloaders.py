@@ -6,7 +6,7 @@ interface, so the entry-point in ``main.py`` can drive them uniformly.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import httpx
 from tiktoken import Encoding
@@ -118,4 +118,35 @@ class BaseYahooDownloader(ABC):
     @abstractmethod
     def run(self) -> None:
         """Method for downloading all the needed data from `yahoo-finance`"""
+        pass
+
+
+class BaseBinanceDownloader(ABC):
+    """Abstract contract for any Binance crypto downloader implementation."""
+
+    @abstractmethod
+    def _initialize_connections(self, host: str, port: int, db: str) -> bool:
+        """Test whether the SQL connection can be established"""
+        pass
+
+    @abstractmethod
+    async def select_top_symbols(self, client: httpx.AsyncClient) -> List[Dict[str, Any]]:
+        """Pick the most popular spot pairs from `binance` (ranked, with metadata)"""
+        pass
+
+    @abstractmethod
+    def download_metadata(self, rows: List[Dict[str, Any]]) -> None:
+        """Write the selected pairs' master data to Postgres"""
+        pass
+
+    @abstractmethod
+    async def download_historical_data(
+        self, client: httpx.AsyncClient, symbol: str, base_asset: str
+    ) -> None:
+        """Download the full candle history for one symbol from `binance`"""
+        pass
+
+    @abstractmethod
+    def run(self) -> None:
+        """Method for downloading all the needed data from `binance`"""
         pass

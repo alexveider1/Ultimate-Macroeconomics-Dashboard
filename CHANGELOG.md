@@ -4,6 +4,16 @@ All notable changes to **Ultimate Macroeconomics Dashboard** are documented in t
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.13]
+
+Added end-to-end **cryptocurrency** coverage: Binance ingestion in `downloader_general` plus a new Crypto dashboard page.
+
+### Added
+
+- **Binance crypto ingestion in `downloader_general`.** A new async `httpx` client (`src/utils/binance_client.py`) and extractor (`src/extractors/binance_download.py`, `BinanceDownloader` + `BaseBinanceDownloader` ABC) hit only the documented public spot endpoints (`/api/v3/exchangeInfo`, `/api/v3/ticker/24hr`, `/api/v3/klines`) — no API key. They select the top-30 USDT spot pairs ranked by trailing-24h quote volume (dropping stablecoins via `exclude_base_assets` and leveraged UP/DOWN/BULL/BEAR tokens in code), write ranked master data to a new **`binance_metadata`** table, and page each pair's full daily candle history into **`binance_historical_prices`** (PK `[date, symbol]`, FK → `binance_metadata.symbol`) concurrently under an `asyncio.Semaphore`. Both tables are declared in `database_schema.yaml` (so the agent's SQL worker sees them); the master-data "description" is synthesized from documented fields since the REST API exposes no prose. Wired into `main.py` after the Yahoo step, marker-gated like the other one-shot sources, and tunable via the new `_configs/binance_download_config.json` (`base_url`, `quote_asset`, `top_n`, `kline_interval`, `max_parallel_symbols`, `exclude_base_assets`). Reuses the existing `wb_client.call_with_retries` retry helper and `schema.py` write/bootstrap utilities. Covered by offline `tests/test_binance_client.py` (mocked `httpx` transport).
+- **Crypto dashboard page (`app/pages/16_crypto.py`, "Crypto" under "Other data").** Mirrors the Yahoo page: a market-overview table, a top-coin price-dynamics line chart on a log axis (so coins at very different price levels stay comparable), a Bitcoin candlestick, and an all-coin daily-return correlation heatmap. Reads via two new error-resilient `core/postgres_client.py` helpers (`get_all_binance_historical_prices`, `get_all_binance_metadata`, returning an empty frame when the tables predate this release).
+- **Generic `build_candlestick_plot` / `build_correlation_heatmap` in `core/plotting.py`**, lifted from the Yahoo-page builders so the Crypto page reuses them (the Yahoo page keeps its own `build_yahoo_*` variants).
+
 ## [v0.12]
 
 Dropped the `wbgapi` dependency in favour of a hand-rolled async `httpx` World Bank client, and broadened the Yahoo Finance company universe.

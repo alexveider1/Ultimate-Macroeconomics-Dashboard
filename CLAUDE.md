@@ -45,9 +45,9 @@ If the host has no NVIDIA GPU, remove the `deploy:` block from the `forecaster` 
 
 | Service              | Port | Role                                                                                  |
 | -------------------- | ---- | ------------------------------------------------------------------------------------- |
-| `db`                 | 5432 | Postgres 18 — World Bank + Yahoo Finance tabular data                                 |
+| `db`                 | 5432 | Postgres 18 — World Bank + Yahoo Finance + Binance crypto tabular data                |
 | `vector_db`          | 6333 | Qdrant — news article embeddings                                                      |
-| `downloader_general` | —    | One-shot: bootstraps LLM role, ingests WB + Yahoo + news, populates both DBs          |
+| `downloader_general` | —    | One-shot: bootstraps LLM role, ingests WB + Yahoo + Binance + news, populates both DBs |
 | `app`                | 8501 | Streamlit dashboard (entry point: `app/app.py`)                                       |
 | `agent`              | 8000 | FastAPI — LangGraph multi-agent AI analyst                                            |
 | `forecaster`         | 8001 | FastAPI — forecasting (ARIMA family, Prophet, Chronos, MA, XGBoost)                   |
@@ -72,12 +72,13 @@ Other config files in `_container_data/`:
 - `_configs/world_bank_download_config.json` — list of WB indicators grouped by dashboard page. Append here to add indicators on next clean boot; or add at runtime via the AI analyst (it calls `downloader_extra`).
 - `_configs/news_download_config.json` — news topics for the RAG corpus.
 - `_configs/yahoo_download_config.json` — Yahoo Finance tickers.
+- `_configs/binance_download_config.json` — Binance crypto ingestion tunables (`base_url`, `quote_asset`, `top_n`, `kline_interval`, `max_parallel_symbols`, `exclude_base_assets`). No curated coin list — the top-N coins are chosen at runtime by 24h quote volume.
 - `themes.yaml` — colour palettes. `active:` key selects one; bundled themes are `dark`, `dark-blue`, `light-green`. Drives both the registered Plotly template (`"app"`) and Streamlit chrome. **Deploy-time only** — the runtime theme picker was removed in v0.6. Adding a custom theme means covering every semantic token used in code (`positive`, `negative`, `reference_line`, `map_coastline`, `sector_*`, `diverging_*`, `sequential_*`, `card_title_color`, `confidence_band_alpha`, `selected_marker`, `wordcloud_background`, `wordcloud_colormap`) — `get_color` raises `KeyError` on a missing token, no silent fallback.
 - `app/.streamlit/config.toml` — Streamlit's own theme/server config. Mirror of `themes.yaml` for the chrome side; edit `server.address = "0.0.0.0"` to expose the local dev build on the LAN.
 
 ### `app` (Streamlit)
 
-Entry point `app/app.py` registers the Plotly template, sets up `st.session_state` (chat history, per-service health flags), declares the multi-page navigation, and shows a one-time data disclaimer dialog. Pages live under `app/pages/`, numbered `01_…` through `18_…` for ordering (there is no `16_`; the numbering also encodes the v0.3 navigation renormalisation). The indicator pages (`01`–`10`) are **config-driven** — they call `render_page_from_config` (`app/pages/page_utils.py`) with section keys from `world_bank_download_config.json` rather than hand-rolling charts; `17_token_usage.py` and `18_monitoring.py` are the two ops pages. Shared infrastructure is in `app/core/`:
+Entry point `app/app.py` registers the Plotly template, sets up `st.session_state` (chat history, per-service health flags), declares the multi-page navigation, and shows a one-time data disclaimer dialog. Pages live under `app/pages/`, numbered `01_…` through `18_…` for ordering (the numbering also encodes the v0.3 navigation renormalisation). The indicator pages (`01`–`10`) are **config-driven** — they call `render_page_from_config` (`app/pages/page_utils.py`) with section keys from `world_bank_download_config.json` rather than hand-rolling charts; `14_yahoo_finance.py`, `15_news.py` and `16_crypto.py` are the bespoke "Other data" pages; `17_token_usage.py` and `18_monitoring.py` are the two ops pages. `16_crypto.py` mirrors the Yahoo page (market overview table, top-coin log-scale trend, BTC candlestick, all-coin return-correlation heatmap) and reads the `binance_*` tables via `get_all_binance_historical_prices` / `get_all_binance_metadata`; its candlestick + heatmap come from the **generic** `build_candlestick_plot` / `build_correlation_heatmap` in `core/plotting.py` (the Yahoo page keeps its own `build_yahoo_*` variants). Shared infrastructure is in `app/core/`:
 
 - `api_client.py` — typed wrappers around every backend HTTP endpoint (forecaster, agent SSE stream, clustering, plot interpretation, downloader_extra). Always use these wrappers rather than `requests.post` directly — they handle the base-URL resolution and request logging.
 - `postgres_client.py` / `qdrant_client.py` — connection helpers with retries (hardened in v0.5).
@@ -133,13 +134,15 @@ Per-model hyperparameters travel in a single `model_params: dict[str, Any]` fiel
 
 ### Data ingestion
 
-`downloader_general/src/` is split into `core/` (orchestration, schema validation in `utils/schema.py`), `extractors/` (one module per source: `world_bank`, `yahoo`, `github` for the news repo), and `utils/`. It's a one-shot job — its container exits after success. Re-running it from scratch requires removing the `_container_data/downloader_general/.download_completed` marker (gitignored) and the persistent volumes (`postgres_data`, `qdrant_data`).
+`downloader_general/src/` is split into `core/` (orchestration, schema validation in `utils/schema.py`), `extractors/` (one module per source: `world_bank`, `yahoo`, `binance`, `github` for the news repo), and `utils/`. It's a one-shot job — its container exits after success. Re-running it from scratch requires removing the `_container_data/downloader_general/.download_completed` marker (gitignored) and the persistent volumes (`postgres_data`, `qdrant_data`).
 
 Ingestion progress is reported **through the logs, not `tqdm`** (terminal progress bars don't render in container logs). Long loops wrap their iterable in `log_progress(iterable, label=..., total=...)` (`src/utils/downloads.py`), which emits a throttled INFO line (≤ one per 5 s, plus a final 100% line); git clone progress goes through the log-emitting `CloneProgress` in the same module. `tqdm` is no longer a declared dependency anywhere — reuse `log_progress` for any new progress reporting rather than reintroducing it.
 
 World Bank access goes through a hand-rolled **async `httpx` client** (`downloader_general/src/utils/wb_client.py`), which replaced the old `wbgapi` dependency — it pages the documented `https://api.worldbank.org/v2/...` REST endpoints directly (`/source`, `/country`, `/indicator`, `/country/all/indicator/{id}`, `/sources/{db}/series/{id}/metadata` with a `/indicator/{id}` fallback) and returns plain dicts shaped exactly as the schema cast expects. Aggregate economies (`region.id == "NA"`) are dropped (old `skipAggs=True` parity) and null observations kept; the indicator phase runs concurrently under an `asyncio.Semaphore(max_parallel_indicators)`. `downloader_extra` ships its own trimmed copy of the same client (`downloader_extra/wb_client.py`, data-fetch only) — duplicated per service by design, like the other tiny per-service models.
 
 For incremental WB indicator additions during a live stack, the agent's `downloader_agent` worker calls `downloader_extra` (port 8003), which writes directly into the running Postgres without touching the marker.
+
+Binance crypto ingestion (`downloader_general/src/extractors/binance_download.py`) goes through its own async `httpx` client (`src/utils/binance_client.py`), hitting only the documented public spot endpoints (`/api/v3/exchangeInfo`, `/api/v3/ticker/24hr`, `/api/v3/klines`) — no API key. It selects the `top_n` USDT spot pairs by trailing-24h quote volume (dropping stablecoins via `exclude_base_assets` and leveraged UP/DOWN/BULL/BEAR tokens in code), writes the ranked master data to `binance_metadata`, then pages each pair's full daily candle history into `binance_historical_prices` (PK `[date, symbol]`, FK → `binance_metadata.symbol`) concurrently under an `asyncio.Semaphore(max_parallel_symbols)`. The "description" is synthesized from documented fields (the REST API exposes no prose coin descriptions). Like Yahoo/WB it's marker-gated and bootstraps **only** its own `binance` schema group, so adding crypto to an existing volume needs a clean boot (there is no `downloader_extra` path for crypto). It reuses the shared retry helper `wb_client.call_with_retries`.
 
 ## Conventions worth knowing
 
@@ -157,6 +160,8 @@ For incremental WB indicator additions during a live stack, the agent's `downloa
 - Use only `uv` and `pnpm` for package management
 - Use `ruff` and `es-lint` for linting/formatting code
 - Use `ty` for static type checking, most code of should be strictly typed
+- Use pydantic for all data types validation
+- Use `SQLAlchemy` as ORM, all tables in postgresql should be descriped in ORM
 - Never push to github
 - In commits messages use short and simple messages
 - Tests for each service should be written

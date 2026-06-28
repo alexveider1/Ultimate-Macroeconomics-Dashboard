@@ -89,6 +89,7 @@ def setup_routing():
     p_cluster = st.Page("pages/13_clustering_sandbox.py", title="Clustering Sandbox", icon="🔍")
     p_yahoo_finance = st.Page("pages/14_yahoo_finance.py", title="Yahoo Finance", icon="💹")
     p_news = st.Page("pages/15_news.py", title="News Explorer", icon="📰")
+    p_crypto = st.Page("pages/16_crypto.py", title="Crypto", icon="💰")
     p_token_usage = st.Page("pages/17_token_usage.py", title="Token Usage", icon="🪙")
     p_monitoring = st.Page("pages/18_monitoring.py", title="Monitoring", icon="🛰️")
 
@@ -106,7 +107,7 @@ def setup_routing():
                 p_education_human_capital,
                 p_environment,
             ],
-            "Other data": [p_yahoo_finance, p_news],
+            "Other data": [p_yahoo_finance, p_crypto, p_news],
             "Constructors": [p_custom_plot, p_cluster],
             "AI": [p_agent],
             "Settings": [p_token_usage, p_monitoring],

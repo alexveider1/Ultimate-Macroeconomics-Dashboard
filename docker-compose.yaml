@@ -123,8 +123,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
-    # remove `deploy` part if no GPU available
-    ### start of removable part
     deploy:
       resources:
         reservations:

@@ -14,35 +14,12 @@ import os
 import sys
 from pathlib import Path
 
-import tqdm
-
 from src.config import load_config
 from src.extractors import NewsDownloader, WorldBankDownloader, YahooDownloader
 from src.settings import load_settings
 from src.utils.db_bootstrap import ensure_llm_role
 from src.utils.downloads import _get_sql_config
 from src.utils.schema import load_database_schema
-
-
-class _TqdmHandler(logging.StreamHandler):
-    """Logging handler that writes through ``tqdm.tqdm.write``.
-
-    Without this, log records would clobber any active tqdm progress bar; the
-    handler routes the formatted record through ``tqdm.write`` so the bar
-    redraws cleanly above the log line.
-    """
-
-    def emit(self, record: logging.LogRecord) -> None:
-        """Route ``record`` to stdout via ``tqdm.tqdm.write``.
-
-        Args:
-            record: The log record to emit.
-        """
-        try:
-            tqdm.tqdm.write(self.format(record), file=sys.stdout)
-        except Exception:
-            self.handleError(record)
-
 
 CONFIG_PATH = Path("config.yaml")
 DEFAULT_DOWNLOAD_MARKER = Path("_container_data/.download_completed")
@@ -77,7 +54,7 @@ def main() -> None:
                 mode="w",
                 encoding="utf-8",
             ),
-            _TqdmHandler(),
+            logging.StreamHandler(sys.stdout),
         ],
     )
 

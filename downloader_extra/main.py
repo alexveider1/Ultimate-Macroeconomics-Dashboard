@@ -11,7 +11,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -116,8 +115,9 @@ async def ingest_indicator(payload: IngestRequest):
     """Ingest a single World Bank indicator into Postgres.
 
     Short-circuits when at least one row for ``(indicator_id, db_id)``
-    already exists. Otherwise hands off to :func:`client_wb.fetch_and_store_indicator`
-    on the threadpool so the event loop stays free.
+    already exists. Otherwise awaits :func:`client_wb.fetch_and_store_indicator`,
+    which fetches over async ``httpx`` and offloads the blocking DB write to a
+    worker thread so the event loop stays free.
 
     Args:
         payload: ``IngestRequest`` with the WB indicator and database ids.
@@ -146,8 +146,7 @@ async def ingest_indicator(payload: IngestRequest):
                 status="already_downloaded",
             )
 
-        rows_inserted = await run_in_threadpool(
-            fetch_and_store_indicator,
+        rows_inserted = await fetch_and_store_indicator(
             payload.indicator_id,
             payload.db_id,
             app.state.sql_uri,

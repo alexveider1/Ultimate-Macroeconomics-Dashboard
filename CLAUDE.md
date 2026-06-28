@@ -135,6 +135,10 @@ Per-model hyperparameters travel in a single `model_params: dict[str, Any]` fiel
 
 `downloader_general/src/` is split into `core/` (orchestration, schema validation in `utils/schema.py`), `extractors/` (one module per source: `world_bank`, `yahoo`, `github` for the news repo), and `utils/`. It's a one-shot job — its container exits after success. Re-running it from scratch requires removing the `_container_data/downloader_general/.download_completed` marker (gitignored) and the persistent volumes (`postgres_data`, `qdrant_data`).
 
+Ingestion progress is reported **through the logs, not `tqdm`** (terminal progress bars don't render in container logs). Long loops wrap their iterable in `log_progress(iterable, label=..., total=...)` (`src/utils/downloads.py`), which emits a throttled INFO line (≤ one per 5 s, plus a final 100% line); git clone progress goes through the log-emitting `CloneProgress` in the same module. `tqdm` is no longer a declared dependency anywhere — reuse `log_progress` for any new progress reporting rather than reintroducing it.
+
+World Bank access goes through a hand-rolled **async `httpx` client** (`downloader_general/src/utils/wb_client.py`), which replaced the old `wbgapi` dependency — it pages the documented `https://api.worldbank.org/v2/...` REST endpoints directly (`/source`, `/country`, `/indicator`, `/country/all/indicator/{id}`, `/sources/{db}/series/{id}/metadata` with a `/indicator/{id}` fallback) and returns plain dicts shaped exactly as the schema cast expects. Aggregate economies (`region.id == "NA"`) are dropped (old `skipAggs=True` parity) and null observations kept; the indicator phase runs concurrently under an `asyncio.Semaphore(max_parallel_indicators)`. `downloader_extra` ships its own trimmed copy of the same client (`downloader_extra/wb_client.py`, data-fetch only) — duplicated per service by design, like the other tiny per-service models.
+
 For incremental WB indicator additions during a live stack, the agent's `downloader_agent` worker calls `downloader_extra` (port 8003), which writes directly into the running Postgres without touching the marker.
 
 ## Conventions worth knowing
@@ -152,12 +156,11 @@ For incremental WB indicator additions during a live stack, the agent's `downloa
 
 - Use only `uv` and `pnpm` for package management
 - Use `ruff` and `es-lint` for linting/formatting code
-- Use `ty` for static type checking
+- Use `ty` for static type checking, most code of should be strictly typed
 - Never push to github
-- In commits messages use short and simple
-messages
+- In commits messages use short and simple messages
 - Tests for each service should be written
 - For frontend testing use playwright, don't finish until web ui looks clean and smooth, without bugs and visual problems
 - Work only in `dev` branch
 - If something is not even slightly understood by you - always ask user
-- On each step of development, update CLAUDE.md, TODO.md, CHANGELOG.md (only for v0.x commits with tags) and PLAN.md
+- On each step of development, update `CLAUDE.md`, `TODO.md`, `CHANGELOG.md` (only for v0.x commits with tags) and `PLAN.md`

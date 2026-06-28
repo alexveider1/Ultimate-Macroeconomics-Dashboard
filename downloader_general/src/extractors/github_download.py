@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import shutil
-import sys
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -25,7 +24,6 @@ from git import Repo
 from openai import OpenAI
 from qdrant_client import QdrantClient, models
 from tiktoken import encoding_for_model
-from tqdm import tqdm
 
 from src.core.base_downloaders import BaseNewsDownloader
 from src.settings import load_settings
@@ -34,6 +32,7 @@ from src.utils.downloads import (
     _call_with_retries,
     _download_config,
     _remove_readonly,
+    log_progress,
 )
 
 logger = logging.getLogger(__name__)
@@ -324,12 +323,10 @@ class NewsDownloader(BaseNewsDownloader):
                 executor.submit(self._process_archive, archive_path, allowed_topics): archive_path
                 for archive_path in iter_files
             }
-            for future in tqdm(
+            for future in log_progress(
                 as_completed(futures),
+                label="Unzipping files",
                 total=len(futures),
-                desc="Unzipping files",
-                dynamic_ncols=True,
-                file=sys.stdout,
             ):
                 archive_path = futures[future]
                 try:
@@ -451,12 +448,10 @@ class NewsDownloader(BaseNewsDownloader):
                     ): batch_start
                     for batch_start in batch_starts
                 }
-                for future in tqdm(
+                for future in log_progress(
                     as_completed(futures),
+                    label=f"Embedding and Uploading: {collection_name}",
                     total=len(futures),
-                    desc=f"Embedding and Uploading: {collection_name}",
-                    dynamic_ncols=True,
-                    file=sys.stdout,
                 ):
                     batch_start = futures[future]
                     try:

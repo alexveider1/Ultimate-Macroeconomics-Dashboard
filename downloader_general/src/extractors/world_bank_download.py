@@ -1,32 +1,31 @@
 """World Bank ingestion pipeline.
 
 Fetches the catalogue of databases and indicators, then walks every indicator
-configured under ``world_bank_download_config.json`` in parallel, downloading
-both metadata (units, source notes) and data (per economy/year cells). Falls
-back from ``wbgapi`` to the raw v2 REST endpoint when the former returns empty.
+configured under ``world_bank_download_config.json`` concurrently, downloading
+both metadata (units, source notes) and data (per economy/year cells). All HTTP
+access goes through :mod:`src.utils.wb_client`, an async ``httpx`` wrapper around
+the documented World Bank v2 REST API (this replaced the ``wbgapi`` dependency).
 """
 
+import asyncio
 import logging
-import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import httpx
 import polars as pl
-import wbgapi as wb
-from tqdm import tqdm
 
 from src.core.base_downloaders import BaseWorldBankDownloader
 from src.settings import load_settings
+from src.utils import wb_client
 from src.utils.downloads import (
-    _call_with_retries,
     _download_config,
     _download_source_indicators,
     _get_sql_config,
     _polars_from_world_bank_records,
     _test_sql,
     _test_world_bank_api,
+    log_progress,
 )
 from src.utils.schema import (
     bootstrap_schema_group,
@@ -58,7 +57,7 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         """
         self.env_path = Path(env_path)
         self.download_config = _download_config(download_config_path)
-        self.sql_uri = None
+        self.sql_uri: Optional[str] = None
 
         self.database_table_name = "databases"
         self.database_indicators_table_name = "database_indicators"
@@ -77,6 +76,12 @@ class WorldBankDownloader(BaseWorldBankDownloader):
     def _table_def(self, table_name: str) -> Dict[str, Any]:
         return get_table_definition(self.database_schema, self.SCHEMA_GROUP, table_name)
 
+    def _require_sql_uri(self) -> str:
+        """Return the initialised Postgres URI or raise if not yet connected."""
+        if self.sql_uri is None:
+            raise RuntimeError("sql_uri not initialised; call _initialize_connections() first")
+        return self.sql_uri
+
     def _initialize_connections(self, host: str, port: int, db: str) -> bool:
         secrets = load_settings(self.env_path)
         sql_config = _get_sql_config(
@@ -94,70 +99,11 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         _world_bank_test = _test_world_bank_api()
         return _sql_test and _world_bank_test
 
-    def _fetch_indicator_data_via_api(self, indicator_id: str, db: int) -> Optional[list]:
-        """Fallback for sources where wbgapi's /sources/{db}/series/... URL returns empty JSON.
-        Uses the standard WB v2 /country/all/indicator/{id}?source={db} endpoint instead."""
-        rows = []
-        page = 1
-        with httpx.Client(timeout=30.0) as client:
-            while True:
-                resp = client.get(
-                    f"https://api.worldbank.org/v2/country/all/indicator/{indicator_id}",
-                    params={
-                        "source": db,
-                        "format": "json",
-                        "per_page": 1000,
-                        "page": page,
-                    },
-                )
-                resp.raise_for_status()
-                payload = resp.json()
-                if not isinstance(payload, list) or len(payload) < 2 or payload[1] is None:
-                    break
-                meta, records = payload[0], payload[1]
-                for r in records:
-                    iso3 = r.get("countryiso3code", "")
-                    if len(iso3) != 3:
-                        continue
-                    if r.get("value") is None:
-                        continue
-                    try:
-                        year = int(r["date"])
-                    except (ValueError, TypeError):
-                        continue
-                    rows.append({"economy": iso3, "time": year, "value": r["value"]})
-                if page >= int(meta.get("pages", 1)):
-                    break
-                page += 1
-        return rows or None
-
-    def _fetch_indicator_metadata_via_api(self, indicator_id: str, db: int) -> Optional[dict]:
-        """Fallback metadata for sources where wbgapi's /sources/{db}/series/... URL fails.
-        Uses the standard WB v2 /indicator/{id} endpoint instead."""
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.get(
-                f"https://api.worldbank.org/v2/indicator/{indicator_id}",
-                params={"format": "json", "source": db},
-            )
-        resp.raise_for_status()
-        payload = resp.json()
-        if not isinstance(payload, list) or len(payload) < 2 or not payload[1]:
-            return None
-        info = payload[1][0]
-        return {
-            "indicator_name": info.get("name"),
-            "units": info.get("unit") or "",
-            "source": info.get("source", {}).get("value"),
-            "development_relevance": info.get("sourceNote"),
-            "limitations_and_exceptions": None,
-            "statistical_concept_and_methodology": None,
-        }
-
-    def download_basic_tables(self) -> None:
+    async def download_basic_tables(self, client: httpx.AsyncClient) -> None:
         logger.info("Starting download of World Bank basic tables")
-        source_records = _call_with_retries(
+        source_records = await wb_client.call_with_retries(
             operation_name="source.list",
-            request_callable=lambda: list(wb.source.list()),
+            request_coro_factory=lambda: wb_client.fetch_sources(client),
             max_retries=self.download_max_retries,
             retry_delay_seconds=self.download_retry_delay_seconds,
         )
@@ -165,16 +111,18 @@ class WorldBankDownloader(BaseWorldBankDownloader):
             logger.warning("Skipping basic tables download: source.list failed after all retries")
             return
         df = _polars_from_world_bank_records(source_records)
-        write_polars_to_table(
+        await asyncio.to_thread(
+            write_polars_to_table,
             df,
-            sql_uri=self.sql_uri,
-            table_name=self.database_table_name,
-            table_def=self._table_def(self.database_table_name),
+            self._require_sql_uri(),
+            self.database_table_name,
+            self._table_def(self.database_table_name),
         )
+
         logger.info("Starting download of World Bank countries table")
-        country_records = _call_with_retries(
+        country_records = await wb_client.call_with_retries(
             operation_name="economy.list",
-            request_callable=lambda: list(wb.economy.list(skipAggs=True, db=2, labels=True)),
+            request_coro_factory=lambda: wb_client.fetch_countries(client, skip_aggregates=True),
             max_retries=self.download_max_retries,
             retry_delay_seconds=self.download_retry_delay_seconds,
         )
@@ -184,22 +132,24 @@ class WorldBankDownloader(BaseWorldBankDownloader):
             )
             return
         df_countries = _polars_from_world_bank_records(country_records)
-        write_polars_to_table(
+        await asyncio.to_thread(
+            write_polars_to_table,
             df_countries,
-            sql_uri=self.sql_uri,
-            table_name=self.countries_table_name,
-            table_def=self._table_def(self.countries_table_name),
+            self._require_sql_uri(),
+            self.countries_table_name,
+            self._table_def(self.countries_table_name),
         )
         logger.info("Finished downloading World Bank countries table")
 
         logger.info("Starting download of World Bank source indicators")
         source_ids = df.get_column("id").to_list()
-        for source_id in tqdm(
-            source_ids, desc="Downloading source indicators", dynamic_ncols=True, file=sys.stdout
+        for source_id in log_progress(
+            source_ids, label="Downloading source indicators", total=len(source_ids)
         ):
-            _download_source_indicators(
+            await _download_source_indicators(
+                client=client,
                 db_id=source_id,
-                sql_uri=self.sql_uri,
+                sql_uri=self._require_sql_uri(),
                 table_name=self.database_indicators_table_name,
                 table_def=self._table_def(self.database_indicators_table_name),
                 api_max_retries=self.download_max_retries,
@@ -208,39 +158,16 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         logger.info("Finished downloading World Bank source indicators")
         logger.info("Finished download of World Bank basic tables")
 
-    def download_db(self, indicator_id: str, db: int) -> None:
+    async def download_db(self, client: httpx.AsyncClient, indicator_id: str, db: int) -> None:
         logger.info(
             f"Starting download of World Bank indicator data (indicator_id={indicator_id}, db={db})"
         )
-        data_records = _call_with_retries(
+        data_records = await wb_client.call_with_retries(
             operation_name=f"data.fetch(indicator_id={indicator_id}, db={db})",
-            request_callable=lambda: list(
-                wb.data.fetch(
-                    indicator_id,
-                    db=db,
-                    skipAggs=True,
-                    economy="all",
-                    time="all",
-                    skipBlanks=False,
-                    numericTimeKeys=True,
-                )
-            ),
+            request_coro_factory=lambda: wb_client.fetch_indicator_data(client, indicator_id, db),
             max_retries=self.download_max_retries,
             retry_delay_seconds=self.download_retry_delay_seconds,
         )
-
-        if data_records is None:
-            logger.info(
-                "Trying fallback API endpoint for indicator data (indicator_id=%s, db=%s)",
-                indicator_id,
-                db,
-            )
-            data_records = _call_with_retries(
-                operation_name=f"data.fetch.api(indicator_id={indicator_id}, db={db})",
-                request_callable=lambda: self._fetch_indicator_data_via_api(indicator_id, db),
-                max_retries=self.download_max_retries,
-                retry_delay_seconds=self.download_retry_delay_seconds,
-            )
 
         if data_records is None:
             logger.warning(
@@ -259,13 +186,10 @@ class WorldBankDownloader(BaseWorldBankDownloader):
             )
             return
 
-        economy_column = "economy"
-        year_column = "time"
-
         df = df.select(
             [
-                pl.col(economy_column).alias("economy"),
-                pl.col(year_column).alias("year"),
+                pl.col("economy").alias("economy"),
+                pl.col("time").alias("year"),
                 pl.col("value"),
             ]
         ).with_columns(
@@ -285,114 +209,119 @@ class WorldBankDownloader(BaseWorldBankDownloader):
                 f"(indicator_id={indicator_id}, db={db})"
             )
             return
-        write_polars_to_table(
+        await asyncio.to_thread(
+            write_polars_to_table,
             df,
-            sql_uri=self.sql_uri,
-            table_name=self.indicators_table_name,
-            table_def=self._table_def(self.indicators_table_name),
+            self._require_sql_uri(),
+            self.indicators_table_name,
+            self._table_def(self.indicators_table_name),
         )
         logger.info(
             f"Finished download of World Bank indicator data (indicator_id={indicator_id}, db={db})"
         )
 
-    def download_metadata(self, indicator_id: str, db: int) -> None:
+    async def download_metadata(
+        self, client: httpx.AsyncClient, indicator_id: str, db: int
+    ) -> None:
         logger.info(
             f"Starting download of World Bank indicator metadata (indicator_id={indicator_id}, db={db})"
         )
-        metadata_response = _call_with_retries(
+        metadata_row = await wb_client.call_with_retries(
             operation_name=f"series.metadata.get(indicator_id={indicator_id}, db={db})",
-            request_callable=lambda: wb.series.metadata.get(indicator_id, db=db),
+            request_coro_factory=lambda: wb_client.fetch_series_metadata(client, indicator_id, db),
             max_retries=self.download_max_retries,
             retry_delay_seconds=self.download_retry_delay_seconds,
         )
 
-        if metadata_response is not None:
-            metadata = metadata_response.metadata
-            dataframe_dict = {
-                "indicator_id": indicator_id,
-                "db_id": db,
-                "indicator_name": metadata.get("IndicatorName"),
-                "units": metadata.get("Unitofmeasure"),
-                "source": metadata.get("Source"),
-                "development_relevance": metadata.get("Developmentrelevance"),
-                "limitations_and_exceptions": metadata.get("Limitationsandexceptions"),
-                "statistical_concept_and_methodology": metadata.get(
-                    "Statisticalconceptandmethodology"
-                ),
-            }
-        else:
+        if metadata_row is None:
             logger.info(
                 "Trying fallback metadata endpoint for indicator (indicator_id=%s, db=%s)",
                 indicator_id,
                 db,
             )
-            fallback = _call_with_retries(
+            metadata_row = await wb_client.call_with_retries(
                 operation_name=f"indicator.metadata.get(indicator_id={indicator_id}, db={db})",
-                request_callable=lambda: self._fetch_indicator_metadata_via_api(indicator_id, db),
+                request_coro_factory=lambda: wb_client.fetch_indicator_metadata(
+                    client, indicator_id, db
+                ),
                 max_retries=self.download_max_retries,
                 retry_delay_seconds=self.download_retry_delay_seconds,
             )
-            if fallback is None:
-                logger.warning(
-                    "Skipping metadata download after all retries failed (indicator_id=%s, db=%s)",
-                    indicator_id,
-                    db,
-                )
-                return
-            dataframe_dict = {"indicator_id": indicator_id, "db_id": db, **fallback}
+
+        if metadata_row is None:
+            logger.warning(
+                "Skipping metadata download after all retries failed (indicator_id=%s, db=%s)",
+                indicator_id,
+                db,
+            )
+            return
+
+        dataframe_dict = {"indicator_id": indicator_id, "db_id": db, **metadata_row}
         df = pl.DataFrame([dataframe_dict])
         if df.is_empty():
             logger.warning(
                 f"No metadata found for World Bank indicator (indicator_id={indicator_id}, db={db})"
             )
             return
-        write_polars_to_table(
+        await asyncio.to_thread(
+            write_polars_to_table,
             df,
-            sql_uri=self.sql_uri,
-            table_name=self.metadata_table_name,
-            table_def=self._table_def(self.metadata_table_name),
+            self._require_sql_uri(),
+            self.metadata_table_name,
+            self._table_def(self.metadata_table_name),
         )
         logger.info(
             f"Finished download of World Bank indicator metadata (indicator_id={indicator_id}, db={db})"
         )
 
-    def _download_indicator_pair(self, indicator_id: str, db_id: int) -> None:
-        """Run metadata + data download for a single indicator (worker unit)."""
-        self.download_metadata(indicator_id, db_id)
-        self.download_db(indicator_id, db_id)
+    async def _download_indicator_pair(
+        self, client: httpx.AsyncClient, indicator_id: str, db_id: int
+    ) -> None:
+        """Run metadata + data download for a single indicator (worker unit).
 
-    def run(self) -> None:
-        bootstrap_schema_group(self.sql_uri, self.database_schema, self.SCHEMA_GROUP)
-        self.download_basic_tables()
+        Exceptions are caught and logged here so one bad indicator never aborts
+        the whole gathered batch.
+        """
+        try:
+            await self.download_metadata(client, indicator_id, db_id)
+            await self.download_db(client, indicator_id, db_id)
+        except Exception:
+            logger.exception(
+                "Indicator download failed (indicator_id=%s, db_id=%s)",
+                indicator_id,
+                db_id,
+            )
+
+    async def _run_async(self) -> None:
+        bootstrap_schema_group(self._require_sql_uri(), self.database_schema, self.SCHEMA_GROUP)
         download_dictionary: dict[int, list[str]] = {}
         for category in self.download_config:
             for db in self.download_config[category]:
                 db_id = db["db"]
                 download_dictionary.setdefault(db_id, []).append(db["id"])
 
-        for db_id, indicator_ids in download_dictionary.items():
-            logging.info(f"Starting downloads for World Bank database (db_id={db_id})")
-            with ThreadPoolExecutor(max_workers=self.max_parallel_indicators) as executor:
-                futures = {
-                    executor.submit(
-                        self._download_indicator_pair, indicator_id, db_id
-                    ): indicator_id
+        semaphore = asyncio.Semaphore(self.max_parallel_indicators)
+
+        async with wb_client.build_async_client() as client:
+            await self.download_basic_tables(client)
+
+            async def _bounded(indicator_id: str, db_id: int) -> None:
+                async with semaphore:
+                    await self._download_indicator_pair(client, indicator_id, db_id)
+
+            for db_id, indicator_ids in download_dictionary.items():
+                logger.info("Starting downloads for World Bank database (db_id=%s)", db_id)
+                tasks = [
+                    asyncio.create_task(_bounded(indicator_id, db_id))
                     for indicator_id in indicator_ids
-                }
-                for future in tqdm(
-                    as_completed(futures),
-                    total=len(futures),
-                    desc=f"Downloading indicators for db_id={db_id}",
-                    dynamic_ncols=True,
-                    file=sys.stdout,
+                ]
+                for coro in log_progress(
+                    asyncio.as_completed(tasks),
+                    label=f"Downloading indicators for db_id={db_id}",
+                    total=len(tasks),
                 ):
-                    indicator_id = futures[future]
-                    try:
-                        future.result()
-                    except Exception:
-                        logger.exception(
-                            "Indicator download failed (indicator_id=%s, db_id=%s)",
-                            indicator_id,
-                            db_id,
-                        )
-            logger.info(f"Finished downloads for World Bank database (db_id={db_id})")
+                    await coro
+                logger.info("Finished downloads for World Bank database (db_id=%s)", db_id)
+
+    def run(self) -> None:
+        asyncio.run(self._run_async())

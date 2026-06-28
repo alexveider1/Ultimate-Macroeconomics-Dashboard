@@ -1,75 +1,53 @@
 """World Bank fetch + Postgres upsert for one indicator at a time.
 
 Called by ``downloader_extra``'s ``POST /ingest`` endpoint when the agent
-asks for an indicator not yet in the database. Tries the high-level
-``wbgapi`` library first and falls back to the raw v2 REST API when the
-former returns an empty payload (some sources need the fallback).
+asks for an indicator not yet in the database. Fetches the observations over
+an async ``httpx`` client (:mod:`wb_client`, which replaced the ``wbgapi``
+dependency) and replaces any prior copy of the indicator in Postgres.
 """
 
+import asyncio
 import logging
 
-import httpx
 import polars as pl
-import wbgapi as wb
 from sqlalchemy import create_engine, delete
 from sqlalchemy.orm import Session
 
+import wb_client
 from schema import MacroIndicator
 
 logger = logging.getLogger(__name__)
 
 
-def _fetch_indicator_data_via_api(indicator_id: str, db: int) -> list[dict]:
-    """Fetch an indicator via the v2 REST endpoint when ``wbgapi`` returns empty.
+def _replace_indicator_rows(
+    rows: list[dict], indicator_id: str, wb_db_id: int, sql_uri: str
+) -> None:
+    """Delete any existing copy of the indicator and insert the fresh rows.
 
-    Pages through all results, drops aggregate ISO codes (anything that
-    isn't 3 characters long) and ``null`` values, and converts the year
-    field to ``int``.
+    Runs the (blocking) SQLAlchemy work in a single transaction; intended to be
+    called via :func:`asyncio.to_thread` so the event loop stays free.
 
     Args:
+        rows: Row dicts ready for ``MacroIndicator(**row)``.
         indicator_id: World Bank indicator id.
-        db: World Bank database id (the ``source`` parameter).
-
-    Returns:
-        Rows shaped as ``{"economy", "year", "value"}``. Empty list if the
-        endpoint returns nothing.
+        wb_db_id: World Bank database id.
+        sql_uri: SQLAlchemy URI for the Postgres superuser connection.
     """
-    rows = []
-    page = 1
-    with httpx.Client(timeout=30.0) as client:
-        while True:
-            resp = client.get(
-                f"https://api.worldbank.org/v2/country/all/indicator/{indicator_id}",
-                params={
-                    "source": db,
-                    "format": "json",
-                    "per_page": 1000,
-                    "page": page,
-                },
+    engine = create_engine(sql_uri)
+    try:
+        with Session(engine) as session, session.begin():
+            session.execute(
+                delete(MacroIndicator).where(
+                    MacroIndicator.indicator_id == indicator_id,
+                    MacroIndicator.db_id == wb_db_id,
+                )
             )
-            resp.raise_for_status()
-            payload = resp.json()
-            if not isinstance(payload, list) or len(payload) < 2 or payload[1] is None:
-                break
-            meta, records = payload[0], payload[1]
-            for r in records:
-                iso3 = r.get("countryiso3code", "")
-                if len(iso3) != 3:
-                    continue
-                if r.get("value") is None:
-                    continue
-                try:
-                    year = int(r["date"])
-                except (ValueError, TypeError):
-                    continue
-                rows.append({"economy": iso3, "year": year, "value": r["value"]})
-            if page >= int(meta.get("pages", 1)):
-                break
-            page += 1
-    return rows
+            session.add_all([MacroIndicator(**row) for row in rows])
+    finally:
+        engine.dispose()
 
 
-def fetch_and_store_indicator(indicator_id: str, wb_db_id: int, sql_uri: str) -> int:
+async def fetch_and_store_indicator(indicator_id: str, wb_db_id: int, sql_uri: str) -> int:
     """Fetch one WB indicator and replace any prior copy in Postgres.
 
     The function is idempotent: it first deletes all existing rows for the
@@ -85,65 +63,29 @@ def fetch_and_store_indicator(indicator_id: str, wb_db_id: int, sql_uri: str) ->
         Number of rows that were inserted.
 
     Raises:
-        ValueError: When neither the primary nor the fallback endpoint
-            returns any usable data for the indicator.
+        ValueError: When the WB API returns no usable data for the indicator.
     """
-    try:
-        records = wb.data.fetch(
-            indicator_id,
-            db=wb_db_id,
-            skipAggs=True,
-            economy="all",
-            time="all",
-            skipBlanks=False,
-            numericTimeKeys=True,
-        )
-        rows = list(records)
-    except Exception as exc:
-        logger.warning(
-            "wbgapi primary fetch failed for indicator_id=%s db=%s: %s; "
-            "falling back to v2 REST endpoint",
-            indicator_id,
-            wb_db_id,
-            exc,
-        )
-        rows = []
+    async with wb_client.build_async_client() as client:
+        rows = await wb_client.fetch_indicator_data(client, indicator_id, wb_db_id)
 
-    if rows:
-        df = pl.DataFrame(rows)
-        economy_column = "economy"
-        year_column = "time"
+    if not rows:
+        raise ValueError(f"No data found for indicator id: {indicator_id}")
 
-        df_transformed = df.select(
-            [
-                pl.col(economy_column).alias("economy"),
-                pl.col(year_column).alias("year"),
-                pl.col("value"),
-            ]
-        ).with_columns(
+    df_transformed = (
+        pl.DataFrame(rows)
+        .with_columns(
             [
                 pl.lit(indicator_id).alias("indicator_id"),
                 pl.lit(wb_db_id).alias("db_id"),
             ]
         )
-    else:
-        fallback_rows = _fetch_indicator_data_via_api(indicator_id, wb_db_id)
-        if not fallback_rows:
-            raise ValueError(f"No data found for indicator id: {indicator_id}")
-        df_transformed = pl.DataFrame(fallback_rows).with_columns(
+        .drop_nulls(subset=["economy", "year"])
+        .with_columns(
             [
-                pl.lit(indicator_id).alias("indicator_id"),
-                pl.lit(wb_db_id).alias("db_id"),
+                pl.col("year").cast(pl.Int32, strict=False),
+                pl.col("value").cast(pl.Float64, strict=False),
             ]
         )
-
-    df_transformed = df_transformed.drop_nulls(subset=["economy", "year"])
-
-    df_transformed = df_transformed.with_columns(
-        [
-            pl.col("year").cast(pl.Int32, strict=False),
-            pl.col("value").cast(pl.Float64, strict=False),
-        ]
     )
 
     if df_transformed.is_empty():
@@ -158,17 +100,7 @@ def fetch_and_store_indicator(indicator_id: str, wb_db_id: int, sql_uri: str) ->
     )
 
     rows_to_insert = df_transformed.to_dicts()
-    engine = create_engine(sql_uri)
-    try:
-        with Session(engine) as session, session.begin():
-            session.execute(
-                delete(MacroIndicator).where(
-                    MacroIndicator.indicator_id == indicator_id,
-                    MacroIndicator.db_id == wb_db_id,
-                )
-            )
-            session.add_all([MacroIndicator(**row) for row in rows_to_insert])
-    finally:
-        engine.dispose()
-
+    await asyncio.to_thread(
+        _replace_indicator_rows, rows_to_insert, indicator_id, wb_db_id, sql_uri
+    )
     return len(rows_to_insert)

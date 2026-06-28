@@ -29,13 +29,11 @@ dependencies = [
     "six==1.17.0",
     "sqlalchemy==2.0.48",
     "starlette==1.0.0",
-    "tabulate==0.10.0",
     "typing-extensions==4.15.0",
     "typing-inspection==0.4.2",
     "tzdata==2025.3",
     "urllib3==2.6.3",
     "uvicorn==0.42.0",
-    "wbgapi==1.0.14",
 ]
 
 [build-system]

@@ -4,8 +4,7 @@
 
 ## Short-term
 
-* Add consistent across countries selector for countries
-* Completely remove tqdm progress bars
+*
 
 ## Medium-term
 
@@ -30,5 +29,3 @@
 
 * Implement new data sources: Maddison Project Database
 * Implement feature for creating dynamic, llm-based macroeconomics reports as documents
-* Search for new data sources of RAG
-* Other tabular data sources

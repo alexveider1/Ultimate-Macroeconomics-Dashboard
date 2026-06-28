@@ -4,6 +4,22 @@ All notable changes to **Ultimate Macroeconomics Dashboard** are documented in t
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.12]
+
+Dropped the `wbgapi` dependency in favour of a hand-rolled async `httpx` World Bank client, and broadened the Yahoo Finance company universe.
+
+### Changed
+
+- **World Bank ingestion now uses a plain async `httpx` client instead of `wbgapi`.** New `downloader_general/src/utils/wb_client.py` pages the documented `https://api.worldbank.org/v2/...` REST endpoints directly — `/source` (databases), `/country` (countries), `/indicator?source={db}` (per-source indicator catalogue), `/country/all/indicator/{id}?source={db}` (observations), and the advanced `/sources/{db}/series/{id}/metadata` (rich series metadata) with a `/indicator/{id}` fallback. The extractor (`world_bank_download.py`) was rewritten async: per-indicator metadata+data fetches run concurrently under an `asyncio.Semaphore(max_parallel_indicators)` (replacing the old `ThreadPoolExecutor`), and blocking Postgres writes are offloaded with `asyncio.to_thread`. Output schema is **identical** — aggregate economies (`region.id == "NA"`) dropped (old `skipAggs=True` parity), null observations kept, country/metadata column shapes unchanged.
+- **`downloader_extra` (on-demand ingestion) likewise dropped `wbgapi`.** It ships a trimmed copy of the client (`downloader_extra/wb_client.py`, data-fetch only); `fetch_and_store_indicator` is now `async` and awaited directly from `POST /ingest`, fetching over async `httpx` and offloading the DB write to a worker thread (instead of running the whole sync path in a threadpool).
+- **`wbgapi` (and its now-orphaned `tabulate`) removed** from both services' `pyproject.toml` + `uv.lock`.
+- **`tqdm` dropped as a declared dependency; ingestion progress now goes through the logs.** `downloader_general`'s progress bars are replaced by a logging-based `log_progress` helper (and a log-emitting `CloneProgress`) in `src/utils/downloads.py`, so progress is visible in `docker compose logs` instead of a terminal bar that doesn't render there; the bespoke `_TqdmHandler` in `main.py` is gone (plain `StreamHandler`). The explicit `tqdm==4.67.3` pin was removed from `downloader_general` / `agent` / `forecaster` `pyproject.toml` + `uv.lock` (it had no code use in `agent` / `forecaster`); it now resolves only as a transitive dep of `openai` / `transformers` / `prophet` / `cmdstanpy` / `huggingface-hub`.
+
+### Added
+
+- **34 more companies in `yahoo_download_config.json`** (50 → 84) — broader sector and geography coverage: more US tech/financials/healthcare/consumer (NFLX, ADBE, CRM, CSCO, INTC, QCOM, IBM, WFC, MS, GS, BLK, PFE, MRK, DIS, CMCSA, NKE, SBUX) plus international names across Europe/Asia/energy (SAP, SONY, BABA, NESN.SW, UL, MC.PA, HSBC, AZN, NVS, SHEL, BP, TTE, VOW3.DE, 1211.HK, RELIANCE.NS, AIR.PA). All tickers verified live against Yahoo Finance.
+- **`tests/test_wb_client.py`** in both `downloader_general` and `downloader_extra` — offline unit tests (faked HTTP via `httpx.MockTransport`) covering pagination, aggregate skipping, null retention, metadata parsing + XML/fallback handling, and the retry wrapper.
+
 ## [v0.11]
 
 Typed configuration and least-privilege secrets across every service, plus a two-model agent for cheaper, faster inference.

@@ -6,14 +6,12 @@ fetches run on a thread pool because each call is independent.
 """
 
 import logging
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 import polars as pl
 import yfinance as yf
-from tqdm import tqdm
 
 from src.core.base_downloaders import BaseYahooDownloader
 from src.settings import load_settings
@@ -22,6 +20,7 @@ from src.utils.downloads import (
     _download_config,
     _get_sql_config,
     _test_sql,
+    log_progress,
 )
 from src.utils.schema import (
     bootstrap_schema_group,
@@ -230,12 +229,10 @@ class YahooDownloader(BaseYahooDownloader):
                 executor.submit(self._download_asset, ticker_id, asset_name, category): ticker_id
                 for ticker_id, asset_name in tasks
             }
-            for future in tqdm(
+            for future in log_progress(
                 as_completed(futures),
+                label=f"Downloading {category}",
                 total=len(futures),
-                desc=f"Downloading {category}",
-                dynamic_ncols=True,
-                file=sys.stdout,
             ):
                 ticker_id = futures[future]
                 try:

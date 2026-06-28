@@ -8,6 +8,7 @@ interface, so the entry-point in ``main.py`` can drive them uniformly.
 from abc import ABC, abstractmethod
 from typing import Dict, List
 
+import httpx
 from tiktoken import Encoding
 
 
@@ -20,17 +21,19 @@ class BaseWorldBankDownloader(ABC):
         pass
 
     @abstractmethod
-    def download_basic_tables(self) -> None:
+    async def download_basic_tables(self, client: httpx.AsyncClient) -> None:
         """Download basic `world-bank` tables"""
         pass
 
     @abstractmethod
-    def download_metadata(self, indicator_id: str, db: int) -> None:
+    async def download_metadata(
+        self, client: httpx.AsyncClient, indicator_id: str, db: int
+    ) -> None:
         """Download metadata for table from `world-bank`"""
         pass
 
     @abstractmethod
-    def download_db(self, indicator_id: str, db: int) -> None:
+    async def download_db(self, client: httpx.AsyncClient, indicator_id: str, db: int) -> None:
         """Download table from `world-bank`"""
         pass
 

@@ -23,7 +23,7 @@
 | Dev workflow | **Tests + coverage gates + agent eval harness** — built *first* as the correctness safety net |
 | Backups | **Nightly `pg_dump` + Qdrant snapshots** pushed to an `rclone` remote, with retention + restore script |
 
-> **Status (v0.11):** Phase 1 *config* + *secrets* and Phase 2b *agent two-model routing* are implemented — pragmatically. Because each service is its own container with its own `pyproject.toml` (no shared package), config/secrets use **per-service** Pydantic `config.py` + `pydantic-settings` `settings.py` rather than one shared `Settings`, and least privilege is enforced by **per-service `environment:` scoping in `docker-compose.yaml`** (each container gets only the secrets it uses) instead of Docker `secrets:` file-mounts. `SecretStr` log-masking and a BFF-wide shared model remain open follow-ups.
+> **Status (v0.14):** Phase 1 *config* + *secrets* and Phase 2b *agent two-model routing* are implemented — pragmatically. Because each service is its own container with its own `pyproject.toml` (no shared package), config/secrets use **per-service** Pydantic `config.py` + `pydantic-settings` `settings.py` rather than one shared `Settings`, and least privilege is enforced by **per-service `environment:` scoping in `docker-compose.yaml`** (each container gets only the secrets it uses) instead of Docker `secrets:` file-mounts. `SecretStr` log-masking and a BFF-wide shared model remain open follow-ups. From **Phase 3**, the Yahoo Finance universe (#5), Binance crypto (#6 — ingestion + a Crypto dashboard page), and the WB→httpx swap (#9) have shipped; on-demand ingestion (`downloader_extra` + the agent's `downloader_agent`) is now **multi-source** (WB indicator / Yahoo ticker / Binance pair). FRED (#3), Eurostat (#4), and GDELT (#7) remain open, as do all of Phases 2 (BFF), 4 (observability/backups), 5 (GPU/Triton), and 6 (frontend).
 
 ---
 
@@ -112,11 +112,12 @@ Phases 2b, 3, and 4 can proceed in parallel with each other (backend/ops only). 
 
 All sources **extend the existing downloaders**: new modules under `downloader_general/src/extractors/`, new on-demand routes in `downloader_extra`, new `_configs/*.json` files, new rows in `database_schema.yaml`, new BFF endpoints (Phase 2), and new tables granted automatically to the read-only role by the idempotent bootstrap. New pages are added to Streamlit in the interim and ported to the frontend in Phase 6.
 
-- **#9 World Bank → httpx** — *(done in Phase 2; listed here for completeness)*.
-- **#5 More Yahoo Finance tickers** — append to `_configs/yahoo_download_config.json` (with sector grouping for the choropleth/sector tokens). Pure config + re-ingest; lowest effort.
+- **#9 World Bank → httpx** — ✅ **done** (Phase 2; listed here for completeness).
+- **#5 More Yahoo Finance tickers** — ✅ **done** (v0.12, 50→84 tickers in `_configs/yahoo_download_config.json`).
+- **#6 Crypto (Binance)** — ✅ **done** (v0.13): `extractors/binance_download.py` (public klines REST, keyless), `_configs/binance_download_config.json`, `binance_metadata` / `binance_historical_prices`, and a **Crypto** dashboard page mirroring the Yahoo page.
+- **On-demand ingestion → multi-source** — ✅ **done** (v0.14): `downloader_extra`'s unified `POST /ingest` (`source=worldbank|yahoo|binance`) + the agent's source-aware `downloader_agent`. WB uses the `database_indicators` master catalogue; Yahoo/Binance have **no catalogue**, so the agent infers the ticker / full pair symbol and `downloader_extra` validates it live.
 - **#3 FRED (US states)** — new `extractors/fred.py` (FRED API, **needs `FRED_API_KEY`**); new `_configs/fred_download_config.json` (state-level series: GDP, unemployment, etc.). New **US States** page with a US-state choropleth.
 - **#4 Eurostat (EU NUTS regions)** — new `extractors/eurostat.py` (Eurostat REST / JSON-stat, **keyless**); new `_configs/eurostat_download_config.json`. New **EU Regions** page with a NUTS-2/3 choropleth (GISCO GeoJSON boundaries).
-- **#6 Crypto (Binance)** — new `extractors/binance.py` (public klines REST, **keyless** for historical OHLCV); new `_configs/binance_download_config.json`. New **Crypto** page (mirrors the Yahoo Finance page).
 - **#7 News RAG → GDELT** — replace the `github` news extractor with `extractors/gdelt.py`. Query GDELT (DOC 2.0 / GKG) filtered by the topics in `news_download_config.json` rather than the full firehose; embed with the same model into Qdrant. Remove the GitHub-repo dependency.
 
 **Touchpoints:** `downloader_general/src/extractors/`, `downloader_extra/`, `_configs/`, `database_schema.yaml`, BFF routers, `Settings`/secrets for `FRED_API_KEY`.

@@ -456,22 +456,26 @@ async def web_search(
     return await asyncio.to_thread(_sync_web_search, queries, max_results_per_query)
 
 
-async def download_indicator(indicator_id: str, db_id: int) -> Dict[str, Any]:
-    """Ask ``downloader_extra`` to ingest one WB indicator into Postgres.
+async def ingest_data(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Ask ``downloader_extra`` to ingest one unit of data into Postgres.
+
+    The unified ``/ingest`` endpoint dispatches on ``payload["source"]``
+    (``worldbank`` / ``yahoo`` / ``binance``); the caller builds the
+    source-specific body (indicator_id+db_id, ticker, or symbol).
 
     Args:
-        indicator_id: World Bank indicator id.
-        db_id: World Bank database id.
+        payload: The ``/ingest`` request body, including a ``source`` key.
 
     Returns:
         ``downloader_extra``'s ingest response, augmented with ``success=True``,
         or ``{"success": False, "error": ...}`` on HTTP failure.
     """
     url = f"{_runtime['downloader_extra_base_url']}/ingest"
-    payload = {"indicator_id": indicator_id, "db_id": db_id}
 
     client = _get_httpx_client()
-    response = await client.post(url, json=payload, timeout=120)
+    # Yahoo/Binance pull full history (paged klines + yfinance), so allow a
+    # generous budget — larger than the old WB-only 120s.
+    response = await client.post(url, json=payload, timeout=300)
     if response.status_code != 200:
         return {
             "success": False,

@@ -1,10 +1,16 @@
-"""FastAPI service: on-demand single-indicator ingestion from the World Bank.
+"""FastAPI service: on-demand single-unit ingestion from three sources.
 
 The agent's ``downloader_agent`` worker POSTs to ``/ingest`` whenever the LLM
-decides an indicator the user is asking about is missing from Postgres. The
-endpoint short-circuits when the indicator is already present (returns
-``status="already_downloaded"``), otherwise it fetches and stores it via
-:mod:`client_wb` on a worker thread so the event loop stays free.
+decides data the user is asking about is missing from Postgres. ``source``
+selects the path:
+
+* ``worldbank`` — one indicator via :mod:`client_wb`.
+* ``yahoo`` — one ticker via :mod:`client_yahoo`.
+* ``binance`` — one spot pair via :mod:`client_binance`.
+
+Each path short-circuits when the data is already present (returns
+``status="already_downloaded"``), otherwise it fetches and stores it on a worker
+thread so the event loop stays free.
 """
 
 from contextlib import asynccontextmanager
@@ -14,9 +20,18 @@ from fastapi import FastAPI, HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from client_binance import fetch_and_store_binance
 from client_wb import fetch_and_store_indicator
+from client_yahoo import fetch_and_store_yahoo
 from config import load_config
-from schema import Base, IngestRequest, IngestResponse, MacroIndicator
+from schema import (
+    Base,
+    BinanceMetadata,
+    IngestRequest,
+    IngestResponse,
+    MacroIndicator,
+    YahooMetadata,
+)
 from settings import get_settings
 
 CONFIG_PATH = Path("config.yaml")
@@ -82,7 +97,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Macroeconomics Data Ingestion Service",
-    description="Fetches macroeconomic indicators from the World Bank and stores them in a database",
+    description=(
+        "On-demand ingestion of a single unit of data from the World Bank "
+        "(indicator), Yahoo Finance (ticker), or Binance (spot pair)."
+    ),
     lifespan=lifespan,
 )
 
@@ -110,54 +128,102 @@ def list_indicators() -> dict[str, list[str]]:
     return {"indicators": [row[0] for row in rows]}
 
 
-@app.post("/ingest", response_model=IngestResponse)
-async def ingest_indicator(payload: IngestRequest):
-    """Ingest a single World Bank indicator into Postgres.
+def _already_present(session_factory: sessionmaker[Session], model, **filters) -> bool:
+    """Return ``True`` if at least one row of ``model`` matches ``filters``."""
+    with session_factory() as session:
+        existing = session.execute(select(model).filter_by(**filters).limit(1)).scalar()
+    return existing is not None
 
-    Short-circuits when at least one row for ``(indicator_id, db_id)``
-    already exists. Otherwise awaits :func:`client_wb.fetch_and_store_indicator`,
-    which fetches over async ``httpx`` and offloads the blocking DB write to a
-    worker thread so the event loop stays free.
+
+async def _ingest_worldbank(payload: IngestRequest) -> IngestResponse:
+    """World Bank path: short-circuit on ``(indicator_id, db_id)`` then fetch."""
+    if not payload.indicator_id or payload.db_id is None:
+        raise HTTPException(status_code=400, detail="worldbank requires indicator_id and db_id")
+    indicator_id, db_id = payload.indicator_id, payload.db_id
+
+    if _already_present(
+        app.state.session_factory, MacroIndicator, indicator_id=indicator_id, db_id=db_id
+    ):
+        return IngestResponse(
+            source="worldbank",
+            identifier=indicator_id,
+            db_id=db_id,
+            rows_inserted=0,
+            status="already_downloaded",
+        )
+
+    rows_inserted = await fetch_and_store_indicator(indicator_id, db_id, app.state.sql_uri)
+    return IngestResponse(
+        source="worldbank",
+        identifier=indicator_id,
+        db_id=db_id,
+        rows_inserted=rows_inserted,
+        status="success",
+    )
+
+
+async def _ingest_yahoo(payload: IngestRequest) -> IngestResponse:
+    """Yahoo path: short-circuit on ``ticker`` in yahoo_metadata then fetch."""
+    if not payload.ticker:
+        raise HTTPException(status_code=400, detail="yahoo requires ticker")
+    ticker = payload.ticker.strip()
+
+    if _already_present(app.state.session_factory, YahooMetadata, ticker=ticker):
+        return IngestResponse(
+            source="yahoo", identifier=ticker, rows_inserted=0, status="already_downloaded"
+        )
+
+    rows_inserted = await fetch_and_store_yahoo(ticker, app.state.sql_uri)
+    return IngestResponse(
+        source="yahoo", identifier=ticker, rows_inserted=rows_inserted, status="success"
+    )
+
+
+async def _ingest_binance(payload: IngestRequest) -> IngestResponse:
+    """Binance path: short-circuit on ``symbol`` in binance_metadata then fetch."""
+    if not payload.symbol:
+        raise HTTPException(status_code=400, detail="binance requires symbol")
+    symbol = payload.symbol.strip().upper()
+
+    if _already_present(app.state.session_factory, BinanceMetadata, symbol=symbol):
+        return IngestResponse(
+            source="binance", identifier=symbol, rows_inserted=0, status="already_downloaded"
+        )
+
+    rows_inserted = await fetch_and_store_binance(symbol, app.state.sql_uri)
+    return IngestResponse(
+        source="binance", identifier=symbol, rows_inserted=rows_inserted, status="success"
+    )
+
+
+@app.post("/ingest", response_model=IngestResponse)
+async def ingest_data(payload: IngestRequest):
+    """Ingest a single unit of data from the requested ``source``.
+
+    Dispatches on ``payload.source`` to the World Bank / Yahoo / Binance path,
+    each of which short-circuits when the data is already present and otherwise
+    fetches it (offloading the blocking DB write to a worker thread).
 
     Args:
-        payload: ``IngestRequest`` with the WB indicator and database ids.
+        payload: ``IngestRequest`` carrying the source and its id field(s).
 
     Raises:
-        HTTPException: 404 when the indicator can't be fetched from WB,
-            500 for any other unexpected error.
+        HTTPException: 404 when the data can't be fetched from the source,
+            400 for a bad request, 500 for any other unexpected error.
     """
-    session_factory: sessionmaker[Session] = app.state.session_factory
+    handlers = {
+        "worldbank": _ingest_worldbank,
+        "yahoo": _ingest_yahoo,
+        "binance": _ingest_binance,
+    }
+    handler = handlers.get(payload.source)
+    if handler is None:  # pragma: no cover — guarded by the request validator
+        raise HTTPException(status_code=400, detail=f"Unknown source: {payload.source}")
+
     try:
-        with session_factory() as session:
-            existing = session.execute(
-                select(MacroIndicator)
-                .where(
-                    MacroIndicator.indicator_id == payload.indicator_id,
-                    MacroIndicator.db_id == payload.db_id,
-                )
-                .limit(1)
-            ).scalar()
-
-        if existing is not None:
-            return IngestResponse(
-                indicator_id=payload.indicator_id,
-                db_id=payload.db_id,
-                rows_inserted=0,
-                status="already_downloaded",
-            )
-
-        rows_inserted = await fetch_and_store_indicator(
-            payload.indicator_id,
-            payload.db_id,
-            app.state.sql_uri,
-        )
-
-        return IngestResponse(
-            indicator_id=payload.indicator_id,
-            db_id=payload.db_id,
-            rows_inserted=rows_inserted,
-            status="success",
-        )
+        return await handler(payload)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:

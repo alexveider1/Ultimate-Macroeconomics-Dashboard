@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from agent.schemas import (
     ChatMessage,
     ChatRequest,
+    DownloadPlan,
     PlotlyCodeGeneration,
     SupervisorDecision,
     WebSearchPlan,
@@ -44,6 +45,24 @@ def test_web_search_plan_enforces_query_count() -> None:
         WebSearchPlan(thought_process="...", search_queries=["a", "b", "c", "d"])
 
 
+def test_download_plan_accepts_each_source() -> None:
+    wb = DownloadPlan(
+        thought_process="...", source="worldbank", indicator_id="NY.GDP.MKTP.CD", db_id=2
+    )
+    assert wb.source == "worldbank" and wb.indicator_id == "NY.GDP.MKTP.CD"
+
+    yahoo = DownloadPlan(thought_process="...", source="yahoo", ticker="AAPL")
+    assert yahoo.ticker == "AAPL" and yahoo.symbol is None
+
+    binance = DownloadPlan(thought_process="...", source="binance", symbol="BTCUSDT")
+    assert binance.symbol == "BTCUSDT" and binance.db_id is None
+
+
+def test_download_plan_rejects_unknown_source() -> None:
+    with pytest.raises(ValidationError):
+        DownloadPlan.model_validate({"thought_process": "...", "source": "fred"})
+
+
 def test_plotly_code_generation_requires_fields() -> None:
     plan = PlotlyCodeGeneration(
         thought_process="line chart",
@@ -52,4 +71,4 @@ def test_plotly_code_generation_requires_fields() -> None:
     )
     assert plan.title == "GDP over time"
     with pytest.raises(ValidationError):
-        PlotlyCodeGeneration(thought_process="...", plotly_code="fig = ...")
+        PlotlyCodeGeneration.model_validate({"thought_process": "...", "plotly_code": "fig = ..."})

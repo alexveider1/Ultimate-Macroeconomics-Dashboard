@@ -216,14 +216,42 @@ class WebSearchPlan(BaseModel):
     )
 
 
-class DownloadIndicatorPlan(BaseModel):
-    """On-demand ingestion request from the ``downloader_agent`` worker."""
+class DownloadPlan(BaseModel):
+    """On-demand ingestion request from the ``downloader_agent`` worker.
+
+    One worker serves three sources; ``source`` selects which id fields apply.
+    World Bank ids come from sql_agent's ``database_indicators`` lookup; Yahoo
+    tickers and Binance pair symbols have no master catalogue, so they are
+    inferred from the user's request (Apple → ``AAPL``, Solana → ``SOLUSDT``).
+    """
 
     thought_process: str = Field(
-        description="Reasoning about which World Bank indicator to download."
+        description="Reasoning about what data to download and from which source."
     )
-    indicator_id: str = Field(description="The World Bank indicator ID (e.g. 'NY.GDP.MKTP.CD').")
-    db_id: int = Field(description="The World Bank database ID (e.g. 2 for WDI).")
+    source: Literal["worldbank", "yahoo", "binance"] = Field(
+        description="Which data source to download from."
+    )
+    indicator_id: str | None = Field(
+        default=None,
+        description=(
+            "World Bank indicator ID (e.g. 'NY.GDP.MKTP.CD'). Required when source='worldbank'."
+        ),
+    )
+    db_id: int | None = Field(
+        default=None,
+        description="World Bank database ID (e.g. 2 for WDI). Required when source='worldbank'.",
+    )
+    ticker: str | None = Field(
+        default=None,
+        description=("Yahoo Finance ticker (e.g. 'AAPL', '^GSPC'). Required when source='yahoo'."),
+    )
+    symbol: str | None = Field(
+        default=None,
+        description=(
+            "Full Binance spot pair symbol, USDT-quoted (e.g. 'BTCUSDT'). "
+            "Required when source='binance'."
+        ),
+    )
 
 
 class ChatSynthesis(BaseModel):

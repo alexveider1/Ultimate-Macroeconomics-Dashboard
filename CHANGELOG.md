@@ -4,6 +4,19 @@ All notable changes to **Ultimate Macroeconomics Dashboard** are documented in t
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.14]
+
+Extended on-demand ingestion beyond the World Bank: the agent can now download a single Yahoo Finance ticker or Binance crypto pair that isn't yet in the database, the same way it already pulls missing WB indicators.
+
+### Added
+
+- **`downloader_extra` is now multi-source.** Its single `POST /ingest` endpoint dispatches on a new `source` field (`worldbank` / `yahoo` / `binance`); the old WB-only body (`{indicator_id, db_id}`) still works because `source` defaults to `worldbank`. Two new per-source clients sit beside `client_wb.py`: `client_yahoo.py` (`fetch_and_store_yahoo`, reusing the single-ticker `yfinance` metadata+history logic from `downloader_general`) and `client_binance.py` + a trimmed `binance_client.py` transport copy (validates the full pair symbol via `/api/v3/exchangeInfo?symbol=`, pulls the 24h ticker + full daily klines). Each path short-circuits on `already_downloaded`, else delete-then-inserts the fresh rows with the metadata row written first to satisfy the FK. New ORM models (`YahooMetadata`/`YahooHistoricalPrice`, `BinanceMetadata`/`BinanceHistoricalPrice`) mirror `database_schema.yaml`; an on-demand Binance metadata row leaves `rank` NULL (no batch-wide ranking). Adds `yfinance==1.2.0`. Covered by offline `test_binance_client.py` / `test_ingest_request.py` plus testcontainer `test_market_orm_roundtrip.py` / `test_store_integration.py`.
+- **Agent: on-demand Yahoo + Binance downloads (no master catalogue).** The `downloader_agent` worker is now source-aware — it extracts a unified `DownloadPlan` (`source` + the relevant id) and POSTs the unified `/ingest` body via the generalised `tools.ingest_data`. Unlike World Bank (which has the `database_indicators` master table), Yahoo/Binance have no catalogue, so the worker infers the ticker / full USDT pair symbol from world knowledge (Apple→`AAPL`, Solana→`SOLUSDT`) and `downloader_extra` validates it against the live API. `sql_agent` gained Binance querying (Plan C: `binance_metadata` + `binance_historical_prices`) and a new `NEEDS_DOWNLOAD (source=yahoo|binance)` signal when a `*_metadata` lookup comes back empty (suppressed when metadata exists but a price filter is just empty). Supervisor + sql_agent prompts updated to route untracked tickers/coins to `downloader_agent` instead of FINISH-ing with "not tracked". New `agent/tests/test_downloader_routing.py` covers the two pure routing helpers (`DownloaderAgent._build_payload`, `_detect_market_needs_download`).
+
+### Changed
+
+- **`DownloadIndicatorPlan` → `DownloadPlan`** (agent schemas): WB-only `{indicator_id, db_id}` replaced by a source-tagged model with optional `indicator_id`/`db_id`/`ticker`/`symbol`. **`tools.download_indicator` → `tools.ingest_data(payload)`** (posts the unified body; timeout raised 120s→300s for full-history pulls).
+
 ## [v0.13]
 
 Added end-to-end **cryptocurrency** coverage: Binance ingestion in `downloader_general` plus a new Crypto dashboard page.

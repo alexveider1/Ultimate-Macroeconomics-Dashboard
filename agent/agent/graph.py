@@ -27,7 +27,7 @@ from .prompts import (
 from .schemas import (
     AgentState,
     ChatSynthesis,
-    DownloadIndicatorPlan,
+    DownloadPlan,
     GuardrailDecision,
     PlotlyCodeGeneration,
     PolarsCodeGeneration,
@@ -37,11 +37,11 @@ from .schemas import (
     WebSearchPlan,
 )
 from .tools import (
-    download_indicator,
     encode_data_for_sandbox,
     execute_code_in_sandbox,
     get_database_schema_text,
     get_news_topics,
+    ingest_data,
     run_sql_query,
     search_qdrant_news,
     web_search,
@@ -379,6 +379,45 @@ class MacroSupervisorAgent:
             }
 
 
+def _detect_market_needs_download(previous_steps: list[dict]) -> str | None:
+    """Decide whether an empty SQL result means an untracked Yahoo/Binance asset.
+
+    Unlike World Bank (which has the ``database_indicators`` master catalogue),
+    Yahoo and Binance have no catalogue: the only signal that an asset can be
+    downloaded on demand is that a lookup against its ``*_metadata`` /
+    ``*_historical_prices`` tables came back empty. To avoid a false positive
+    when the asset *is* tracked but simply has no rows for the requested filter,
+    we suppress the signal if any ``*_metadata`` step returned rows.
+
+    Args:
+        previous_steps: The sql_agent's executed steps (each with ``query`` and
+            ``result``), in order.
+
+    Returns:
+        ``"yahoo"`` / ``"binance"`` when the empty result looks like an
+        untracked asset, otherwise ``None``.
+    """
+
+    def touched(substr: str) -> bool:
+        return any(substr in s["query"].lower() for s in previous_steps)
+
+    def meta_found(table: str) -> bool:
+        return any(
+            table in s["query"].lower() and s["result"].get("row_count", 0) > 0
+            for s in previous_steps
+        )
+
+    if (touched("yahoo_metadata") or touched("yahoo_historical_prices")) and not meta_found(
+        "yahoo_metadata"
+    ):
+        return "yahoo"
+    if (touched("binance_metadata") or touched("binance_historical_prices")) and not meta_found(
+        "binance_metadata"
+    ):
+        return "binance"
+    return None
+
+
 class SQLAgent:
     """Worker that issues up to ``MAX_SQL_STEPS`` read-only SELECTs against Postgres."""
 
@@ -514,6 +553,36 @@ class SQLAgent:
                         "trace": [
                             f"sql_agent: NEEDS_DOWNLOAD "
                             f"(candidate={first_indicator_id}, db={db_id_value}, "
+                            f"{len(previous_steps)} steps)"
+                        ],
+                    }
+
+                market_source = _detect_market_needs_download(previous_steps)
+                if market_source is not None:
+                    if market_source == "yahoo":
+                        asset_kind = "ticker"
+                        infer_hint = "the Yahoo ticker (e.g. Apple → AAPL, S&P 500 → ^GSPC)"
+                    else:
+                        asset_kind = "spot pair"
+                        infer_hint = (
+                            "the FULL Binance pair symbol, USDT-quoted "
+                            "(e.g. Bitcoin → BTCUSDT, Solana → SOLUSDT)"
+                        )
+                    return {
+                        "worker_results": [
+                            f"SQL_AGENT NEEDS_DOWNLOAD (source={market_source}): the "
+                            f"requested {asset_kind} is not present in "
+                            f"`{market_source}_metadata` — it is not tracked yet but "
+                            f"CAN be downloaded on demand (there is no master "
+                            f"catalogue for {market_source}).\n"
+                            f"Route to downloader_agent with source={market_source} "
+                            f"and {infer_hint} for the asset the user named, then "
+                            f"retry sql_agent.\n"
+                            f"Steps taken:\n{steps_summary}"
+                        ],
+                        "last_worker_status": "NEEDS_DOWNLOAD",
+                        "trace": [
+                            f"sql_agent: NEEDS_DOWNLOAD (source={market_source}, "
                             f"{len(previous_steps)} steps)"
                         ],
                     }
@@ -1042,69 +1111,107 @@ RUNTIME STATE (changes per call):
 
 
 class DownloaderAgent:
-    """Worker that on-demand-ingests a single World Bank indicator into Postgres."""
+    """Worker that on-demand-ingests one unit of data from WB / Yahoo / Binance."""
 
     EXTRACT_SYSTEM_PROMPT = (
-        "You extract the exact World Bank `indicator_id` (string, e.g. "
-        "'NY.GDP.MKTP.CD') and `db_id` (integer database id, e.g. 2) from "
-        "the supervisor's task description. The supervisor has ALREADY "
-        "discovered these values via sql_agent's exploration of the "
-        "`database_indicators` table — your job is purely to read them out "
-        "of the task text. NEVER invent or guess values. If the task does "
-        "not contain a clear indicator_id and db_id, return the closest "
-        "literal values you can find."
+        "You decide which single unit of data to download on demand and from "
+        "which `source`, then output structured fields.\n"
+        "- source='worldbank': the supervisor's task ALREADY contains the exact "
+        "`indicator_id` (e.g. 'NY.GDP.MKTP.CD') and `db_id` (e.g. 2), discovered "
+        "by sql_agent from the `database_indicators` master table — read them out "
+        "VERBATIM, never invent them. Set indicator_id and db_id.\n"
+        "- source='yahoo': there is NO catalogue to look up, so infer the correct "
+        "Yahoo Finance `ticker` from the asset the user named using your own "
+        "knowledge (e.g. Apple → AAPL, S&P 500 → ^GSPC, Palantir → PLTR). Set "
+        "ticker.\n"
+        "- source='binance': there is NO catalogue, so infer the FULL Binance "
+        "spot pair `symbol`, quoted in USDT, from the coin the user named "
+        "(e.g. Bitcoin → BTCUSDT, Solana → SOLUSDT, Litecoin → LTCUSDT). Set "
+        "symbol.\n"
+        "The supervisor's task states which source to use; output only the "
+        "fields for that source."
     )
 
     def __init__(self, llm: ChatOpenAI):
-        """Bind the structured-output LLM that extracts the indicator id + db id."""
+        """Bind the structured-output LLM that extracts the download plan."""
         self.llm = llm
 
+    @staticmethod
+    def _build_payload(plan: DownloadPlan) -> tuple[str, dict]:
+        """Map a ``DownloadPlan`` to ``(identifier, /ingest body)`` by source.
+
+        Args:
+            plan: The structured download plan from the LLM.
+
+        Returns:
+            ``(identifier, payload)`` where ``identifier`` is the human-readable
+            id used in status messages and ``payload`` is the ``/ingest`` body.
+
+        Raises:
+            ValueError: When required fields for the source are missing.
+        """
+        if plan.source == "worldbank":
+            if not plan.indicator_id or plan.db_id is None:
+                raise ValueError("worldbank download needs indicator_id and db_id")
+            return plan.indicator_id, {
+                "source": "worldbank",
+                "indicator_id": plan.indicator_id,
+                "db_id": plan.db_id,
+            }
+        if plan.source == "yahoo":
+            if not plan.ticker:
+                raise ValueError("yahoo download needs a ticker")
+            return plan.ticker, {"source": "yahoo", "ticker": plan.ticker}
+        if plan.source == "binance":
+            if not plan.symbol:
+                raise ValueError("binance download needs a symbol")
+            return plan.symbol, {"source": "binance", "symbol": plan.symbol}
+        raise ValueError(f"Unknown download source: {plan.source}")
+
     async def ainvoke(self, state: AgentState) -> dict:
-        """Extract ``(indicator_id, db_id)`` and call ``downloader_extra/ingest``."""
+        """Extract the download plan and call ``downloader_extra/ingest``."""
         task = state["isolated_worker_task"]
-        logger.info("downloader_agent: extracting indicator id from task")
+        logger.info("downloader_agent: extracting download plan from task")
         try:
-            structured_llm = self.llm.with_structured_output(DownloadIndicatorPlan)
-            plan: DownloadIndicatorPlan = await structured_llm.ainvoke(
+            structured_llm = self.llm.with_structured_output(DownloadPlan)
+            plan: DownloadPlan = await structured_llm.ainvoke(
                 [
                     SystemMessage(content=self.EXTRACT_SYSTEM_PROMPT),
                     HumanMessage(content=f"SUPERVISOR TASK:\n{task}"),
                 ]
             )
 
+            identifier, payload = self._build_payload(plan)
             logger.info(
-                "downloader_agent: calling /ingest indicator=%s db=%s",
-                plan.indicator_id,
-                plan.db_id,
+                "downloader_agent: calling /ingest source=%s identifier=%s",
+                plan.source,
+                identifier,
             )
-            result = await download_indicator(plan.indicator_id, plan.db_id)
+            result = await ingest_data(payload)
 
             if not result.get("success", False):
                 error = result.get("error") or result.get("detail", "Unknown error")
                 return {
                     "worker_results": [
                         f"DOWNLOADER_AGENT ERROR: {error} "
-                        f"(indicator={plan.indicator_id}, db={plan.db_id})"
+                        f"(source={plan.source}, identifier={identifier})"
                     ],
                     "last_worker_status": "ERROR",
-                    "trace": [
-                        f"downloader_agent: failed – {plan.indicator_id}/{plan.db_id} – {error}"
-                    ],
+                    "trace": [f"downloader_agent: failed – {plan.source}/{identifier} – {error}"],
                 }
 
             status = result.get("status", "success")
             rows_inserted = result.get("rows_inserted", 0)
             return {
                 "worker_results": [
-                    f"DOWNLOADER_AGENT SUCCESS: indicator={plan.indicator_id}, "
-                    f"db={plan.db_id}, rows_inserted={rows_inserted}, "
-                    f"status={status}. The full (economy, year, value) table for "
-                    f"this indicator is now stored in the `indicators` table — "
-                    f"route back to sql_agent to fetch it."
+                    f"DOWNLOADER_AGENT SUCCESS: source={plan.source}, "
+                    f"identifier={identifier}, rows_inserted={rows_inserted}, "
+                    f"status={status}. The data for {identifier} is now stored in "
+                    f"Postgres — route back to sql_agent to fetch it."
                 ],
                 "last_worker_status": "SUCCESS",
                 "trace": [
-                    f"downloader_agent: {plan.indicator_id}/{plan.db_id} – "
+                    f"downloader_agent: {plan.source}/{identifier} – "
                     f"{rows_inserted} rows, status={status}"
                 ],
             }

@@ -6,8 +6,8 @@ through a model keeps startup validation consistent across services.
 
 from pathlib import Path
 
-import yaml
 from pydantic import BaseModel
+import yaml
 
 
 class PythonSandboxSection(BaseModel):

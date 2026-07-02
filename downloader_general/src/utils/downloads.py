@@ -9,13 +9,13 @@ import asyncio
 import json
 import logging
 import os
-import stat
 from pathlib import Path
+import stat
 from time import monotonic, sleep
 from typing import Any, Callable, Dict, Iterable, Iterator, Optional
 
-import polars as pl
 from git import RemoteProgress
+import polars as pl
 from sqlalchemy import create_engine, text
 
 from src.utils import wb_client

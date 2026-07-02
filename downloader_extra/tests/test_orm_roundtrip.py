@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+from schema import MacroIndicator
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
-
-from schema import MacroIndicator
 
 
 def test_insert_select_delete_roundtrip(session: Session) -> None:

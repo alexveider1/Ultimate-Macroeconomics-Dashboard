@@ -10,11 +10,10 @@ import asyncio
 import logging
 
 import polars as pl
+from schema import MacroIndicator
 from sqlalchemy import create_engine, delete
 from sqlalchemy.orm import Session
-
 import wb_client
-from schema import MacroIndicator
 
 logger = logging.getLogger(__name__)
 

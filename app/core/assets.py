@@ -6,8 +6,8 @@ The snippets live in ``app/assets/plot_markup_templates.json`` and are
 :func:`render_markup_template` to inject runtime values.
 """
 
-import json
 from functools import lru_cache
+import json
 from pathlib import Path
 from string import Template
 from typing import Any

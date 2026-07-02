@@ -12,9 +12,9 @@ returned in the SSE ``final`` event so the dashboard can show it.
 """
 
 import asyncio
+from functools import lru_cache
 import json
 import logging
-from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException

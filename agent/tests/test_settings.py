@@ -1,7 +1,7 @@
 """Tests for the agent's least-privilege secrets model."""
 
-import pytest
 from pydantic import ValidationError
+import pytest
 
 from agent.settings import Settings
 

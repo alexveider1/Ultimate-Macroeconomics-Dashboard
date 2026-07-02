@@ -8,7 +8,6 @@ import asyncio
 
 import httpx
 import pytest
-
 import wb_client
 
 

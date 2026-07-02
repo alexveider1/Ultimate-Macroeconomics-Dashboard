@@ -7,8 +7,8 @@ name are checked at startup instead of silently defaulting.
 
 from pathlib import Path
 
-import yaml
 from pydantic import BaseModel
+import yaml
 
 
 class ForecasterSection(BaseModel):

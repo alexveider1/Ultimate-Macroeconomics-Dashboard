@@ -16,12 +16,12 @@ problem surfaced, never a page-level exception.
 
 from __future__ import annotations
 
-import logging
-import os
-import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+import logging
+import os
 from pathlib import Path
+import socket
 from typing import Any
 
 import httpx

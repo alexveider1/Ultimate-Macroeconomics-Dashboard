@@ -7,17 +7,16 @@ RLIMIT_AS / RLIMIT_CPU caps so a runaway snippet can't take down the host.
 """
 
 import logging
+from pathlib import Path
 import resource  # POSIX only — container is Linux, so always available here
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
 
+from config import load_config
 from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-
-from config import load_config
 
 logger = logging.getLogger(__name__)
 

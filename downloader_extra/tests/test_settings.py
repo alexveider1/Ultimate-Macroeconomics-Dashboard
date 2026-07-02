@@ -1,8 +1,7 @@
 """Tests for downloader_extra's least-privilege secrets model."""
 
-import pytest
 from pydantic import ValidationError
-
+import pytest
 from settings import Settings
 
 _SECRET_VARS = ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"]

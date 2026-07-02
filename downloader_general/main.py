@@ -11,8 +11,8 @@ boots see the marker and skip downloads but still re-apply the bootstrap.
 
 import logging
 import os
-import sys
 from pathlib import Path
+import sys
 
 from src.config import load_config
 from src.extractors import (

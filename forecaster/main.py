@@ -7,18 +7,18 @@ instance behind an ``asyncio.Lock`` that protects the first-call race.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 import logging
 import os
-from contextlib import asynccontextmanager
 from pathlib import Path
 
-import polars as pl
+from config import load_config
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
-
-from config import load_config
-from forecasters.core.base import BaseForecaster
+import polars as pl
 from schemas import ForecastPoint, ForecastRequest, ForecastResponse
+
+from forecasters.core.base import BaseForecaster
 
 logger = logging.getLogger(__name__)
 

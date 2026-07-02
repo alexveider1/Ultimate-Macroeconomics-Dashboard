@@ -9,18 +9,18 @@ OpenAI) are lazily built and cached in the module-level ``_runtime`` dict.
 
 import asyncio
 import base64
+from functools import lru_cache
 import json
 import logging
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List
 
-import httpx
-import yaml
 from ddgs import DDGS
+import httpx
 from openai import AsyncOpenAI
 from qdrant_client import QdrantClient
 from sqlalchemy import create_engine, text
+import yaml
 
 logger = logging.getLogger(__name__)
 

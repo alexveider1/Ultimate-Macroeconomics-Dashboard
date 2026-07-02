@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi.testclient import TestClient
+from main import _build_feature_matrix, _build_visual_projection, app
 import numpy as np
 import pytest
-from fastapi.testclient import TestClient
-
-from main import _build_feature_matrix, _build_visual_projection, app
 
 PROJECTION_DEFAULTS: dict[str, Any] = {
     "umap_n_neighbors": 15,

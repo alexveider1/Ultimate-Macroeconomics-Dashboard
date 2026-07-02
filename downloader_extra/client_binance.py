@@ -14,11 +14,10 @@ import asyncio
 import logging
 from typing import Any
 
-from sqlalchemy import create_engine, delete
-from sqlalchemy.orm import Session
-
 import binance_client
 from schema import BinanceHistoricalPrice, BinanceMetadata
+from sqlalchemy import create_engine, delete
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

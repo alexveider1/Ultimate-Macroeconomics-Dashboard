@@ -1,0 +1,47 @@
+# Shared Ruff configuration for the whole stack.
+#
+# Every service's pyproject.toml intentionally carries NO [tool.ruff] block, so
+# running `ruff` from any service directory (e.g. `cd app && uv run ruff check`)
+# walks up the tree and resolves this single source of truth. Run it repo-wide
+# with `uv run ruff check .` / `uv run ruff format .` from the root.
+
+line-length = 100
+target-version = "py312"
+
+# Skip generated / vendored trees on top of Ruff's built-in defaults.
+extend-exclude = [
+    "**/.venv",
+    "**/__pycache__",
+    "**/.ruff_cache",
+    "**/.pytest_cache",
+]
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort  (import sorting)
+]
+ignore = [
+    "E501", # line length is enforced by the formatter, not the linter
+]
+
+[lint.isort]
+# Cleaner, more predictable import blocks.
+combine-as-imports = true          # collapse `from x import (a, b)` onto one line
+force-sort-within-sections = true  # sort `import x` and `from x import y` together
+order-by-type = true               # constants, then classes, then functions
+split-on-trailing-comma = true     # respect the magic trailing comma
+# Top-level packages that belong to this repo (per service). The rest are
+# auto-classified via detect-same-package.
+known-first-party = ["agent", "core", "pages", "forecasters", "src"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+# line-ending is left at the default ("auto") so Ruff preserves each file's
+# existing endings; the repo's canonical LF is enforced via .gitattributes.
+skip-magic-trailing-comma = false  # keep intentional multi-line layouts
+docstring-code-format = true       # format code blocks inside docstrings too
+docstring-code-line-length = "dynamic"

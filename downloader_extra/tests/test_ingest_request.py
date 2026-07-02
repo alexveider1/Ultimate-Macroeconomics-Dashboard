@@ -1,8 +1,7 @@
 """Validation tests for the unified ``IngestRequest`` source/field matrix."""
 
-import pytest
 from pydantic import ValidationError
-
+import pytest
 from schema import IngestRequest
 
 

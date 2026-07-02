@@ -7,8 +7,8 @@ fails at load with a precise Pydantic error instead of a generic ``KeyError``.
 
 from pathlib import Path
 
-import yaml
 from pydantic import BaseModel
+import yaml
 
 
 class SharedConfig(BaseModel):

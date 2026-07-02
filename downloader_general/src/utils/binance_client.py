@@ -16,8 +16,8 @@ async retry already used by the World Bank pipeline), so this module stays a
 thin transport layer.
 """
 
-import logging
 from datetime import datetime, timedelta
+import logging
 from typing import Any, Optional
 
 import httpx

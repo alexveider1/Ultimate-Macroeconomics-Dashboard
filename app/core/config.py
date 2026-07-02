@@ -8,8 +8,8 @@ fail-soft). Unknown sections (``shared``, ``services``, …) are ignored.
 
 from pathlib import Path
 
-import yaml
 from pydantic import BaseModel
+import yaml
 
 
 class PostgresConfig(BaseModel):

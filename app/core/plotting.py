@@ -9,17 +9,17 @@ LLM-generated plot descriptions.
 """
 
 import base64
+from datetime import datetime
 import hashlib
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from plotly.colors import hex_to_rgb
 import plotly.graph_objects as go
 import plotly.io as pio
 import polars as pl
 import streamlit as st
-from plotly.colors import hex_to_rgb
 
 from core.api_client import (
     forecast_timeseries,

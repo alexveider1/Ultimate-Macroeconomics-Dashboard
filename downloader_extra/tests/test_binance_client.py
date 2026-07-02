@@ -8,9 +8,8 @@ are driven with ``asyncio.run`` so no pytest-asyncio plugin is required
 import asyncio
 from datetime import datetime
 
-import httpx
-
 import binance_client
+import httpx
 
 
 def _client(handler) -> httpx.AsyncClient:

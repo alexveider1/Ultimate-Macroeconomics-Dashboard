@@ -7,15 +7,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
-
 from schema import (
     BinanceHistoricalPrice,
     BinanceMetadata,
     YahooHistoricalPrice,
     YahooMetadata,
 )
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
 
 
 def test_yahoo_metadata_then_prices_roundtrip(session: Session) -> None:

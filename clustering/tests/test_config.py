@@ -1,9 +1,8 @@
 """Validation tests for the clustering service's typed config view."""
 
-import pytest
-from pydantic import ValidationError
-
 from config import ClusteringConfig
+from pydantic import ValidationError
+import pytest
 
 
 def test_valid_config_parses() -> None:

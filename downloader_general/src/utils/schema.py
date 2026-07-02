@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import polars as pl
-import yaml
 from sqlalchemy import (
     DDL,
     BigInteger,
@@ -29,6 +28,7 @@ from sqlalchemy import (
     Table,
     create_engine,
 )
+import yaml
 
 logger = logging.getLogger(__name__)
 

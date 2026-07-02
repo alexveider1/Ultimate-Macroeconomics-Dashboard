@@ -1,9 +1,8 @@
 """Validation tests for the python_sandbox service's typed config view."""
 
-import pytest
-from pydantic import ValidationError
-
 from config import PythonSandboxConfig
+from pydantic import ValidationError
+import pytest
 
 
 def test_valid_config_parses() -> None:

@@ -1,7 +1,7 @@
 """Validation tests for the ingestion job's typed ``config.yaml`` view."""
 
-import pytest
 from pydantic import ValidationError
+import pytest
 
 from src.config import DownloaderGeneralConfig
 

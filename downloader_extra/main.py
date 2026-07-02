@@ -16,14 +16,11 @@ thread so the event loop stays free.
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, sessionmaker
-
 from client_binance import fetch_and_store_binance
 from client_wb import fetch_and_store_indicator
 from client_yahoo import fetch_and_store_yahoo
 from config import load_config
+from fastapi import FastAPI, HTTPException
 from schema import (
     Base,
     BinanceMetadata,
@@ -33,6 +30,8 @@ from schema import (
     YahooMetadata,
 )
 from settings import get_settings
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, sessionmaker
 
 CONFIG_PATH = Path("config.yaml")
 

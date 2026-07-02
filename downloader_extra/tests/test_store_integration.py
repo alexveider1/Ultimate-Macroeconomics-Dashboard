@@ -10,22 +10,21 @@ from __future__ import annotations
 
 import asyncio
 
-import httpx
-import pandas as pd
-import pytest
-from sqlalchemy import delete, select
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session
-
 import binance_client
 import client_binance
 import client_yahoo
+import httpx
+import pandas as pd
+import pytest
 from schema import (
     BinanceHistoricalPrice,
     BinanceMetadata,
     YahooHistoricalPrice,
     YahooMetadata,
 )
+from sqlalchemy import delete, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
 
 _DAY_MS = 86_400_000
 

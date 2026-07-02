@@ -14,11 +14,10 @@ import logging
 from typing import Any
 
 import polars as pl
-import yfinance as yf
+from schema import YahooHistoricalPrice, YahooMetadata
 from sqlalchemy import create_engine, delete
 from sqlalchemy.orm import Session
-
-from schema import YahooHistoricalPrice, YahooMetadata
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
 

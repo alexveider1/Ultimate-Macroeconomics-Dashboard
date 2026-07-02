@@ -9,8 +9,8 @@ owned by other services) are ignored.
 
 from pathlib import Path
 
-import yaml
 from pydantic import BaseModel, model_validator
+import yaml
 
 
 class SharedConfig(BaseModel):

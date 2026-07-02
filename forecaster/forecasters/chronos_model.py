@@ -2,11 +2,11 @@
 
 import warnings
 
+from chronos import ChronosPipeline
 import numpy as np
 import pandas as pd
 import polars as pl
 import torch
-from chronos import ChronosPipeline
 
 from .core.base import BaseForecaster, resolve_forecast_frequency
 

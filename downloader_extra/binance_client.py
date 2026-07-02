@@ -12,8 +12,8 @@ history. Only public spot endpoints are used, so no API key is required.
 - :func:`fetch_klines` → ``binance_historical_prices`` rows (paged to full history).
 """
 
-import logging
 from datetime import datetime, timedelta
+import logging
 from typing import Any, Optional
 
 import httpx

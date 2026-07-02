@@ -5,8 +5,8 @@ the full historical OHLCV series for each ticker via ``yfinance``. Per-ticker
 fetches run on a thread pool because each call is independent.
 """
 
-import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 

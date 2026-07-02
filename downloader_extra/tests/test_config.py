@@ -1,9 +1,8 @@
 """Validation tests for downloader_extra's typed ``config.yaml`` view."""
 
-import pytest
-from pydantic import ValidationError
-
 from config import DownloaderExtraConfig
+from pydantic import ValidationError
+import pytest
 
 
 def test_valid_config_parses() -> None:

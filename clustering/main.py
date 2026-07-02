@@ -9,10 +9,11 @@ is built with t-SNE, PCA, UMAP, or Kernel PCA (per ``reduction_method``); with
 
 from pathlib import Path
 
-import numpy as np
-import umap
+from config import load_config
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
+import numpy as np
+from schemas import ClusterRequest, ClusterResponse
 from sklearn.cluster import (
     DBSCAN,
     HDBSCAN,
@@ -23,9 +24,7 @@ from sklearn.cluster import (
 )
 from sklearn.decomposition import PCA, KernelPCA
 from sklearn.manifold import TSNE
-
-from config import load_config
-from schemas import ClusterRequest, ClusterResponse
+import umap
 
 CONFIG_PATH = Path("config.yaml")
 

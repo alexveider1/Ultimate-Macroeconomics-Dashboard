@@ -1,9 +1,8 @@
 """Validation tests for the forecaster's typed ``config.yaml`` view."""
 
-import pytest
-from pydantic import ValidationError
-
 from config import ForecasterConfig
+from pydantic import ValidationError
+import pytest
 
 
 def test_valid_config_parses() -> None:

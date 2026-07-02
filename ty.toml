@@ -1,0 +1,19 @@
+# Shared ty (Astral type checker) configuration for the whole stack.
+#
+# Every service's pyproject.toml intentionally carries NO [tool.ty] block, so
+# running `ty` from any service directory (e.g. `cd agent && uv run ty check`)
+# walks up the tree and resolves this single source of truth. Each service's
+# own `.venv` is still discovered locally for import resolution.
+
+[environment]
+python-version = "3.12"
+
+[rules]
+# Third-party stubs are frequently incomplete; don't fail the build on them.
+unresolved-import = "ignore"
+no-matching-overload = "ignore"
+unknown-argument = "ignore"
+# Our own code should still surface these, but as warnings (non-fatal).
+unresolved-attribute = "warn"
+invalid-argument-type = "warn"
+invalid-assignment = "warn"

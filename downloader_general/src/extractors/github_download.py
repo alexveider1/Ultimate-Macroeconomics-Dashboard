@@ -6,21 +6,21 @@ collection uploads to Qdrant remain serial because we ``recreate_collection``
 at the start of each.
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 import json
 import logging
 import os
-import shutil
-import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from pathlib import Path
+import shutil
 from time import sleep
 from urllib.parse import urlparse
 from uuid import uuid4
+import warnings
 from zipfile import ZipFile
 
-import httpx
 from git import Repo
+import httpx
 from openai import OpenAI
 from qdrant_client import QdrantClient, models
 from tiktoken import encoding_for_model

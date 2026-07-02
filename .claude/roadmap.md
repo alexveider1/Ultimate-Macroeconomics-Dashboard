@@ -1,3 +1,12 @@
+# Roadmap (archived detailed plan)
+
+> Moved here from the old root-level `PLAN.md`. The flat, actionable backlog now lives in
+> [`../TODO.md`](../TODO.md); this file keeps the rationale, phase sequencing, and per-phase
+> touchpoints. Kept under `.claude/` so it stays available to Claude Code without loading into
+> every session's base context.
+
+---
+
 # Development Plan
 
 > Detailed roadmap for the next major iteration of **Ultimate Macroeconomics Dashboard**.

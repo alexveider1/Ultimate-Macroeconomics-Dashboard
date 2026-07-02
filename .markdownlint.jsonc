@@ -1,0 +1,13 @@
+// Shared markdownlint config (auto-discovered by the markdownlint VS Code
+// extension and by markdownlint-cli2). Mirrors the rules previously kept only
+// in user settings so the whole team lints docs the same way.
+{
+  "default": true,
+  "MD013": false, // line-length: off (prose + long tables in CLAUDE.md / CHANGELOG)
+  "MD024": { "siblings_only": true }, // allow repeated headings under different parents
+  "MD025": false, // multiple top-level headings (roadmap.md keeps the archived title)
+  "MD033": false, // inline HTML allowed
+  "MD036": false, // emphasis-as-heading allowed
+  "MD041": false, // first line need not be a top-level heading
+  "MD009": { "br_spaces": 2 } // 2 trailing spaces = hard line break
+}

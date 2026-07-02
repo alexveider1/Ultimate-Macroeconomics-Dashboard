@@ -1,5 +1,38 @@
 {
   "enabledPlugins": {
     "qdrant-skills@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run ty:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv lock:*)",
+      "Bash(ruff:*)",
+      "Bash(ty:*)",
+      "Bash(uvx pre-commit:*)",
+      "Bash(pre-commit run:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(docker compose ps:*)",
+      "Bash(docker compose config:*)",
+      "Bash(docker compose logs:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff-format.sh\""
+          }
+        ]
+      }
+    ]
   }
 }

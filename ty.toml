@@ -9,11 +9,9 @@
 python-version = "3.12"
 
 [rules]
-# Third-party stubs are frequently incomplete; don't fail the build on them.
-unresolved-import = "ignore"
+unresolved-import = "warn"
 no-matching-overload = "ignore"
 unknown-argument = "ignore"
-# Our own code should still surface these, but as warnings (non-fatal).
 unresolved-attribute = "warn"
 invalid-argument-type = "warn"
 invalid-assignment = "warn"

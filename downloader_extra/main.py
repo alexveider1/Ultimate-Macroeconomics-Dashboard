@@ -1,4 +1,4 @@
-"""FastAPI service: on-demand single-unit ingestion from three sources.
+"""FastAPI service: on-demand single-unit ingestion from four sources.
 
 The agent's ``downloader_agent`` worker POSTs to ``/ingest`` whenever the LLM
 decides data the user is asking about is missing from Postgres. ``source``
@@ -7,6 +7,7 @@ selects the path:
 * ``worldbank`` — one indicator via :mod:`client_wb`.
 * ``yahoo`` — one ticker via :mod:`client_yahoo`.
 * ``binance`` — one spot pair via :mod:`client_binance`.
+* ``fred`` — one US-state indicator (50 states + DC) via :mod:`client_fred`.
 
 Each path short-circuits when the data is already present (returns
 ``status="already_downloaded"``), otherwise it fetches and stores it on a worker
@@ -17,6 +18,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from client_binance import fetch_and_store_binance
+from client_fred import fetch_and_store_fred
 from client_wb import fetch_and_store_indicator
 from client_yahoo import fetch_and_store_yahoo
 from config import load_config
@@ -27,6 +29,7 @@ from schema import (
     IngestRequest,
     IngestResponse,
     MacroIndicator,
+    StateIndicator,
     YahooMetadata,
 )
 from settings import get_settings
@@ -98,7 +101,8 @@ app = FastAPI(
     title="Macroeconomics Data Ingestion Service",
     description=(
         "On-demand ingestion of a single unit of data from the World Bank "
-        "(indicator), Yahoo Finance (ticker), or Binance (spot pair)."
+        "(indicator), Yahoo Finance (ticker), Binance (spot pair), or FRED "
+        "(US-state indicator)."
     ),
     lifespan=lifespan,
 )
@@ -195,6 +199,31 @@ async def _ingest_binance(payload: IngestRequest) -> IngestResponse:
     )
 
 
+async def _ingest_fred(payload: IngestRequest) -> IngestResponse:
+    """FRED path: short-circuit on the resolved slug in state_indicators then fetch.
+
+    The slug is the upper-cased ``series_id``; an ``example_series_id`` match also
+    short-circuits so asking for a series backing a pre-loaded indicator (e.g.
+    ``CAUR`` → ``unemployment_rate``) doesn't re-download it.
+    """
+    if not payload.series_id:
+        raise HTTPException(status_code=400, detail="fred requires series_id")
+    series_id = payload.series_id.strip()
+    slug = series_id.upper()
+
+    if _already_present(
+        app.state.session_factory, StateIndicator, indicator_id=slug
+    ) or _already_present(app.state.session_factory, StateIndicator, example_series_id=series_id):
+        return IngestResponse(
+            source="fred", identifier=slug, rows_inserted=0, status="already_downloaded"
+        )
+
+    rows_inserted = await fetch_and_store_fred(series_id, app.state.sql_uri, SETTINGS.fred_api_key)
+    return IngestResponse(
+        source="fred", identifier=slug, rows_inserted=rows_inserted, status="success"
+    )
+
+
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest_data(payload: IngestRequest):
     """Ingest a single unit of data from the requested ``source``.
@@ -214,6 +243,7 @@ async def ingest_data(payload: IngestRequest):
         "worldbank": _ingest_worldbank,
         "yahoo": _ingest_yahoo,
         "binance": _ingest_binance,
+        "fred": _ingest_fred,
     }
     handler = handlers.get(payload.source)
     if handler is None:  # pragma: no cover — guarded by the request validator

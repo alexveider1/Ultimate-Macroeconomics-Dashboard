@@ -303,3 +303,76 @@ def get_world_bank_country_regions() -> pl.DataFrame:
         "FROM countries WHERE id IS NOT NULL AND aggregate = false"
     )
     return fetch_postgres_data(query=query)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_fred_states() -> pl.DataFrame:
+    """Return the FRED states catalogue ``(id, name, fips, region, division)``.
+
+    Empty frame (rather than raising) on a missing table, so a deployment whose
+    volume predates the FRED tables doesn't crash the Regional Statistics page.
+    """
+    query = "SELECT id, name, fips, region, division FROM states"
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("FRED states unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_fred_indicators_catalog() -> pl.DataFrame:
+    """Return every FRED indicator description row (one per indicator concept)."""
+    query = (
+        "SELECT indicator_id, name, category, series_group, example_series_id, units, "
+        "frequency, seasonal_adjustment, region_type, min_date, max_date, notes "
+        "FROM state_indicators"
+    )
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("FRED indicator catalogue unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_fred_indicator_meta(indicator_id: str) -> pl.DataFrame:
+    """Return the single description row for one FRED indicator."""
+    query = (
+        "SELECT indicator_id, name, category, series_group, example_series_id, units, "
+        "frequency, seasonal_adjustment, region_type, min_date, max_date, notes "
+        "FROM state_indicators "
+        f"WHERE indicator_id = {_sql_string(indicator_id)}"
+    )
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("FRED indicator meta unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_fred_indicator(indicator_id: str, states: str | Iterable[str] = "ALL") -> pl.DataFrame:
+    """Return ``(state, year, value)`` rows for one FRED indicator.
+
+    Args:
+        indicator_id: FRED indicator slug (e.g. ``"unemployment_rate"``).
+        states: Single 2-letter abbrev, an iterable of them, or ``"ALL"``.
+
+    Returns:
+        Polars frame ordered by ``year`` then ``state``.
+    """
+    state_codes = _normalize_country_codes(states)
+    query = (
+        "SELECT state, year, value "
+        "FROM state_indicator_values "
+        f"WHERE indicator_id = {_sql_string(indicator_id)} AND value IS NOT NULL"
+    )
+    if state_codes:
+        query += " AND state IN (" + ", ".join(_sql_string(code) for code in state_codes) + ")"
+    query += " ORDER BY year, state"
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("FRED indicator values unavailable: %s", exc)
+        return pl.DataFrame()

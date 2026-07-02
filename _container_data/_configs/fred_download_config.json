@@ -1,0 +1,194 @@
+{
+    "Labor Market": [
+        {
+            "name": "Unemployment Rate",
+            "id": "unemployment_rate",
+            "series_id": "CAUR"
+        },
+        {
+            "name": "Labor Force Participation Rate",
+            "id": "labor_force_participation",
+            "series_id": "LBSSA06"
+        },
+        {
+            "name": "Civilian Labor Force",
+            "id": "civilian_labor_force",
+            "series_id": "CALFN"
+        },
+        {
+            "name": "Total Nonfarm Employment",
+            "id": "nonfarm_employment",
+            "series_id": "CANA"
+        },
+        {
+            "name": "Initial Unemployment Claims",
+            "id": "initial_claims",
+            "series_id": "CAICLAIMS"
+        },
+        {
+            "name": "Continued Unemployment Claims",
+            "id": "continued_claims",
+            "series_id": "CACCLAIMS"
+        },
+        {
+            "name": "Average Hourly Earnings",
+            "id": "avg_hourly_earnings",
+            "series_id": "SMU06000000500000003"
+        },
+        {
+            "name": "Average Weekly Earnings",
+            "id": "weekly_earnings",
+            "series_id": "SMU06000000500000011"
+        },
+        {
+            "name": "Average Weekly Hours",
+            "id": "avg_weekly_hours",
+            "series_id": "SMU06000000500000002"
+        }
+    ],
+    "Sector Employment": [
+        {
+            "name": "Manufacturing Employment",
+            "id": "manufacturing_emp",
+            "series_id": "CAMFG"
+        },
+        {
+            "name": "Construction Employment",
+            "id": "construction_emp",
+            "series_id": "CACONS"
+        },
+        {
+            "name": "Trade, Transport & Utilities Employment",
+            "id": "trade_transport_emp",
+            "series_id": "CATRADN"
+        },
+        {
+            "name": "Information Employment",
+            "id": "information_emp",
+            "series_id": "CAINFON"
+        },
+        {
+            "name": "Financial Activities Employment",
+            "id": "financial_emp",
+            "series_id": "CAFIRE"
+        },
+        {
+            "name": "Professional & Business Services Employment",
+            "id": "prof_business_emp",
+            "series_id": "CAPBSV"
+        },
+        {
+            "name": "Education & Health Services Employment",
+            "id": "education_health_emp",
+            "series_id": "CAEDUH"
+        },
+        {
+            "name": "Leisure & Hospitality Employment",
+            "id": "leisure_hospitality_emp",
+            "series_id": "CALEIH"
+        },
+        {
+            "name": "Government Employment",
+            "id": "government_emp",
+            "series_id": "CAGOVT"
+        },
+        {
+            "name": "Mining & Logging Employment",
+            "id": "mining_logging_emp",
+            "series_id": "CANRMN"
+        }
+    ],
+    "Output & Trade": [
+        {
+            "name": "Nominal GDP (All Industry)",
+            "id": "gdp_all_industry",
+            "series_id": "CANGSP"
+        },
+        {
+            "name": "Real GDP (All Industry)",
+            "id": "real_gdp",
+            "series_id": "CARGSP"
+        },
+        {
+            "name": "Goods Exports",
+            "id": "goods_exports",
+            "series_id": "EXPTOTCA"
+        }
+    ],
+    "Income & Prosperity": [
+        {
+            "name": "Per Capita Personal Income",
+            "id": "per_capita_income",
+            "series_id": "CAPCPI"
+        },
+        {
+            "name": "Total Personal Income",
+            "id": "total_personal_income",
+            "series_id": "CAOTOT"
+        },
+        {
+            "name": "Real Median Household Income",
+            "id": "real_median_hh_income",
+            "series_id": "MEHOINUSCAA672N"
+        },
+        {
+            "name": "Median Household Income",
+            "id": "median_hh_income_nominal",
+            "series_id": "MEHOINUSCAA646N"
+        }
+    ],
+    "Housing": [
+        {
+            "name": "House Price Index",
+            "id": "house_price_index",
+            "series_id": "CASTHPI"
+        },
+        {
+            "name": "New Housing Permits",
+            "id": "building_permits",
+            "series_id": "CABPPRIV"
+        },
+        {
+            "name": "Homeownership Rate",
+            "id": "homeownership_rate",
+            "series_id": "CAHOWN"
+        },
+        {
+            "name": "Homeowner Vacancy Rate",
+            "id": "homeowner_vacancy",
+            "series_id": "CAHVAC"
+        },
+        {
+            "name": "Rental Vacancy Rate",
+            "id": "rental_vacancy",
+            "series_id": "CARVAC"
+        },
+        {
+            "name": "Median Days on Market",
+            "id": "median_days_market",
+            "series_id": "MEDDAYONMARCA"
+        },
+        {
+            "name": "Active Housing Listings",
+            "id": "active_listings",
+            "series_id": "ACTLISCOUCA"
+        }
+    ],
+    "Demographics & Wellbeing": [
+        {
+            "name": "Resident Population",
+            "id": "population",
+            "series_id": "CAPOP"
+        },
+        {
+            "name": "State Minimum Wage",
+            "id": "minimum_wage",
+            "series_id": "STTMINWGCA"
+        },
+        {
+            "name": "Business Applications",
+            "id": "business_applications",
+            "series_id": "BABATOTALSACA"
+        }
+    ]
+}

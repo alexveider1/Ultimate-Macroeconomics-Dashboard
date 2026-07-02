@@ -57,10 +57,13 @@ def test_download_plan_accepts_each_source() -> None:
     binance = DownloadPlan(thought_process="...", source="binance", symbol="BTCUSDT")
     assert binance.symbol == "BTCUSDT" and binance.db_id is None
 
+    fred = DownloadPlan(thought_process="...", source="fred", series_id="CAUR")
+    assert fred.series_id == "CAUR" and fred.ticker is None
+
 
 def test_download_plan_rejects_unknown_source() -> None:
     with pytest.raises(ValidationError):
-        DownloadPlan.model_validate({"thought_process": "...", "source": "fred"})
+        DownloadPlan.model_validate({"thought_process": "...", "source": "eurostat"})
 
 
 def test_plotly_code_generation_requires_fields() -> None:

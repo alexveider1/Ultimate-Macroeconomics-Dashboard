@@ -33,6 +33,13 @@ def test_binance_requires_symbol():
         IngestRequest(source="binance")
 
 
+def test_fred_requires_series_id():
+    ok = IngestRequest(source="fred", series_id="CAUR")
+    assert ok.series_id == "CAUR"
+    with pytest.raises(ValidationError):
+        IngestRequest(source="fred")
+
+
 def test_unknown_source_rejected():
     with pytest.raises(ValidationError):
-        IngestRequest.model_validate({"source": "fred", "indicator_id": "x", "db_id": 1})
+        IngestRequest.model_validate({"source": "eurostat", "indicator_id": "x", "db_id": 1})

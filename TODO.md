@@ -18,8 +18,8 @@
 * Add hierarchical clustering to the `clustering` container.
 * **Observability (Phase 1 → 4):** OpenTelemetry structured logs + traces per service (a span per worker / per LLM call in the agent, carrying token + latency attributes), shipped to a self-hosted Grafana LGTM stack (OTel Collector → Loki / Tempo / Prometheus + cAdvisor + `postgres_exporter`). Retire `app/core/monitoring.py`, `app/pages/18_monitoring.py`, and the read-only `docker.sock` mount once it lands.
 * **FastAPI BFF (Phase 2):** new `bff` service (port 8005) exposing typed, ORM-only reads, plus a shared `db_models` package imported by `bff` / `downloader_*` / `agent`. Additive — Streamlit keeps `connectorx` until the frontend cutover.
-* **Data expansion (Phase 3):** FRED US-state series (needs `FRED_API_KEY`) + a US-states (FIPS) choropleth page.
-* **Data expansion (Phase 3):** Eurostat EU NUTS regions (keyless, JSON-stat) + a NUTS choropleth page (GISCO GeoJSON boundaries).
+* ~~**Data expansion (Phase 3):** FRED US-state series (needs `FRED_API_KEY`) + a US-states (FIPS) choropleth page.~~ **DONE** — 36 state indicators via the GeoFRED API (`fred` schema group: `states` / `state_indicators` / `state_indicator_values`), a new "Regional Statistics" nav group with the `19_fred_regional.py` choropleth/ranking/trend page, and on-demand + `sql_agent` wiring into the AI Analyst.
+* **Data expansion (Phase 3):** Eurostat EU NUTS regions (keyless, JSON-stat) + a NUTS choropleth page (GISCO GeoJSON boundaries) — slots in as the second page under the existing "Regional Statistics" nav group; reuse the region-agnostic `build_region_ranking_bar` / `build_region_trend_lines` helpers.
 * **Data expansion (Phase 3):** replace the GitHub news extractor with a GDELT (DOC 2.0 / GKG) extractor, topic-filtered from `news_download_config.json` into Qdrant.
 * **Backups (Phase 4):** a scheduled `backup` service — nightly `pg_dump` + Qdrant snapshots pushed to an `rclone` remote, with retention prune and a committed restore script.
 

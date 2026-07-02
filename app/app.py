@@ -90,6 +90,7 @@ def setup_routing():
     p_yahoo_finance = st.Page("pages/14_yahoo_finance.py", title="Yahoo Finance", icon="💹")
     p_news = st.Page("pages/15_news.py", title="News Explorer", icon="📰")
     p_crypto = st.Page("pages/16_crypto.py", title="Crypto", icon="💰")
+    p_fred_regional = st.Page("pages/19_fred_regional.py", title="United States (FRED)", icon="🇺🇸")
     p_token_usage = st.Page("pages/17_token_usage.py", title="Token Usage", icon="🪙")
     p_monitoring = st.Page("pages/18_monitoring.py", title="Monitoring", icon="🛰️")
 
@@ -108,6 +109,7 @@ def setup_routing():
                 p_environment,
             ],
             "Other data": [p_yahoo_finance, p_crypto, p_news],
+            "Regional Statistics": [p_fred_regional],
             "Constructors": [p_custom_plot, p_cluster],
             "AI": [p_agent],
             "Settings": [p_token_usage, p_monitoring],

@@ -219,16 +219,17 @@ class WebSearchPlan(BaseModel):
 class DownloadPlan(BaseModel):
     """On-demand ingestion request from the ``downloader_agent`` worker.
 
-    One worker serves three sources; ``source`` selects which id fields apply.
+    One worker serves four sources; ``source`` selects which id fields apply.
     World Bank ids come from sql_agent's ``database_indicators`` lookup; Yahoo
-    tickers and Binance pair symbols have no master catalogue, so they are
-    inferred from the user's request (Apple → ``AAPL``, Solana → ``SOLUSDT``).
+    tickers, Binance pair symbols and FRED series ids have no master catalogue,
+    so they are inferred from the user's request (Apple → ``AAPL``, Solana →
+    ``SOLUSDT``, state unemployment → ``CAUR``).
     """
 
     thought_process: str = Field(
         description="Reasoning about what data to download and from which source."
     )
-    source: Literal["worldbank", "yahoo", "binance"] = Field(
+    source: Literal["worldbank", "yahoo", "binance", "fred"] = Field(
         description="Which data source to download from."
     )
     indicator_id: str | None = Field(
@@ -250,6 +251,14 @@ class DownloadPlan(BaseModel):
         description=(
             "Full Binance spot pair symbol, USDT-quoted (e.g. 'BTCUSDT'). "
             "Required when source='binance'."
+        ),
+    )
+    series_id: str | None = Field(
+        default=None,
+        description=(
+            "A representative single-state FRED series id for the concept "
+            "(e.g. 'CAUR' for state unemployment, 'CAPCPI' for per-capita income); "
+            "the whole 50-state + DC panel is fetched from it. Required when source='fred'."
         ),
     )
 

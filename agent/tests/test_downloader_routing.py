@@ -36,6 +36,13 @@ def test_build_payload_binance() -> None:
     assert payload == {"source": "binance", "symbol": "BTCUSDT"}
 
 
+def test_build_payload_fred() -> None:
+    plan = DownloadPlan(thought_process="...", source="fred", series_id="CAUR")
+    identifier, payload = DownloaderAgent._build_payload(plan)
+    assert identifier == "CAUR"
+    assert payload == {"source": "fred", "series_id": "CAUR"}
+
+
 def test_build_payload_missing_field_raises() -> None:
     with pytest.raises(ValueError):
         DownloaderAgent._build_payload(DownloadPlan(thought_process="...", source="yahoo"))
@@ -43,6 +50,8 @@ def test_build_payload_missing_field_raises() -> None:
         DownloaderAgent._build_payload(
             DownloadPlan(thought_process="...", source="worldbank", indicator_id="X")
         )
+    with pytest.raises(ValueError):
+        DownloaderAgent._build_payload(DownloadPlan(thought_process="...", source="fred"))
 
 
 def _step(query: str, row_count: int) -> dict:

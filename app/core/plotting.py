@@ -756,6 +756,198 @@ def build_map_plot(
     return _apply_plotly_template(fig)
 
 
+def build_us_state_choropleth(
+    df: pl.DataFrame,
+    state_col: str,
+    val_col: str,
+    title: str = "",
+    value_label: str = "Value",
+    name_col: Optional[str] = None,
+    hover_context: Optional[str] = None,
+    reverse_scale: bool = False,
+) -> go.Figure:
+    """Build a choropleth of the 50 US states + DC keyed by USPS abbreviation.
+
+    Mirrors :func:`build_map_plot` but uses ``locationmode="USA-states"`` and the
+    ``"usa"`` geo scope so the two-letter state codes render as a US map.
+
+    Args:
+        df: Source frame.
+        state_col: Column holding 2-letter state abbreviations (upper-cased).
+        val_col: Column holding the metric to colour by.
+        title: Chart title.
+        value_label: Colorbar / hover label for the value scale.
+        name_col: Optional column used for the hover label (defaults to abbrev).
+        hover_context: Optional descriptive string injected into the hover.
+        reverse_scale: Flip the sequential colour scale (useful when lower is
+            "better", e.g. unemployment).
+
+    Returns:
+        Themed ``go.Figure`` ready to render.
+    """
+    fig = go.Figure()
+
+    if df.is_empty():
+        fig.add_annotation(text="No data available for map.", showarrow=False)
+        fig.update_layout(title=title)
+        return _apply_plotly_template(fig)
+
+    locations = [str(code).upper() for code in df[state_col].to_list()]
+    z_values = df[val_col].to_list()
+    hover_text = df[name_col].to_list() if name_col and name_col in df.columns else locations
+    context_line = f"<br>{hover_context}" if hover_context else ""
+    hovertemplate = f"<b>%{{text}}</b>{context_line}<br>{value_label}: %{{z:,.2f}}<extra></extra>"
+
+    fig.add_trace(
+        go.Choropleth(
+            locations=locations,
+            z=z_values,
+            text=hover_text,
+            hovertemplate=hovertemplate,
+            locationmode="USA-states",
+            autocolorscale=False,
+            colorscale=get_sequential_colorscale(reverse=reverse_scale),
+            marker_line_color=get_color("map_coastline"),
+            marker_line_width=0.5,
+            colorbar_title=value_label,
+        )
+    )
+
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=16)),
+        geo=dict(
+            scope="usa",
+            showframe=False,
+            showlakes=False,
+            bgcolor="rgba(0,0,0,0)",
+            lakecolor="rgba(0,0,0,0)",
+        ),
+        margin=dict(l=0, r=0, t=50, b=0),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+
+    return _apply_plotly_template(fig)
+
+
+def build_region_ranking_bar(
+    df: pl.DataFrame,
+    region_col: str,
+    val_col: str,
+    title: str = "",
+    value_label: str = "Value",
+    label_col: Optional[str] = None,
+    top_n: int = 10,
+    ascending: bool = False,
+) -> go.Figure:
+    """Build a horizontal bar chart of the top/bottom-N regions by a metric.
+
+    Region-agnostic (keyed on ``region_col``) so it is reused by both the FRED
+    US-state page and future Eurostat regional pages.
+
+    Args:
+        df: Source frame (one row per region).
+        region_col: Column holding the region code.
+        val_col: Column holding the metric.
+        title: Chart title.
+        value_label: Axis / hover label for the value.
+        label_col: Optional column for the tick label (defaults to region code).
+        top_n: Number of regions to show.
+        ascending: When ``False`` (default) show the highest values; when
+            ``True`` show the lowest.
+
+    Returns:
+        Themed ``go.Figure`` with the largest bar at the top.
+    """
+    fig = go.Figure()
+
+    if df.is_empty():
+        fig.add_annotation(text="No data available.", showarrow=False)
+        fig.update_layout(title=title)
+        return _apply_plotly_template(fig)
+
+    label = label_col if label_col and label_col in df.columns else region_col
+    # Pick the extreme N, then order so the most extreme sits at the top.
+    picked = df.sort(val_col, descending=not ascending).head(top_n)
+    picked = picked.sort(val_col, descending=ascending)
+
+    fig.add_trace(
+        go.Bar(
+            x=picked[val_col].to_list(),
+            y=picked[label].to_list(),
+            orientation="h",
+            marker_color=get_colorway()[0],
+            hovertemplate=f"<b>%{{y}}</b><br>{value_label}: %{{x:,.2f}}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=16)),
+        xaxis_title=value_label,
+        yaxis_title=None,
+        margin=dict(l=0, r=10, t=50, b=0),
+    )
+    return _apply_plotly_template(fig)
+
+
+def build_region_trend_lines(
+    df: pl.DataFrame,
+    region_col: str,
+    year_col: str,
+    val_col: str,
+    regions: list[str],
+    title: str = "",
+    value_label: str = "Value",
+    label_by_region: Optional[Dict[str, str]] = None,
+) -> go.Figure:
+    """Build a multi-region time-trend line chart (one line per region).
+
+    Region-agnostic so both FRED and future Eurostat pages reuse it.
+
+    Args:
+        df: Long frame with region / year / value columns.
+        region_col: Column holding the region code.
+        year_col: Column holding the year (x axis).
+        val_col: Column holding the metric (y axis).
+        regions: Region codes to plot, in the desired colour order.
+        title: Chart title.
+        value_label: Y-axis label.
+        label_by_region: Optional mapping of region code to display name.
+
+    Returns:
+        Themed ``go.Figure``.
+    """
+    fig = go.Figure()
+    colorway = get_colorway()
+
+    for index, region in enumerate(regions):
+        sub = df.filter(pl.col(region_col) == region).sort(year_col)
+        if sub.is_empty():
+            continue
+        display_name = label_by_region.get(region, region) if label_by_region else region
+        fig.add_trace(
+            go.Scatter(
+                x=sub[year_col].to_list(),
+                y=sub[val_col].to_list(),
+                mode="lines",
+                name=display_name,
+                line=dict(color=colorway[index % len(colorway)], width=2),
+                hovertemplate=f"<b>{display_name}</b><br>%{{x}}: %{{y:,.2f}}<extra></extra>",
+            )
+        )
+
+    if not fig.data:
+        fig.add_annotation(text="No data available for the selected regions.", showarrow=False)
+
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=16)),
+        xaxis_title="Year",
+        yaxis_title=value_label,
+        margin=dict(l=0, r=10, t=50, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    return _apply_plotly_template(fig)
+
+
 class GraphBox:
     def __init__(
         self,

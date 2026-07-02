@@ -1111,7 +1111,7 @@ RUNTIME STATE (changes per call):
 
 
 class DownloaderAgent:
-    """Worker that on-demand-ingests one unit of data from WB / Yahoo / Binance."""
+    """Worker that on-demand-ingests one unit of data from WB / Yahoo / Binance / FRED."""
 
     EXTRACT_SYSTEM_PROMPT = (
         "You decide which single unit of data to download on demand and from "
@@ -1128,6 +1128,11 @@ class DownloaderAgent:
         "spot pair `symbol`, quoted in USDT, from the coin the user named "
         "(e.g. Bitcoin → BTCUSDT, Solana → SOLUSDT, Litecoin → LTCUSDT). Set "
         "symbol.\n"
+        "- source='fred': US-state indicators. There is NO catalogue, so infer a "
+        "representative single-state FRED `series_id` for the concept the user "
+        "named (e.g. state unemployment → CAUR, per-capita personal income → "
+        "CAPCPI, personal consumption → CAPCE); the whole 50-state + DC panel is "
+        "fetched from that one series. Set series_id.\n"
         "The supervisor's task states which source to use; output only the "
         "fields for that source."
     )
@@ -1166,6 +1171,10 @@ class DownloaderAgent:
             if not plan.symbol:
                 raise ValueError("binance download needs a symbol")
             return plan.symbol, {"source": "binance", "symbol": plan.symbol}
+        if plan.source == "fred":
+            if not plan.series_id:
+                raise ValueError("fred download needs a series_id")
+            return plan.series_id, {"source": "fred", "series_id": plan.series_id}
         raise ValueError(f"Unknown download source: {plan.source}")
 
     async def ainvoke(self, state: AgentState) -> dict:

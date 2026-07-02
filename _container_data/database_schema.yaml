@@ -312,3 +312,91 @@ databases:
         base_asset:
           type: TEXT
           description: Base asset / coin code (e.g. "BTC"). Duplicates binance_metadata.base_asset for query convenience.
+
+  fred:
+
+    states:
+      primary_key: [id]
+      foreign_keys: []
+      columns:
+        id:
+          type: TEXT
+          description: Two-letter USPS state abbreviation (e.g. "CA", "TX", "DC"). Primary identifier of the state and the join key used by state_indicator_values.state. Resolved from the FRED FIPS code via a static reference map.
+        name:
+          type: TEXT
+          description: Full English state name as reported by FRED regional data (e.g. "California", "District of Columbia").
+        fips:
+          type: TEXT
+          description: Two-digit FIPS state code (e.g. "06" for California). This is the `code` field returned by the GeoFRED regional/data endpoint and the reliable key used to map observations to states (per-state FRED series ids do not always encode the abbreviation).
+        region:
+          type: TEXT
+          description: U.S. Census Bureau region the state belongs to (one of "Northeast", "Midwest", "South", "West"). District of Columbia is classified under "South" following Census convention.
+        division:
+          type: TEXT
+          description: U.S. Census Bureau division (e.g. "Pacific", "Mountain", "New England", "South Atlantic"). A finer grouping than region.
+
+    state_indicators:
+      primary_key: [indicator_id]
+      foreign_keys: []
+      columns:
+        indicator_id:
+          type: TEXT
+          description: Friendly slug identifying the indicator concept (e.g. "unemployment_rate", "real_gdp"). Same value used by state_indicator_values.indicator_id. Defined in fred_download_config.json.
+        name:
+          type: TEXT
+          description: Human-readable indicator title (e.g. "Unemployment Rate", "Real GDP (All Industry)").
+        category:
+          type: TEXT
+          description: Dashboard section grouping for the indicator (e.g. "Labor Market", "Housing"), taken from the top-level key in fred_download_config.json.
+        series_group:
+          type: TEXT
+          description: GeoFRED series group id (e.g. "1224") used to fetch the cross-state panel from the regional/data endpoint.
+        example_series_id:
+          type: TEXT
+          description: A representative single-state FRED series id (e.g. "CAUR") used to resolve the series group and its metadata.
+        units:
+          type: TEXT
+          description: Units of measurement reported by FRED (e.g. "Percent", "Thousands of Persons", "Millions of Dollars", "Dollars").
+        frequency:
+          type: TEXT
+          description: Native FRED release frequency of the underlying series (e.g. "Monthly", "Quarterly", "Annual", "Weekly"). Stored observations are aggregated to annual regardless.
+        seasonal_adjustment:
+          type: TEXT
+          description: Seasonal-adjustment code from the series group (e.g. "SA" seasonally adjusted, "NSA" not seasonally adjusted, "SAAR" seasonally adjusted annual rate).
+        region_type:
+          type: TEXT
+          description: Geographic granularity of the series group; always "state" for this table.
+        min_date:
+          type: TEXT
+          description: Earliest observation date available for the series group (ISO date YYYY-MM-DD), as reported by FRED.
+        max_date:
+          type: TEXT
+          description: Latest observation date available for the series group (ISO date YYYY-MM-DD), as reported by FRED.
+        notes:
+          type: TEXT
+          description: Free-form description of the indicator, synthesized from the FRED series group metadata (title, units, frequency, seasonal adjustment, source coverage).
+
+    state_indicator_values:
+      primary_key: [state, year, indicator_id]
+      foreign_keys:
+        - columns: [state]
+          references_table: states
+          references_columns: [id]
+          enforce: true
+        - columns: [indicator_id]
+          references_table: state_indicators
+          references_columns: [indicator_id]
+          enforce: false
+      columns:
+        state:
+          type: TEXT
+          description: Two-letter USPS state abbreviation (e.g. "CA"). References states.id.
+        year:
+          type: INTEGER
+          description: Calendar year of the observation. The native FRED frequency (monthly/quarterly/weekly) is aggregated to an annual value by the GeoFRED regional/data endpoint (frequency=a).
+        value:
+          type: DOUBLE PRECISION
+          description: Numeric value of the indicator for the given state and year, in the indicator's units. Rows whose value is null (typically the current incomplete year under annual aggregation) are dropped at ingestion.
+        indicator_id:
+          type: TEXT
+          description: Friendly slug of the indicator (e.g. "unemployment_rate"). References state_indicators.indicator_id (FK declared but not enforced because downloader_extra can ingest values on demand).

@@ -7,6 +7,7 @@ that didn't exist at the last bootstrap). After that, run the three
 downloaders (World Bank → news → Yahoo) **once only**, gated by a marker
 file (``.download_completed``) written after a successful run; subsequent
 boots see the marker and skip downloads but still re-apply the bootstrap.
+The downloaders run in order: World Bank → news → Yahoo → Binance → FRED.
 """
 
 import logging
@@ -17,6 +18,7 @@ import sys
 from src.config import load_config
 from src.extractors import (
     BinanceDownloader,
+    FredDownloader,
     NewsDownloader,
     WorldBankDownloader,
     YahooDownloader,
@@ -80,6 +82,7 @@ def main() -> None:
     news_download_config = shared.news_download_config
     yahoo_download_config = shared.yahoo_download_config
     binance_download_config = shared.binance_download_config
+    fred_download_config = shared.fred_download_config
     repo_url = config.downloader_general.repo_url
     openai_base_url = shared.openai_base_url
     openai_embedding_model = shared.openai_embedding_model
@@ -159,6 +162,18 @@ def main() -> None:
         db=postgres_db,
     ):
         binance_downloader.run()
+
+    fred_downloader = FredDownloader(
+        env_path=env_file,
+        download_config_path=fred_download_config,
+        database_schema=database_schema,
+    )
+    if fred_downloader._initialize_connections(
+        host=postgres_host,
+        port=postgres_port,
+        db=postgres_db,
+    ):
+        fred_downloader.run()
 
     # Mark the one-shot download as completed so future container starts
     # only re-apply the bootstrap and skip the multi-hour ingestion.

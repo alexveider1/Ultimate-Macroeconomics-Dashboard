@@ -115,7 +115,51 @@ class BinanceHistoricalPrice(Base):
     base_asset: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
-SourceLiteral = Literal["worldbank", "yahoo", "binance"]
+class State(Base):
+    """One U.S. state / DC row (``states``); mirrors the FRED states catalogue."""
+
+    __tablename__ = "states"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    fips: Mapped[str | None] = mapped_column(String, nullable=True)
+    region: Mapped[str | None] = mapped_column(String, nullable=True)
+    division: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class StateIndicator(Base):
+    """Description row for one FRED state-indicator concept (``state_indicators``)."""
+
+    __tablename__ = "state_indicators"
+
+    indicator_id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    category: Mapped[str | None] = mapped_column(String, nullable=True)
+    series_group: Mapped[str | None] = mapped_column(String, nullable=True)
+    example_series_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    units: Mapped[str | None] = mapped_column(String, nullable=True)
+    frequency: Mapped[str | None] = mapped_column(String, nullable=True)
+    seasonal_adjustment: Mapped[str | None] = mapped_column(String, nullable=True)
+    region_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    min_date: Mapped[str | None] = mapped_column(String, nullable=True)
+    max_date: Mapped[str | None] = mapped_column(String, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class StateIndicatorValue(Base):
+    """One ``(state, year, indicator_id)`` FRED observation (``state_indicator_values``)."""
+
+    __tablename__ = "state_indicator_values"
+
+    state: Mapped[str] = mapped_column(
+        String, ForeignKey("states.id"), primary_key=True, nullable=False
+    )
+    year: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    indicator_id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+
+
+SourceLiteral = Literal["worldbank", "yahoo", "binance", "fred"]
 
 
 class IngestRequest(BaseModel):
@@ -126,6 +170,8 @@ class IngestRequest(BaseModel):
     * ``worldbank`` → ``indicator_id`` (e.g. ``NY.GDP.MKTP.CD``) + ``db_id`` (e.g. 2).
     * ``yahoo`` → ``ticker`` (e.g. ``AAPL``).
     * ``binance`` → ``symbol`` (full spot pair, e.g. ``BTCUSDT``).
+    * ``fred`` → ``series_id`` (a representative single-state series, e.g. ``CAUR``
+      or ``MEHOINUSCAA672N``); the whole 50-state + DC panel is fetched from it.
 
     ``source`` defaults to ``worldbank`` so the historical World-Bank-only
     request body (``{indicator_id, db_id}``) keeps working unchanged.
@@ -136,6 +182,7 @@ class IngestRequest(BaseModel):
     db_id: int | None = None
     ticker: str | None = None
     symbol: str | None = None
+    series_id: str | None = None
 
     @model_validator(mode="after")
     def _check_required_fields(self) -> "IngestRequest":
@@ -148,6 +195,9 @@ class IngestRequest(BaseModel):
         elif self.source == "binance":
             if not self.symbol:
                 raise ValueError("binance source requires 'symbol'")
+        elif self.source == "fred":
+            if not self.series_id:
+                raise ValueError("fred source requires 'series_id'")
         return self
 
 

@@ -121,6 +121,32 @@ class BaseYahooDownloader(ABC):
         pass
 
 
+class BaseFredDownloader(ABC):
+    """Abstract contract for any FRED state-indicator downloader implementation."""
+
+    @abstractmethod
+    def _initialize_connections(self, host: str, port: int, db: str) -> bool:
+        """Test whether the SQL and FRED API connections can be established"""
+        pass
+
+    @abstractmethod
+    async def download_states(self, client: httpx.AsyncClient) -> Dict[str, str]:
+        """Write the states catalogue and return the FRED ``{fips: name}`` mapping"""
+        pass
+
+    @abstractmethod
+    async def download_indicator(
+        self, client: httpx.AsyncClient, slug: str, series_id: str, name: str, category: str
+    ) -> None:
+        """Download one indicator's description row + annual state panel from `fred`"""
+        pass
+
+    @abstractmethod
+    def run(self) -> None:
+        """Method for downloading all the needed state indicators from `fred`"""
+        pass
+
+
 class BaseBinanceDownloader(ABC):
     """Abstract contract for any Binance crypto downloader implementation."""
 

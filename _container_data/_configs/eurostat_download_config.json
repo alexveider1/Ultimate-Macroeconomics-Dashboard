@@ -1,0 +1,185 @@
+{
+    "Economy & output": [
+        {
+            "name": "GDP at current market prices",
+            "id": "gdp_meur",
+            "dataset": "nama_10r_2gdp",
+            "filters": { "unit": "MIO_EUR" },
+            "units": "Million euro"
+        },
+        {
+            "name": "GDP per capita",
+            "id": "gdp_per_capita_eur",
+            "dataset": "nama_10r_2gdp",
+            "filters": { "unit": "EUR_HAB" },
+            "units": "Euro per inhabitant"
+        },
+        {
+            "name": "GDP per capita (PPS)",
+            "id": "gdp_per_capita_pps",
+            "dataset": "nama_10r_2gdp",
+            "filters": { "unit": "PPS_EU27_2020_HAB" },
+            "units": "PPS per inhabitant"
+        },
+        {
+            "name": "GDP per capita (% of EU average)",
+            "id": "gdp_index_eu",
+            "dataset": "tgs00006",
+            "filters": { "unit": "PPS_HAB_EU27_2020" },
+            "units": "% of EU27 average"
+        },
+        {
+            "name": "Gross value added",
+            "id": "gva_meur",
+            "dataset": "nama_10r_3gva",
+            "filters": { "unit": "CP_MEUR", "nace_r2": "TOTAL" },
+            "units": "Million euro"
+        },
+        {
+            "name": "Compensation of employees",
+            "id": "compensation_meur",
+            "dataset": "nama_10r_2coe",
+            "filters": { "currency": "MIO_EUR", "nace_r2": "TOTAL" },
+            "units": "Million euro"
+        },
+        {
+            "name": "Household net disposable income per inhabitant",
+            "id": "hh_disposable_income",
+            "dataset": "nama_10r_2hhinc",
+            "filters": { "unit": "EUR_HAB", "direct": "BAL", "na_item": "B6N" },
+            "units": "Euro per inhabitant"
+        }
+    ],
+    "Labour market": [
+        {
+            "name": "Employment rate (15-64)",
+            "id": "employment_rate",
+            "dataset": "lfst_r_lfe2emprt",
+            "filters": { "unit": "PC", "sex": "T", "age": "Y15-64" },
+            "units": "Percentage"
+        },
+        {
+            "name": "Employment rate (20-64)",
+            "id": "employment_rate_2064",
+            "dataset": "lfst_r_lfe2emprt",
+            "filters": { "unit": "PC", "sex": "T", "age": "Y20-64" },
+            "units": "Percentage"
+        },
+        {
+            "name": "Unemployment rate (15+)",
+            "id": "unemployment_rate",
+            "dataset": "lfst_r_lfu3rt",
+            "filters": { "isced11": "TOTAL", "sex": "T", "age": "Y_GE15", "unit": "PC" },
+            "units": "Percentage"
+        },
+        {
+            "name": "Youth unemployment rate (15-24)",
+            "id": "youth_unemployment_rate",
+            "dataset": "lfst_r_lfu3rt",
+            "filters": { "isced11": "TOTAL", "sex": "T", "age": "Y15-24", "unit": "PC" },
+            "units": "Percentage"
+        },
+        {
+            "name": "Labour force participation rate (15-64)",
+            "id": "activity_rate",
+            "dataset": "lfst_r_lfp2actrt",
+            "filters": { "unit": "PC", "sex": "T", "age": "Y15-64" },
+            "units": "Percentage"
+        },
+        {
+            "name": "Total employment",
+            "id": "employment_persons",
+            "dataset": "nama_10r_3empers",
+            "filters": { "unit": "THS", "wstatus": "EMP", "nace_r2": "TOTAL" },
+            "units": "Thousand persons"
+        }
+    ],
+    "Demography & health": [
+        {
+            "name": "Population on 1 January",
+            "id": "population",
+            "dataset": "demo_r_pjanaggr3",
+            "filters": { "unit": "NR", "sex": "T", "age": "TOTAL" },
+            "units": "Number"
+        },
+        {
+            "name": "Population density",
+            "id": "population_density",
+            "dataset": "demo_r_d3dens",
+            "filters": { "unit": "PER_KM2" },
+            "units": "Persons per km2"
+        },
+        {
+            "name": "Median age of population",
+            "id": "median_age",
+            "dataset": "demo_r_pjanind2",
+            "filters": { "indic_de": "MEDAGEPOP", "unit": "YR" },
+            "units": "Years"
+        },
+        {
+            "name": "Old-age dependency ratio",
+            "id": "old_age_dependency",
+            "dataset": "demo_r_pjanind2",
+            "filters": { "indic_de": "OLDDEP1", "unit": "PC" },
+            "units": "Percentage"
+        },
+        {
+            "name": "Life expectancy at birth",
+            "id": "life_expectancy",
+            "dataset": "demo_r_mlifexp",
+            "filters": { "unit": "YR", "sex": "T", "age": "Y_LT1" },
+            "units": "Years"
+        },
+        {
+            "name": "Crude rate of net migration",
+            "id": "net_migration_rate",
+            "dataset": "demo_r_gind3",
+            "filters": { "indic_de": "CNMIGRATRT" },
+            "units": "Per 1000 inhabitants"
+        }
+    ],
+    "Innovation & education": [
+        {
+            "name": "R&D expenditure (% of GDP)",
+            "id": "rd_expenditure_pct_gdp",
+            "dataset": "rd_e_gerdreg",
+            "filters": { "sectperf": "TOTAL", "unit": "PC_GDP" },
+            "units": "% of GDP"
+        },
+        {
+            "name": "R&D expenditure per inhabitant",
+            "id": "rd_expenditure_eur_hab",
+            "dataset": "rd_e_gerdreg",
+            "filters": { "sectperf": "TOTAL", "unit": "EUR_HAB" },
+            "units": "Euro per inhabitant"
+        },
+        {
+            "name": "R&D personnel",
+            "id": "rd_personnel",
+            "dataset": "rd_p_persreg",
+            "filters": { "prof_pos": "TOTAL", "sex": "T", "sectperf": "TOTAL", "unit": "PC_ACT_HC" },
+            "units": "% of labour force"
+        },
+        {
+            "name": "Human resources in science & technology",
+            "id": "hrst",
+            "dataset": "hrst_st_rcat",
+            "filters": { "category": "HRST", "unit": "PC_ACT" },
+            "units": "% of labour force"
+        },
+        {
+            "name": "High-tech sector employment",
+            "id": "high_tech_employment",
+            "dataset": "htec_emp_reg2",
+            "filters": { "nace_r2": "HTC", "unit": "PC_EMP", "sex": "T" },
+            "units": "% of total employment"
+        },
+        {
+            "name": "Tertiary educational attainment (25-64)",
+            "id": "tertiary_education",
+            "dataset": "tgs00109",
+            "filters": { "unit": "PC", "isced11": "ED5-8", "age": "Y25-64", "sex": "T" },
+            "units": "Percentage"
+        }
+    ]
+}

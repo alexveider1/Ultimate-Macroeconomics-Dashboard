@@ -376,3 +376,60 @@ def get_fred_indicator(indicator_id: str, states: str | Iterable[str] = "ALL") -
     except Exception as exc:
         logger.warning("FRED indicator values unavailable: %s", exc)
         return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_eurostat_regions() -> pl.DataFrame:
+    """Return the Eurostat NUTS-2 catalogue ``(id, name, country_code, country_name, nuts1_id, level)``.
+
+    Empty frame (rather than raising) on a missing table, so a deployment whose
+    volume predates the Eurostat tables doesn't crash the Regional Statistics page.
+    """
+    query = "SELECT id, name, country_code, country_name, nuts1_id, level FROM eurostat_regions"
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("Eurostat regions unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_eurostat_indicators_catalog() -> pl.DataFrame:
+    """Return every Eurostat indicator description row (one per indicator concept)."""
+    query = (
+        "SELECT indicator_id, name, category, dataset, filters, units, frequency, "
+        "nuts_level, min_year, max_year, source_label, notes "
+        "FROM eurostat_indicators"
+    )
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("Eurostat indicator catalogue unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_eurostat_indicator(indicator_id: str, regions: str | Iterable[str] = "ALL") -> pl.DataFrame:
+    """Return ``(region, year, value)`` rows for one Eurostat indicator.
+
+    Args:
+        indicator_id: Eurostat indicator slug (e.g. ``"gdp_per_capita_pps"``).
+        regions: Single NUTS-2 code, an iterable of them, or ``"ALL"``.
+
+    Returns:
+        Polars frame ordered by ``year`` then ``region``.
+    """
+    region_codes = _normalize_country_codes(regions)
+    query = (
+        "SELECT region, year, value "
+        "FROM eurostat_indicator_values "
+        f"WHERE indicator_id = {_sql_string(indicator_id)} AND value IS NOT NULL"
+    )
+    if region_codes:
+        query += " AND region IN (" + ", ".join(_sql_string(code) for code in region_codes) + ")"
+    query += " ORDER BY year, region"
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("Eurostat indicator values unavailable: %s", exc)
+        return pl.DataFrame()

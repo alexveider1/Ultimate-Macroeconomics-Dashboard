@@ -147,6 +147,38 @@ class BaseFredDownloader(ABC):
         pass
 
 
+class BaseEurostatDownloader(ABC):
+    """Abstract contract for any Eurostat NUTS-region downloader implementation."""
+
+    @abstractmethod
+    def _initialize_connections(self, host: str, port: int, db: str) -> bool:
+        """Test whether the SQL and Eurostat API connections can be established"""
+        pass
+
+    @abstractmethod
+    def download_regions(self) -> None:
+        """Write the NUTS-2 regions catalogue from the bundled GISCO GeoJSON"""
+        pass
+
+    @abstractmethod
+    async def download_indicator(
+        self,
+        client: httpx.AsyncClient,
+        slug: str,
+        dataset: str,
+        filters: Dict[str, str],
+        name: str,
+        category: str,
+    ) -> None:
+        """Download one indicator's description row + annual region panel from `eurostat`"""
+        pass
+
+    @abstractmethod
+    def run(self) -> None:
+        """Method for downloading all the needed region indicators from `eurostat`"""
+        pass
+
+
 class BaseBinanceDownloader(ABC):
     """Abstract contract for any Binance crypto downloader implementation."""
 

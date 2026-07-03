@@ -400,3 +400,94 @@ databases:
         indicator_id:
           type: TEXT
           description: Friendly slug of the indicator (e.g. "unemployment_rate"). References state_indicators.indicator_id (FK declared but not enforced because downloader_extra can ingest values on demand).
+
+  eurostat:
+
+    eurostat_regions:
+      primary_key: [id]
+      foreign_keys: []
+      columns:
+        id:
+          type: TEXT
+          description: NUTS 2021 region code at level 2 (e.g. "DE21" for Oberbayern, "FR10" for Île-de-France). Primary identifier of the region and the join key used by eurostat_indicator_values.region. Sourced from the GISCO NUTS-2 GeoJSON so the catalogue exactly matches the choropleth polygons.
+        name:
+          type: TEXT
+          description: Region name in the Latin alphabet as published by Eurostat/GISCO (NAME_LATN, e.g. "Oberbayern", "Île de France", "Ostschweiz").
+        country_code:
+          type: TEXT
+          description: Two-letter country code in Eurostat convention (the first two characters of the NUTS code; note "EL" for Greece and "UK" for the United Kingdom, differing from ISO "GR"/"GB").
+        country_name:
+          type: TEXT
+          description: English country name (e.g. "Germany", "Czechia"), taken from the GISCO NAME_ENGL field which at NUTS level 2 carries the country name.
+        nuts1_id:
+          type: TEXT
+          description: Parent NUTS level-1 code (the first three characters of id, e.g. "DE2" for "DE21"). Handy for grouping NUTS-2 regions into their larger NUTS-1 area.
+        level:
+          type: INTEGER
+          description: NUTS hierarchy level of the region; always 2 for this table (kept for future flexibility if other levels are added).
+
+    eurostat_indicators:
+      primary_key: [indicator_id]
+      foreign_keys: []
+      columns:
+        indicator_id:
+          type: TEXT
+          description: Friendly slug identifying the indicator concept (e.g. "gdp_per_capita_pps", "unemployment_rate"). Same value used by eurostat_indicator_values.indicator_id. Defined in eurostat_download_config.json (on-demand items use the lower-cased Eurostat dataset code).
+        name:
+          type: TEXT
+          description: Human-readable indicator title (e.g. "GDP per capita (PPS)", "Unemployment rate (15+)").
+        category:
+          type: TEXT
+          description: Dashboard section grouping for the indicator (e.g. "Economy & output", "Labour market"), taken from the top-level key in eurostat_download_config.json.
+        dataset:
+          type: TEXT
+          description: Eurostat dissemination dataset code the values were fetched from (e.g. "nama_10r_2gdp", "lfst_r_lfu3rt").
+        filters:
+          type: TEXT
+          description: JSON object (stored as text) of the non-geo/non-time dimensions pinned to a single category to isolate one series (e.g. {"unit":"PPS_EU27_2020_HAB"} or {"isced11":"TOTAL","sex":"T","age":"Y_GE15","unit":"PC"}).
+        units:
+          type: TEXT
+          description: Units of measurement for the values (e.g. "Euro per inhabitant", "Percentage", "Number", "Years").
+        frequency:
+          type: TEXT
+          description: Native release frequency of the Eurostat series (e.g. "Annual"). Stored observations are annual.
+        nuts_level:
+          type: INTEGER
+          description: NUTS level the values are stored at; always 2 for this table.
+        min_year:
+          type: INTEGER
+          description: Earliest year for which any region has a value for this indicator.
+        max_year:
+          type: INTEGER
+          description: Latest year for which any region has a value for this indicator.
+        source_label:
+          type: TEXT
+          description: The full dataset label as reported by Eurostat (e.g. "Gross domestic product (GDP) at current market prices by NUTS 2 region").
+        notes:
+          type: TEXT
+          description: Free-form description synthesized from the dataset label, units, frequency, filters and coverage.
+
+    eurostat_indicator_values:
+      primary_key: [region, year, indicator_id]
+      foreign_keys:
+        - columns: [region]
+          references_table: eurostat_regions
+          references_columns: [id]
+          enforce: true
+        - columns: [indicator_id]
+          references_table: eurostat_indicators
+          references_columns: [indicator_id]
+          enforce: false
+      columns:
+        region:
+          type: TEXT
+          description: NUTS-2 region code (e.g. "DE21"). References eurostat_regions.id. Observations whose code is not in the NUTS-2021 catalogue (e.g. codes from older NUTS vintages returned by some datasets) are dropped at ingestion.
+        year:
+          type: INTEGER
+          description: Calendar year of the (annual) observation.
+        value:
+          type: DOUBLE PRECISION
+          description: Numeric value of the indicator for the given region and year, in the indicator's units. Rows with a null / flagged (":") value are dropped at ingestion.
+        indicator_id:
+          type: TEXT
+          description: Friendly slug of the indicator (e.g. "gdp_per_capita_pps"). References eurostat_indicators.indicator_id (FK declared but not enforced because downloader_extra can ingest values on demand).

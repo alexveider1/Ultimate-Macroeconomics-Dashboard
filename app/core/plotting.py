@@ -830,6 +830,90 @@ def build_us_state_choropleth(
     return _apply_plotly_template(fig)
 
 
+def build_nuts_choropleth(
+    df: pl.DataFrame,
+    region_col: str,
+    val_col: str,
+    geojson: dict,
+    title: str = "",
+    value_label: str = "Value",
+    name_col: Optional[str] = None,
+    hover_context: Optional[str] = None,
+    reverse_scale: bool = False,
+) -> go.Figure:
+    """Build a choropleth of EU NUTS-2 regions keyed by NUTS code.
+
+    The EU analogue of :func:`build_us_state_choropleth`: Plotly has no built-in
+    NUTS geometry, so the region polygons come from the bundled GISCO GeoJSON
+    passed in ``geojson`` and are matched to ``region_col`` codes via
+    ``featureidkey="properties.NUTS_ID"``. The view is constrained to continental
+    Europe so overseas NUTS-2 regions (Canaries, French DOM, Azores…) don't blow
+    up the bounds — they still appear in the rankings/table.
+
+    Args:
+        df: Source frame.
+        region_col: Column holding NUTS-2 codes (e.g. ``"DE21"``).
+        val_col: Column holding the metric to colour by.
+        geojson: Parsed GISCO NUTS-2 GeoJSON (features keyed by ``NUTS_ID``).
+        title: Chart title.
+        value_label: Colorbar / hover label for the value scale.
+        name_col: Optional column used for the hover label (defaults to code).
+        hover_context: Optional descriptive string injected into the hover.
+        reverse_scale: Flip the sequential colour scale (useful when lower is
+            "better", e.g. unemployment).
+
+    Returns:
+        Themed ``go.Figure`` ready to render.
+    """
+    fig = go.Figure()
+
+    if df.is_empty():
+        fig.add_annotation(text="No data available for map.", showarrow=False)
+        fig.update_layout(title=title)
+        return _apply_plotly_template(fig)
+
+    locations = [str(code) for code in df[region_col].to_list()]
+    z_values = df[val_col].to_list()
+    hover_text = df[name_col].to_list() if name_col and name_col in df.columns else locations
+    context_line = f"<br>{hover_context}" if hover_context else ""
+    hovertemplate = f"<b>%{{text}}</b>{context_line}<br>{value_label}: %{{z:,.2f}}<extra></extra>"
+
+    fig.add_trace(
+        go.Choropleth(
+            geojson=geojson,
+            featureidkey="properties.NUTS_ID",
+            locations=locations,
+            z=z_values,
+            text=hover_text,
+            hovertemplate=hovertemplate,
+            autocolorscale=False,
+            colorscale=get_sequential_colorscale(reverse=reverse_scale),
+            marker_line_color=get_color("map_coastline"),
+            marker_line_width=0.3,
+            colorbar_title=value_label,
+        )
+    )
+
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=16)),
+        geo=dict(
+            scope="europe",
+            projection_type="mercator",
+            showframe=False,
+            showcoastlines=False,
+            showcountries=False,
+            lataxis_range=[34, 71],
+            lonaxis_range=[-24, 45],
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        margin=dict(l=0, r=0, t=50, b=0),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+
+    return _apply_plotly_template(fig)
+
+
 def build_region_ranking_bar(
     df: pl.DataFrame,
     region_col: str,

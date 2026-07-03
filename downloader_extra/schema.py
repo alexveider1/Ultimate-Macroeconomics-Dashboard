@@ -1,12 +1,14 @@
 """ORM models + pydantic schemas for the on-demand ingestion service.
 
-The service re-fetches a single unit of data on demand from one of three
+The service re-fetches a single unit of data on demand from one of five
 sources and writes it into the same Postgres tables that ``downloader_general``
 populates on first boot:
 
 * ``worldbank`` — one indicator → ``indicators`` (:class:`MacroIndicator`).
 * ``yahoo`` — one ticker → ``yahoo_metadata`` + ``yahoo_historical_prices``.
 * ``binance`` — one spot pair → ``binance_metadata`` + ``binance_historical_prices``.
+* ``fred`` — one US-state indicator → ``state_indicators`` + ``state_indicator_values``.
+* ``eurostat`` — one NUTS-2 dataset → ``eurostat_indicators`` + ``eurostat_indicator_values``.
 
 The ORM models mirror ``_container_data/database_schema.yaml`` column-for-column
 so ``Base.metadata.create_all`` is a no-op against the tables that already exist
@@ -159,7 +161,52 @@ class StateIndicatorValue(Base):
     indicator_id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
 
 
-SourceLiteral = Literal["worldbank", "yahoo", "binance", "fred"]
+class Region(Base):
+    """One NUTS-2 region row (``eurostat_regions``); mirrors the Eurostat catalogue."""
+
+    __tablename__ = "eurostat_regions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    country_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    country_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    nuts1_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class EurostatIndicator(Base):
+    """Description row for one Eurostat indicator concept (``eurostat_indicators``)."""
+
+    __tablename__ = "eurostat_indicators"
+
+    indicator_id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    category: Mapped[str | None] = mapped_column(String, nullable=True)
+    dataset: Mapped[str | None] = mapped_column(String, nullable=True)
+    filters: Mapped[str | None] = mapped_column(String, nullable=True)
+    units: Mapped[str | None] = mapped_column(String, nullable=True)
+    frequency: Mapped[str | None] = mapped_column(String, nullable=True)
+    nuts_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_label: Mapped[str | None] = mapped_column(String, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class EurostatIndicatorValue(Base):
+    """One ``(region, year, indicator_id)`` Eurostat observation (``eurostat_indicator_values``)."""
+
+    __tablename__ = "eurostat_indicator_values"
+
+    region: Mapped[str] = mapped_column(
+        String, ForeignKey("eurostat_regions.id"), primary_key=True, nullable=False
+    )
+    year: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    indicator_id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+
+
+SourceLiteral = Literal["worldbank", "yahoo", "binance", "fred", "eurostat"]
 
 
 class IngestRequest(BaseModel):
@@ -172,6 +219,9 @@ class IngestRequest(BaseModel):
     * ``binance`` → ``symbol`` (full spot pair, e.g. ``BTCUSDT``).
     * ``fred`` → ``series_id`` (a representative single-state series, e.g. ``CAUR``
       or ``MEHOINUSCAA672N``); the whole 50-state + DC panel is fetched from it.
+    * ``eurostat`` → ``dataset`` (a Eurostat dataset code, e.g. ``nama_10r_2gdp``)
+      plus optional ``filters`` pinning its extra dimensions (e.g.
+      ``{"unit": "EUR_HAB"}``); the whole NUTS-2 region panel is fetched from it.
 
     ``source`` defaults to ``worldbank`` so the historical World-Bank-only
     request body (``{indicator_id, db_id}``) keeps working unchanged.
@@ -183,6 +233,8 @@ class IngestRequest(BaseModel):
     ticker: str | None = None
     symbol: str | None = None
     series_id: str | None = None
+    dataset: str | None = None
+    filters: dict[str, str] | None = None
 
     @model_validator(mode="after")
     def _check_required_fields(self) -> "IngestRequest":
@@ -198,6 +250,9 @@ class IngestRequest(BaseModel):
         elif self.source == "fred":
             if not self.series_id:
                 raise ValueError("fred source requires 'series_id'")
+        elif self.source == "eurostat":
+            if not self.dataset:
+                raise ValueError("eurostat source requires 'dataset'")
         return self
 
 

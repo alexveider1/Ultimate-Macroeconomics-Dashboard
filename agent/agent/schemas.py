@@ -219,17 +219,18 @@ class WebSearchPlan(BaseModel):
 class DownloadPlan(BaseModel):
     """On-demand ingestion request from the ``downloader_agent`` worker.
 
-    One worker serves four sources; ``source`` selects which id fields apply.
+    One worker serves five sources; ``source`` selects which id fields apply.
     World Bank ids come from sql_agent's ``database_indicators`` lookup; Yahoo
-    tickers, Binance pair symbols and FRED series ids have no master catalogue,
-    so they are inferred from the user's request (Apple → ``AAPL``, Solana →
-    ``SOLUSDT``, state unemployment → ``CAUR``).
+    tickers, Binance pair symbols, FRED series ids and Eurostat dataset codes have
+    no master catalogue, so they are inferred from the user's request (Apple →
+    ``AAPL``, Solana → ``SOLUSDT``, state unemployment → ``CAUR``, EU regional GDP
+    per capita → ``nama_10r_2gdp``).
     """
 
     thought_process: str = Field(
         description="Reasoning about what data to download and from which source."
     )
-    source: Literal["worldbank", "yahoo", "binance", "fred"] = Field(
+    source: Literal["worldbank", "yahoo", "binance", "fred", "eurostat"] = Field(
         description="Which data source to download from."
     )
     indicator_id: str | None = Field(
@@ -259,6 +260,25 @@ class DownloadPlan(BaseModel):
             "A representative single-state FRED series id for the concept "
             "(e.g. 'CAUR' for state unemployment, 'CAPCPI' for per-capita income); "
             "the whole 50-state + DC panel is fetched from it. Required when source='fred'."
+        ),
+    )
+    dataset: str | None = Field(
+        default=None,
+        description=(
+            "Eurostat dataset code for the EU regional concept (e.g. 'nama_10r_2gdp' for "
+            "regional GDP, 'lfst_r_lfu3rt' for unemployment, 'demo_r_pjanaggr3' for "
+            "population); the whole NUTS-2 region panel is fetched from it. Required when "
+            "source='eurostat'."
+        ),
+    )
+    filters: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Optional Eurostat dimension filters pinning the dataset's extra dimensions to "
+            "one category so a single clean series is returned (e.g. {'unit': 'EUR_HAB'} for "
+            "GDP per capita, or {'sex': 'T', 'age': 'Y_GE15', 'unit': 'PC'} for an "
+            "unemployment rate). Any dimension left out falls back to its first category. "
+            "Only used when source='eurostat'."
         ),
     )
 

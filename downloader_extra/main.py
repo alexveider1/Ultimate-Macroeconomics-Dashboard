@@ -1,4 +1,4 @@
-"""FastAPI service: on-demand single-unit ingestion from four sources.
+"""FastAPI service: on-demand single-unit ingestion from five sources.
 
 The agent's ``downloader_agent`` worker POSTs to ``/ingest`` whenever the LLM
 decides data the user is asking about is missing from Postgres. ``source``
@@ -8,6 +8,7 @@ selects the path:
 * ``yahoo`` — one ticker via :mod:`client_yahoo`.
 * ``binance`` — one spot pair via :mod:`client_binance`.
 * ``fred`` — one US-state indicator (50 states + DC) via :mod:`client_fred`.
+* ``eurostat`` — one EU NUTS-2 dataset via :mod:`client_eurostat`.
 
 Each path short-circuits when the data is already present (returns
 ``status="already_downloaded"``), otherwise it fetches and stores it on a worker
@@ -18,6 +19,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from client_binance import fetch_and_store_binance
+from client_eurostat import fetch_and_store_eurostat
 from client_fred import fetch_and_store_fred
 from client_wb import fetch_and_store_indicator
 from client_yahoo import fetch_and_store_yahoo
@@ -26,6 +28,7 @@ from fastapi import FastAPI, HTTPException
 from schema import (
     Base,
     BinanceMetadata,
+    EurostatIndicator,
     IngestRequest,
     IngestResponse,
     MacroIndicator,
@@ -101,8 +104,8 @@ app = FastAPI(
     title="Macroeconomics Data Ingestion Service",
     description=(
         "On-demand ingestion of a single unit of data from the World Bank "
-        "(indicator), Yahoo Finance (ticker), Binance (spot pair), or FRED "
-        "(US-state indicator)."
+        "(indicator), Yahoo Finance (ticker), Binance (spot pair), FRED "
+        "(US-state indicator), or Eurostat (EU NUTS-2 dataset)."
     ),
     lifespan=lifespan,
 )
@@ -224,6 +227,30 @@ async def _ingest_fred(payload: IngestRequest) -> IngestResponse:
     )
 
 
+async def _ingest_eurostat(payload: IngestRequest) -> IngestResponse:
+    """Eurostat path: short-circuit on the dataset slug in eurostat_indicators then fetch.
+
+    The slug is the lower-cased dataset code; if it (or an already-loaded config
+    indicator sharing the same ``dataset``) is present, the fetch is skipped.
+    """
+    if not payload.dataset:
+        raise HTTPException(status_code=400, detail="eurostat requires dataset")
+    dataset = payload.dataset.strip()
+    slug = dataset.lower()
+
+    if _already_present(
+        app.state.session_factory, EurostatIndicator, indicator_id=slug
+    ) or _already_present(app.state.session_factory, EurostatIndicator, dataset=dataset):
+        return IngestResponse(
+            source="eurostat", identifier=slug, rows_inserted=0, status="already_downloaded"
+        )
+
+    rows_inserted = await fetch_and_store_eurostat(dataset, payload.filters, app.state.sql_uri)
+    return IngestResponse(
+        source="eurostat", identifier=slug, rows_inserted=rows_inserted, status="success"
+    )
+
+
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest_data(payload: IngestRequest):
     """Ingest a single unit of data from the requested ``source``.
@@ -244,6 +271,7 @@ async def ingest_data(payload: IngestRequest):
         "yahoo": _ingest_yahoo,
         "binance": _ingest_binance,
         "fred": _ingest_fred,
+        "eurostat": _ingest_eurostat,
     }
     handler = handlers.get(payload.source)
     if handler is None:  # pragma: no cover — guarded by the request validator

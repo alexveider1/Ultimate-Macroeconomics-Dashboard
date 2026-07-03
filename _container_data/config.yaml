@@ -7,6 +7,9 @@ shared:
   yahoo_download_config: _configs/yahoo_download_config.json
   binance_download_config: _configs/binance_download_config.json
   fred_download_config: _configs/fred_download_config.json
+  eurostat_download_config: _configs/eurostat_download_config.json
+  nuts_geojson: _configs/nuts_level2_2021.geojson
+  eurostat_nuts_level: 2
   openai_base_url: https://api.openai.com/v1
   openai_llm_model: gpt-5.4
   openai_llm_model_fast: gpt-5.4-mini

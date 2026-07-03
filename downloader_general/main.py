@@ -7,7 +7,7 @@ that didn't exist at the last bootstrap). After that, run the three
 downloaders (World Bank → news → Yahoo) **once only**, gated by a marker
 file (``.download_completed``) written after a successful run; subsequent
 boots see the marker and skip downloads but still re-apply the bootstrap.
-The downloaders run in order: World Bank → news → Yahoo → Binance → FRED.
+The downloaders run in order: World Bank → news → Yahoo → Binance → FRED → Eurostat.
 """
 
 import logging
@@ -18,6 +18,7 @@ import sys
 from src.config import load_config
 from src.extractors import (
     BinanceDownloader,
+    EurostatDownloader,
     FredDownloader,
     NewsDownloader,
     WorldBankDownloader,
@@ -83,6 +84,9 @@ def main() -> None:
     yahoo_download_config = shared.yahoo_download_config
     binance_download_config = shared.binance_download_config
     fred_download_config = shared.fred_download_config
+    eurostat_download_config = shared.eurostat_download_config
+    nuts_geojson = shared.nuts_geojson
+    eurostat_nuts_level = shared.eurostat_nuts_level
     repo_url = config.downloader_general.repo_url
     openai_base_url = shared.openai_base_url
     openai_embedding_model = shared.openai_embedding_model
@@ -128,7 +132,7 @@ def main() -> None:
         env_file=env_file,
         repo_url=repo_url,
         qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
+        qdrant_port=str(qdrant_port),
         config_path=news_download_config,
         save_path=news_output_dir,
         openai_base_url=openai_base_url,
@@ -174,6 +178,20 @@ def main() -> None:
         db=postgres_db,
     ):
         fred_downloader.run()
+
+    eurostat_downloader = EurostatDownloader(
+        env_path=env_file,
+        geojson_path=nuts_geojson,
+        download_config_path=eurostat_download_config,
+        nuts_level=eurostat_nuts_level,
+        database_schema=database_schema,
+    )
+    if eurostat_downloader._initialize_connections(
+        host=postgres_host,
+        port=postgres_port,
+        db=postgres_db,
+    ):
+        eurostat_downloader.run()
 
     # Mark the one-shot download as completed so future container starts
     # only re-apply the bootstrap and skip the multi-hour ingestion.

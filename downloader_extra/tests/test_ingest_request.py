@@ -40,6 +40,20 @@ def test_fred_requires_series_id():
         IngestRequest(source="fred")
 
 
+def test_eurostat_requires_dataset():
+    ok = IngestRequest(source="eurostat", dataset="nama_10r_2gdp", filters={"unit": "EUR_HAB"})
+    assert ok.dataset == "nama_10r_2gdp"
+    assert ok.filters == {"unit": "EUR_HAB"}
+    with pytest.raises(ValidationError):
+        IngestRequest(source="eurostat")  # missing dataset
+
+
+def test_eurostat_filters_optional():
+    ok = IngestRequest(source="eurostat", dataset="demo_r_pjanaggr3")
+    assert ok.dataset == "demo_r_pjanaggr3"
+    assert ok.filters is None
+
+
 def test_unknown_source_rejected():
     with pytest.raises(ValidationError):
-        IngestRequest.model_validate({"source": "eurostat", "indicator_id": "x", "db_id": 1})
+        IngestRequest.model_validate({"source": "gdelt", "indicator_id": "x", "db_id": 1})

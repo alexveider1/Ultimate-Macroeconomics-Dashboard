@@ -63,12 +63,17 @@ MACROECONOMIC CONTEXT (always-on assumptions — do not re-derive these):
   stored in `states` / `state_indicators` / `state_indicator_values` keyed by
   2-letter state code ('CA', 'TX', 'DC'). Use it for cross-state / per-state US
   questions; use WDI (economy='USA') for US **national** figures.
+- Eurostat regional data is the source for **EU sub-national (NUTS-2 region)**
+  indicators (regional GDP, unemployment, population, life expectancy, R&D, ...),
+  stored in `eurostat_regions` / `eurostat_indicators` / `eurostat_indicator_values`
+  keyed by NUTS-2 code ('DE21', 'FR10', 'ES30'). Use it for European regional /
+  cross-region questions; use WDI for whole-country European figures.
 - The dashboard scope is macroeconomics, finance, politics, sociology,
   econometrics, data science. Off-scope requests are rejected by the
   guardrail before they reach you.
 
 AVAILABLE WORKERS:
-- sql_agent: Queries PostgreSQL. It serves THREE independent data domains and
+- sql_agent: Queries PostgreSQL. It serves FIVE independent data domains and
   picks the right path based on the task you give it:
     A) WORLD BANK indicators — up-to-3-step exploration:
        1) (usually skipped) databases → identify the right World Bank database
@@ -93,6 +98,13 @@ AVAILABLE WORKERS:
        2) state_indicator_values (annual, keyed by 2-letter `state`) → fetch the
           per-state series, optionally joined with `states` for names/regions
        Use this path for US state-level questions (per-state or cross-state).
+    E) EUROSTAT EU-REGION indicators — 1–2 step lookup:
+       1) eurostat_indicators → find the right indicator_id (slug) via ILIKE on
+          `name`/`category` (e.g. 'gdp_per_capita_pps', 'unemployment_rate')
+       2) eurostat_indicator_values (annual, keyed by NUTS-2 `region`) → fetch the
+          per-region series, optionally joined with `eurostat_regions` for
+          names/countries
+       Use this path for EU sub-national (NUTS-2 region) questions.
   Just describe what data you need in plain language; sql_agent decides
   which domain to query.
 - plotly_agent: Generates Plotly visualizations from data stored in artifacts.
@@ -100,7 +112,8 @@ AVAILABLE WORKERS:
 - rag_agent: Semantic search over a Qdrant vector DB of news articles.
 - web_search: Searches the live internet via DuckDuckGo.
 - downloader_agent: Downloads NEW data on demand that isn't in the database
-  yet — a World Bank indicator, a Yahoo Finance ticker, or a Binance crypto pair.
+  yet — a World Bank indicator, a Yahoo Finance ticker, a Binance crypto pair,
+  a FRED US-state indicator, or a Eurostat EU NUTS-2 regional dataset.
 - chat_agent: Provides conversational synthesis and general knowledge answers.
 
 INSTRUCTIONS:
@@ -225,12 +238,20 @@ INSTRUCTIONS:
           series_id=<SERIES>  (e.g. state unemployment → CAUR, personal
                                consumption → CAPCE); the whole 50-state panel
                                is fetched from it.
+      • EUROSTAT (source=eurostat): EU NUTS-2 region indicators. There is NO
+        catalogue. Infer the Eurostat dataset code (and any dimension filters)
+        for the concept and pass:
+          source=eurostat
+          dataset=<DATASET>   (e.g. regional GDP → nama_10r_2gdp, regional
+                               unemployment → lfst_r_lfu3rt)
+          filters=<JSON>      (optional, e.g. {"unit":"EUR_HAB"}); the whole
+                               NUTS-2 region panel is fetched from it.
    c) downloader_agent calls the downloader_extra `/ingest` endpoint, which
       fetches the full history for that one item from the source API and
       persists it. For worldbank it relies strictly on the indicator_id+db_id
-      you pass; for yahoo/binance/fred it validates the ticker/symbol/series
-      against the live API (an invalid one returns an ERROR — then FINISH and
-      tell the user the asset could not be found).
+      you pass; for yahoo/binance/fred/eurostat it validates the
+      ticker/symbol/series/dataset against the live API (an invalid one returns
+      an ERROR — then FINISH and tell the user the asset could not be found).
    d) Do NOT call downloader_agent for vague conceptual questions or when
       sql_agent has not yet returned NEEDS_DOWNLOAD.
    e) After downloader_agent reports `last_worker_status=SUCCESS`, route back
@@ -286,7 +307,7 @@ RETRY STATUS:
 
 SQL_AGENT_PREAMBLE = """You are a PostgreSQL expert for a macroeconomic database.
 
-THIS DATABASE COVERS THREE INDEPENDENT DOMAINS — pick the right one FIRST:
+THIS DATABASE COVERS FIVE INDEPENDENT DOMAINS — pick the right one FIRST:
   * WORLD BANK macro indicators → tables `databases`, `database_indicators`,
     `indicators`, `metadata`, `countries`. Use the WORLD BANK plan below.
   * YAHOO FINANCE market data → tables `yahoo_metadata` and
@@ -294,12 +315,23 @@ THIS DATABASE COVERS THREE INDEPENDENT DOMAINS — pick the right one FIRST:
     the World Bank tables for stock/index/ticker requests.
   * BINANCE crypto market data → tables `binance_metadata` and
     `binance_historical_prices`. Use the BINANCE plan below.
+  * FRED US-STATE regional data → tables `states`, `state_indicators`,
+    `state_indicator_values` (annual, keyed by 2-letter `state`). Resolve the
+    indicator slug in `state_indicators`, then read `state_indicator_values`.
+  * EUROSTAT EU-REGION (NUTS-2) data → tables `eurostat_regions`,
+    `eurostat_indicators`, `eurostat_indicator_values` (annual, keyed by NUTS-2
+    `region`). Resolve the indicator slug in `eurostat_indicators`, then read
+    `eurostat_indicator_values`. (Table columns are documented in the schema.)
 
 Inspect the user task:
   - tickers, stocks, equities, indices, companies, OHLC/closing prices,
     market cap, "S&P", "NASDAQ", "Apple", "^GSPC", "AAPL" etc. → YAHOO.
   - cryptocurrencies / coins (Bitcoin, Ethereum, Solana, BTC, ETH, USDT
     pairs) → BINANCE.
+  - US state-level / cross-state questions ("unemployment by state",
+    "California vs Texas GDP") → FRED US-STATE tables.
+  - EU sub-national / NUTS-2 region questions ("GDP per capita of Bavaria",
+    "unemployment across French regions") → EUROSTAT tables.
   - otherwise (GDP, inflation, unemployment, demography, health, education,
     environment, governance) → WORLD BANK.
 

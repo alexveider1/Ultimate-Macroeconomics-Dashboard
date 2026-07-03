@@ -60,10 +60,18 @@ def test_download_plan_accepts_each_source() -> None:
     fred = DownloadPlan(thought_process="...", source="fred", series_id="CAUR")
     assert fred.series_id == "CAUR" and fred.ticker is None
 
+    eurostat = DownloadPlan(
+        thought_process="...",
+        source="eurostat",
+        dataset="nama_10r_2gdp",
+        filters={"unit": "EUR_HAB"},
+    )
+    assert eurostat.dataset == "nama_10r_2gdp" and eurostat.filters == {"unit": "EUR_HAB"}
+
 
 def test_download_plan_rejects_unknown_source() -> None:
     with pytest.raises(ValidationError):
-        DownloadPlan.model_validate({"thought_process": "...", "source": "eurostat"})
+        DownloadPlan.model_validate({"thought_process": "...", "source": "gdelt"})
 
 
 def test_plotly_code_generation_requires_fields() -> None:

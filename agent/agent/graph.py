@@ -1111,7 +1111,7 @@ RUNTIME STATE (changes per call):
 
 
 class DownloaderAgent:
-    """Worker that on-demand-ingests one unit of data from WB / Yahoo / Binance / FRED."""
+    """Worker that on-demand-ingests one unit of data from WB / Yahoo / Binance / FRED / Eurostat."""
 
     EXTRACT_SYSTEM_PROMPT = (
         "You decide which single unit of data to download on demand and from "
@@ -1133,6 +1133,15 @@ class DownloaderAgent:
         "named (e.g. state unemployment → CAUR, per-capita personal income → "
         "CAPCPI, personal consumption → CAPCE); the whole 50-state + DC panel is "
         "fetched from that one series. Set series_id.\n"
+        "- source='eurostat': EU sub-national (NUTS-2 region) indicators. There is "
+        "NO catalogue, so infer the Eurostat `dataset` code for the concept the "
+        "user named (e.g. regional GDP → nama_10r_2gdp, regional unemployment → "
+        "lfst_r_lfu3rt, regional population → demo_r_pjanaggr3) and, when needed, "
+        "`filters` pinning its extra dimensions to one category "
+        "(e.g. {'unit': 'EUR_HAB'} for GDP per capita, "
+        "{'sex': 'T', 'age': 'Y_GE15', 'unit': 'PC'} for an unemployment rate); the "
+        "whole NUTS-2 region panel is fetched from that dataset. Set dataset (and "
+        "filters if applicable).\n"
         "The supervisor's task states which source to use; output only the "
         "fields for that source."
     )
@@ -1175,6 +1184,14 @@ class DownloaderAgent:
             if not plan.series_id:
                 raise ValueError("fred download needs a series_id")
             return plan.series_id, {"source": "fred", "series_id": plan.series_id}
+        if plan.source == "eurostat":
+            if not plan.dataset:
+                raise ValueError("eurostat download needs a dataset")
+            return plan.dataset, {
+                "source": "eurostat",
+                "dataset": plan.dataset,
+                "filters": plan.filters or {},
+            }
         raise ValueError(f"Unknown download source: {plan.source}")
 
     async def ainvoke(self, state: AgentState) -> dict:

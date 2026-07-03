@@ -21,6 +21,9 @@ class SharedConfig(BaseModel):
     yahoo_download_config: str
     binance_download_config: str
     fred_download_config: str
+    eurostat_download_config: str
+    nuts_geojson: str
+    eurostat_nuts_level: int = 2
     openai_base_url: str
     openai_embedding_model: str
     openai_embedding_model_max_tokens: int

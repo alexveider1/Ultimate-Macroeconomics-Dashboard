@@ -72,7 +72,7 @@ class FredDownloader(BaseFredDownloader):
 
         self.database_schema = database_schema or {}
 
-        self.download_max_retries = 3
+        self.download_max_retries = 5
         self.download_retry_delay_seconds = 5
         # Polite ceiling on parallel FRED API calls; a handful is fine, more starts
         # tripping rate limits.

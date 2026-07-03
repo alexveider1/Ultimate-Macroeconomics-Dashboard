@@ -104,26 +104,26 @@
   // Passwords are prompted, not stored. Values default to _container_data/.env.
   "sqltools.connections": [
     {
-      "name": "macro (read-only LLM role)",
-      "driver": "PostgreSQL",
+      "ssh": "Disabled",
+      "previewLimit": 50,
       "server": "localhost",
       "port": 5432,
-      "database": "postgres",
-      "username": "llm",
       "askForPassword": true,
-      "ssh": "Disabled",
-      "previewLimit": 50
+      "name": "macro",
+      "driver": "PostgreSQL",
+      "database": "macro",
+      "username": "main"
     },
     {
-      "name": "macro (superuser)",
-      "driver": "PostgreSQL",
+      "ssh": "Disabled",
+      "previewLimit": 50,
       "server": "localhost",
       "port": 5432,
-      "database": "postgres",
-      "username": "main",
       "askForPassword": true,
-      "ssh": "Disabled",
-      "previewLimit": 50
+      "name": "macro (read-only LLM role)",
+      "driver": "PostgreSQL",
+      "database": "llm",
+      "username": "llm"
     }
   ]
 }

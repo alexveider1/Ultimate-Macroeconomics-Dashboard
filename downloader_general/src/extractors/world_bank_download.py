@@ -67,7 +67,9 @@ class WorldBankDownloader(BaseWorldBankDownloader):
 
         self.database_schema = database_schema or {}
 
-        self.download_max_retries = 3
+        # Retries use exponential backoff with jitter (see wb_client), so 5
+        # attempts span ~5s → ~60s and reliably ride out WB rate-limit blips.
+        self.download_max_retries = 5
         self.download_retry_delay_seconds = 5
         # Polite ceiling on parallel WB API calls; the API tolerates a handful
         # of concurrent requests but starts rate-limiting beyond that.

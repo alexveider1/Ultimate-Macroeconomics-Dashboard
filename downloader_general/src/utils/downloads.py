@@ -122,15 +122,22 @@ def _call_with_retries(
     request_callable: Callable[[], Optional[object]],
     retry_delay_seconds: float,
     max_retries: int,
+    max_delay: float = 60.0,
 ):
     """Call ``request_callable`` with bounded retry-on-exception.
+
+    The synchronous twin of :func:`wb_client.call_with_retries`: retries use the
+    same exponential backoff with jitter (:func:`wb_client.compute_backoff_delay`)
+    so flaky Yahoo / git / embedding calls back off from an overloaded upstream
+    instead of retrying on a fixed cadence.
 
     Args:
         operation_name: Label used in log messages so failures can be traced.
         request_callable: Zero-arg callable that performs the request.
-        retry_delay_seconds: Sleep between attempts.
+        retry_delay_seconds: Base delay for the first retry; doubles each attempt.
         max_retries: Number of retries *after* the first attempt — total
             attempts will be ``max_retries + 1``.
+        max_delay: Ceiling on the per-attempt backoff delay.
 
     Returns:
         Whatever ``request_callable`` returns on success, or ``None`` if every
@@ -149,15 +156,19 @@ def _call_with_retries(
                     attempt + 1,
                 )
                 return None
+            delay = wb_client.compute_backoff_delay(
+                retry_delay_seconds, attempt, max_delay=max_delay
+            )
             logger.warning(
-                "Retry %d/%d for operation '%s' failed: %s",
+                "Retry %d/%d for operation '%s' failed: %s; retrying in %.1fs",
                 attempt + 1,
                 max_retries,
                 operation_name,
                 exc,
+                delay,
                 exc_info=True,
             )
-            sleep(retry_delay_seconds)
+            sleep(delay)
             attempt += 1
 
 

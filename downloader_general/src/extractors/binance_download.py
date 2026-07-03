@@ -75,7 +75,7 @@ class BinanceDownloader(BaseBinanceDownloader):
         self.database_schema = database_schema or {}
         self.successful_connections = False
 
-        self.download_max_retries = 3
+        self.download_max_retries = 5
         self.download_retry_delay_seconds = 5
 
     def _table_def(self, table_name: str) -> Dict[str, Any]:

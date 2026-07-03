@@ -111,7 +111,7 @@ class NewsDownloader(BaseNewsDownloader):
                 operation_name="github_api_probe",
                 request_callable=lambda: httpx.get(self.github_api_url, timeout=30.0),
                 retry_delay_seconds=5.0,
-                max_retries=3,
+                max_retries=5,
             )
             qdrant_host = str(self.qdrant_host).strip()
             parsed_host = urlparse(qdrant_host)
@@ -393,7 +393,7 @@ class NewsDownloader(BaseNewsDownloader):
             "get_embeddings",
             lambda: self.get_embeddings(texts_to_embed),
             retry_delay_seconds=3,
-            max_retries=3,
+            max_retries=5,
         )
 
         if not embeddings:

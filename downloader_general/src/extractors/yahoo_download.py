@@ -60,7 +60,9 @@ class YahooDownloader(BaseYahooDownloader):
 
         self.successful_connections = False
 
-        self.download_max_retries = 3
+        # Yahoo throttles bursts hard (curl-28 timeouts); exponential backoff
+        # with jitter across 5 attempts spaces retries out so they recover.
+        self.download_max_retries = 5
         self.download_retry_delay_seconds = 5
         # yfinance is per-ticker synchronous; a small pool gives a clear win
         # without overwhelming the Yahoo endpoint.

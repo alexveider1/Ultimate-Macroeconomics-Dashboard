@@ -20,6 +20,7 @@ kept (``skipBlanks=False`` parity).
 import asyncio
 import json
 import logging
+import random
 from typing import Any, Optional
 
 import httpx
@@ -30,7 +31,45 @@ WB_API_BASE = "https://api.worldbank.org/v2"
 # WB starts rate-limiting beyond a few thousand records per page; 1000 keeps the
 # page count low without tripping it.
 _PER_PAGE = 1000
-DEFAULT_TIMEOUT = 30.0
+# A generous read timeout (the WB API can be slow to first-byte under load) with
+# a tighter connect budget so a dead socket fails fast instead of hanging.
+DEFAULT_TIMEOUT = httpx.Timeout(60.0, connect=15.0)
+# Page-level retry budget for a single paginated GET inside :func:`_fetch_list`.
+# This is the primary resilience layer for the World Bank API's habit of
+# answering a mid-pagination page with a transient ``400``/timeout under load;
+# retrying just the failed page keeps the pages already fetched.
+_PAGE_MAX_RETRIES = 5
+_PAGE_RETRY_BASE_DELAY = 2.0
+
+
+def compute_backoff_delay(
+    base_delay: float,
+    attempt: int,
+    *,
+    max_delay: float = 60.0,
+    jitter: float = 0.5,
+) -> float:
+    """Exponential-backoff sleep (seconds) for a 0-based retry ``attempt``.
+
+    The nominal delay doubles each attempt (``base_delay * 2**attempt``) capped
+    at ``max_delay``, with up to ``jitter`` fraction of random extra time added.
+    The jitter matters: it decorrelates concurrent retriers (the 4–6 parallel WB
+    indicator / Yahoo ticker workers) so they don't reconverge on the API in
+    lockstep — synchronised retries are what provoke the rate-limit ``400``s and
+    ``curl (28)`` timeouts in the first place.
+
+    Args:
+        base_delay: Delay for the first retry (``attempt == 0``).
+        attempt: Zero-based retry index.
+        max_delay: Ceiling on the nominal (pre-jitter) delay.
+        jitter: Maximum extra delay as a fraction of the nominal delay.
+
+    Returns:
+        Seconds to sleep before the next attempt.
+    """
+    nominal = min(base_delay * (2**attempt), max_delay)
+    return nominal + random.uniform(0.0, nominal * jitter)
+
 
 # Set of aggregate ISO3 codes ("World", regions, income groups…), cached for the
 # lifetime of the process so we only hit /country once.
@@ -45,6 +84,53 @@ def build_async_client() -> httpx.AsyncClient:
         limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
         headers={"Accept": "application/json"},
     )
+
+
+async def _get_with_page_retries(
+    client: httpx.AsyncClient,
+    url: str,
+    params: dict[str, Any],
+) -> httpx.Response:
+    """GET one page, retrying transient failures with exponential backoff.
+
+    The World Bank API intermittently answers a mid-pagination page with a
+    ``400``/``5xx`` or drops the connection (read timeout) when under load;
+    retrying just this page — rather than restarting the whole multi-page
+    indicator — preserves the pages already fetched and rides out the blip.
+
+    Args:
+        client: Shared async HTTP client.
+        url: Absolute request URL.
+        params: Query parameters for this page.
+
+    Returns:
+        The successful ``httpx.Response``.
+
+    Raises:
+        The last exception if every attempt failed (so the outer
+        :func:`call_with_retries` can still take over as a final backstop).
+    """
+    attempt = 0
+    while True:
+        try:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            return resp
+        except Exception as exc:
+            if attempt >= _PAGE_MAX_RETRIES:
+                raise
+            delay = compute_backoff_delay(_PAGE_RETRY_BASE_DELAY, attempt)
+            logger.warning(
+                "WB page GET failed (%s, page=%s), retry %d/%d in %.1fs: %s",
+                url,
+                params.get("page"),
+                attempt + 1,
+                _PAGE_MAX_RETRIES,
+                delay,
+                exc,
+            )
+            await asyncio.sleep(delay)
+            attempt += 1
 
 
 async def _fetch_list(
@@ -69,8 +155,7 @@ async def _fetch_list(
     records: list[dict[str, Any]] = []
     while True:
         query["page"] = page
-        resp = await client.get(f"{WB_API_BASE}/{path}", params=query)
-        resp.raise_for_status()
+        resp = await _get_with_page_retries(client, f"{WB_API_BASE}/{path}", query)
         try:
             payload = resp.json()
         except (json.JSONDecodeError, ValueError):
@@ -298,15 +383,22 @@ async def call_with_retries(
     request_coro_factory,
     retry_delay_seconds: float,
     max_retries: int,
+    *,
+    max_delay: float = 60.0,
 ):
     """Await ``request_coro_factory()`` with bounded retry-on-exception.
+
+    Retries use exponential backoff with jitter (:func:`compute_backoff_delay`)
+    rather than a fixed pause, so successive attempts back off from a rate-limited
+    or overloaded upstream instead of hammering it on a fixed cadence.
 
     Args:
         operation_name: Label used in log messages so failures can be traced.
         request_coro_factory: Zero-arg callable returning a fresh coroutine on
             each attempt.
-        retry_delay_seconds: Sleep between attempts.
+        retry_delay_seconds: Base delay for the first retry; doubles each attempt.
         max_retries: Retries *after* the first attempt (total = ``max_retries + 1``).
+        max_delay: Ceiling on the per-attempt backoff delay.
 
     Returns:
         The coroutine's result on success, or ``None`` if every attempt raised.
@@ -323,13 +415,15 @@ async def call_with_retries(
                     attempt + 1,
                 )
                 return None
+            delay = compute_backoff_delay(retry_delay_seconds, attempt, max_delay=max_delay)
             logger.warning(
-                "Retry %d/%d for operation '%s' failed: %s",
+                "Retry %d/%d for operation '%s' failed: %s; retrying in %.1fs",
                 attempt + 1,
                 max_retries,
                 operation_name,
                 exc,
+                delay,
                 exc_info=True,
             )
-            await asyncio.sleep(retry_delay_seconds)
+            await asyncio.sleep(delay)
             attempt += 1

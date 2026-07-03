@@ -77,7 +77,7 @@ class EurostatDownloader(BaseEurostatDownloader):
         self.database_schema = database_schema or {}
         self._region_ids: set[str] = set()
 
-        self.download_max_retries = 3
+        self.download_max_retries = 5
         self.download_retry_delay_seconds = 5
         # Eurostat tolerates a handful of parallel requests fine.
         self.max_parallel_indicators = 4

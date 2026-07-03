@@ -254,3 +254,43 @@ def test_call_with_retries_gives_up_returns_none():
         )
     )
     assert result is None
+
+
+def test_compute_backoff_delay_grows_and_caps():
+    # Zero base -> always zero (keeps retry unit tests fast).
+    assert wb_client.compute_backoff_delay(0.0, 0) == 0.0
+    assert wb_client.compute_backoff_delay(0.0, 5) == 0.0
+    # Nominal doubles each attempt; jitter only ever adds time, never subtracts.
+    for attempt in range(6):
+        nominal = min(2.0 * (2**attempt), 60.0)
+        delay = wb_client.compute_backoff_delay(2.0, attempt, max_delay=60.0, jitter=0.5)
+        assert nominal <= delay <= nominal * 1.5
+    # The nominal term is capped at max_delay regardless of attempt.
+    assert wb_client.compute_backoff_delay(2.0, 20, max_delay=60.0, jitter=0.0) == 60.0
+
+
+def test_fetch_list_retries_transient_page_failure(monkeypatch):
+    # No real sleeping between page retries.
+    monkeypatch.setattr(wb_client, "_PAGE_RETRY_BASE_DELAY", 0.0)
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        # First two hits on page 1 return the WB rate-limit 400, then succeed.
+        if calls["n"] < 3:
+            return httpx.Response(400, text="Bad Request")
+        return httpx.Response(200, json=[{"page": 1, "pages": 1}, [{"id": "a"}]])
+
+    records = _run(handler, lambda c: wb_client._fetch_list(c, "source"))
+    assert [r["id"] for r in records] == ["a"]
+    assert calls["n"] == 3
+
+
+def test_fetch_list_gives_up_after_page_retries_exhausted(monkeypatch):
+    monkeypatch.setattr(wb_client, "_PAGE_RETRY_BASE_DELAY", 0.0)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text="Bad Request")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        _run(handler, lambda c: wb_client._fetch_list(c, "source"))

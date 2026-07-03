@@ -245,6 +245,24 @@ def write_polars_to_table(
     if df.is_empty():
         return
     cast_df = cast_dataframe_to_schema(df, table_def)
+
+    # Some upstream APIs return the same primary key more than once (e.g. the
+    # World Bank ``/indicator?source=2`` catalogue lists the 12 WGI series
+    # twice). Appending those verbatim trips the table's PK UNIQUE constraint,
+    # so drop duplicate keys here — Postgres would reject them anyway.
+    pk_cols = [c for c in (table_def.get("primary_key") or []) if c in cast_df.columns]
+    if pk_cols:
+        before = cast_df.height
+        cast_df = cast_df.unique(subset=pk_cols, keep="first", maintain_order=True)
+        dropped = before - cast_df.height
+        if dropped:
+            logger.warning(
+                "Dropped %d duplicate primary-key row(s) before writing to '%s' (PK=%s)",
+                dropped,
+                table_name,
+                pk_cols,
+            )
+
     cast_df.write_database(
         table_name,
         connection=sql_uri,

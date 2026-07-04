@@ -1,0 +1,28 @@
+# rclone remote configuration for cloud backups — EXAMPLE.
+#
+# Copy this file to `rclone.conf` in the same directory and edit it, OR generate
+# it interactively with `rclone config` and point that remote here. The backup
+# service bind-mounts `_container_data/backup/rclone.conf` read-only into the
+# container and passes it via `--config`. The remote *name* below (the value in
+# [brackets]) must match `backup.rclone_remote` in `_container_data/config.yaml`.
+#
+# `rclone.conf` holds cloud credentials, so it is gitignored — never commit it.
+# rclone supports 70+ backends; three common examples follow (keep only one).
+
+# --- Amazon S3 (or any S3-compatible store: MinIO, Backblaze B2 via S3, etc.) ---
+[s3remote]
+type = s3
+provider = AWS
+access_key_id = YOUR_ACCESS_KEY
+secret_access_key = YOUR_SECRET_KEY
+region = eu-central-1
+
+# --- Backblaze B2 (native) ---
+# [b2remote]
+# type = b2
+# account = YOUR_B2_ACCOUNT_ID
+# key = YOUR_B2_APPLICATION_KEY
+
+# --- Local/mounted path (handy for testing: set rclone_remote: localremote) ---
+# [localremote]
+# type = local

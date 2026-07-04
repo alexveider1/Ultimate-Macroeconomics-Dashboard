@@ -141,9 +141,11 @@ All sources **extend the existing downloaders**: new modules under `downloader_g
 - Provision Grafana dashboards + datasources (service health, latency, traces, logs, container stats) as code.
 - **Remove** `app/core/monitoring.py`, `app/pages/18_monitoring.py`, and the read-only `/var/run/docker.sock` bind-mount from the `app` service — the bespoke health/Docker-socket probing is replaced by the standard stack.
 
-**#8 — rclone backups**
-- New scheduled `backup` service (cron-style). Each run: `pg_dump` the Postgres DB + call the Qdrant snapshot API (`POST /collections/{c}/snapshots`), then `rclone copy` both artifacts to a remote configured via secrets (`rclone.conf` mounted). Retention prune (keep N daily / M weekly).
-- Commit a **restore script** + documented restore procedure.
+**#8 — rclone backups** — ✅ **SHIPPED.**
+- New `backup/` service — a long-running **Python** scheduler (simple `interval_minutes` loop, `run_on_start`, SIGTERM-aware; no OS cron). Each run: `pg_dump -Fc` the Postgres DB + take a **full-storage** Qdrant snapshot (`POST /snapshots` → download → `DELETE`), then `rclone copy` both artifacts to the configured remote and prune the remote `--min-age <retention_days>d`.
+- **Off by default** (`backup.enabled: false` in `config.yaml`); when disabled the container logs + idles (no restart-loop under `restart: unless-stopped`). Cloud creds stay out of `config.yaml` — they live in a gitignored `_container_data/backup/rclone.conf` (`.example` committed); the container reuses the existing `POSTGRES_*` + `QDRANT__SERVICE__API_KEY` env, so **no new `.env` vars**.
+- Committed **`restore.py`**: automates `pg_restore --clean --if-exists` and downloads + documents the Qdrant full-snapshot recovery (a live-instance full-snapshot restore needs a boot-time `--storage-snapshot`, so it's a documented manual step).
+- Image adds `postgresql-client-18` (PGDG apt, matches the server major) + `rclone` (multi-stage `COPY --from=rclone/rclone`). Chose **full-storage** over per-collection snapshots (single artifact) and **interval** over cron (matches the Python-everywhere convention).
 
 **Touchpoints:** `docker-compose.yaml` (otel-collector/loki/tempo/prometheus/grafana/cadvisor/postgres_exporter/backup services), each service's `main.py` (`/metrics`), new `monitoring/` (Grafana + collector provisioning) and `backup/` dirs, secrets for the rclone remote, `config.yaml`.
 **Risks:** consistent snapshots (snapshot Qdrant and dump Postgres close in time); rclone remote secret handling (via Phase-1 Docker secrets).

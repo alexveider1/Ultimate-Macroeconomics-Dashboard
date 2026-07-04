@@ -33,6 +33,8 @@ services:
     host_sync_dir: _container_data/python_sandbox
   clustering:
     host_sync_dir: _container_data/clustering
+  backup:
+    host_sync_dir: _container_data/backup
 postgres:
   host: db
   port: 5432
@@ -57,3 +59,14 @@ downloader_extra:
   port: 8003
 python_sandbox:
   port: 8004
+backup:
+  # Cloud backups are OFF until you set enabled: true AND provide an rclone
+  # remote (rclone_remote below + _container_data/backup/rclone.conf).
+  enabled: false
+  interval_minutes: 60
+  run_on_start: true
+  rclone_remote: "" # name of a remote in rclone.conf, e.g. "s3remote"; empty = uploads skipped
+  rclone_path: macro-backups # destination dir/bucket path under the remote
+  rclone_config_path: _container_data/rclone.conf # container path; host: _container_data/backup/rclone.conf
+  retention_days: 7 # prune remote backups older than this (negative = keep forever)
+  staging_dir: _container_data/staging

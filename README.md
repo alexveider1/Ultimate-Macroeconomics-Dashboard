@@ -154,6 +154,58 @@ To add more World Bank indicators to the dashboard, append them to `_container_d
 
 `downloader_general` will pick the new entries up on the next clean boot. Already-running stacks can fetch new indicators on demand via the AI analyst (which delegates to `downloader_extra`).
 
+## Cloud backups
+
+The optional `backup` service periodically dumps Postgres and snapshots Qdrant, then uploads both to any [rclone](https://rclone.org/)-supported cloud (S3, Backblaze B2, Google Drive, …). It is **off by default** and turned on entirely through `config.yaml`.
+
+**Enable it:**
+
+1. Create the rclone remote. Copy the example and edit it, or generate one interactively:
+
+   ```bash
+   cp _container_data/backup/rclone.conf.example _container_data/backup/rclone.conf
+   # or, interactively (writes the same file):
+   rclone config --config _container_data/backup/rclone.conf
+   ```
+
+   `rclone.conf` holds cloud credentials and is gitignored — never commit it.
+
+2. Edit the `backup:` block in `_container_data/config.yaml`:
+
+   ```yaml
+   backup:
+     enabled: true                # master on/off switch
+     interval_minutes: 60         # how often to back up
+     run_on_start: true           # also back up immediately on container start
+     rclone_remote: "s3remote"    # must match a [remote] name in rclone.conf
+     rclone_path: macro-backups   # destination dir/bucket under that remote
+     retention_days: 7            # prune remote backups older than N days (negative = keep forever)
+   ```
+
+3. Start (or restart) the service:
+
+   ```bash
+   docker compose up -d --build backup
+   docker compose logs -f backup
+   ```
+
+Each run writes `postgres/<db>_<timestamp>.dump` (a `pg_dump` custom-format archive) and `qdrant/<name>.snapshot` (a full-storage Qdrant snapshot) under the remote path, then prunes anything older than `retention_days`. To **turn backups off**, set `enabled: false` and restart — the container stays up but idles, taking no backups.
+
+**Restore** (run inside the service so it has `rclone` + `pg_restore` + the mounted config):
+
+```bash
+# list what's on the remote
+docker compose run --rm backup python restore.py --list
+
+# restore a Postgres dump (overwrites the target DB)
+docker compose run --rm backup python restore.py --postgres macro_2026-07-04T12-00-00Z.dump
+
+# download a Qdrant snapshot and print its (restart-based) recovery steps
+docker compose run --rm backup python restore.py --qdrant full-snapshot-....snapshot
+```
+
+Postgres restore is automated (`pg_restore --clean --if-exists`); a full Qdrant snapshot is recovered into storage at Qdrant startup, so `restore.py` downloads it and prints the exact steps.
+
 ## Disclaimer
 
 All data is sourced from third-party providers and presented as-is. The author makes no representations about its accuracy or completeness.

@@ -63,6 +63,14 @@ test*/
 /_container_data/downloader_general/news
 /_container_data/downloader_general/.download_completed
 
+# Cloud backups: rclone remote secrets + local staging/restore artifacts
+# (rclone.conf.example IS committed; the real rclone.conf holds credentials)
+/_container_data/backup/rclone.conf
+/_container_data/backup/staging/
+/_container_data/backup/restore/
+*.dump
+*.snapshot
+
 # Logs
 logs/
 *.log

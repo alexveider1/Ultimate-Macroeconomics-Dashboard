@@ -212,6 +212,26 @@ services:
       retries: 10
       start_period: 20s
 
+  backup:
+    build:
+      context: backup
+      dockerfile: Dockerfile
+    container_name: backup
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      vector_db:
+        condition: service_healthy
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/backup:/app/_container_data
+
   app:
     build:
       context: app

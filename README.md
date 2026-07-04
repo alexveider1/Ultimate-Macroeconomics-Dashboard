@@ -23,7 +23,7 @@ Technical stack (not exhaustive):
 
 [`Ultimate Macroeconomics Dashboard`](https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard) is an AI-powered macroeconomic analytics tool: a Streamlit dashboard backed by Postgres + Qdrant, plus FastAPI services for an AI analyst, forecasting, clustering, on-demand data ingestion, and a Python sandbox. **70+** World Bank indicators, **30 000+** news articles, **50+** Yahoo Finance tickers, **150+** prebuilt charts.
 
-The full stack consists of 9 `Docker` containers — `db`, `vector_db`, `downloader_general`, `app`, `agent`, `forecaster`, `clustering`, `downloader_extra`, and `python_sandbox`. The project follows a strict micro-service design, with each container responsible for one capability:
+The full stack consists of 10 `Docker` containers — `db`, `vector_db`, `downloader_general`, `app`, `agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, and `bff` (plus the optional `backup` service described below). The project follows a strict micro-service design, with each container responsible for one capability:
 
 * `db` — relational database (`PostgreSQL`) for tabular data from `World Bank Data API` and `Yahoo Finance`.
 * `vector_db` — vector database (`Qdrant`) for news article embeddings sourced from the `Webz.io` open dataset.
@@ -34,6 +34,7 @@ The full stack consists of 9 `Docker` containers — `db`, `vector_db`, `downloa
 * `clustering` — `FastAPI` micro-service for unsupervised clustering (KMeans, DBSCAN).
 * `downloader_extra` — `FastAPI` micro-service that downloads additional World Bank indicators on demand.
 * `python_sandbox` — `FastAPI` sandbox that executes LLM-generated code in an isolated environment.
+* `bff` — read-only `FastAPI` backend-for-frontend: typed JSON reads of the macro data, Qdrant news search, and proxies to the forecaster / clustering / agent services (for a future JS frontend; the Streamlit app does not use it yet).
 
 ## Quick start
 

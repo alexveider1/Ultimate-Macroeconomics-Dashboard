@@ -1,0 +1,53 @@
+[project]
+name = "umd-bff"
+version = "0.1.0"
+description = "Read-only FastAPI backend-for-frontend over the macro data + services."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.135.2",
+    "uvicorn==0.42.0",
+    "httpx==0.28.1",
+    "sqlalchemy==2.0.48",
+    "psycopg2-binary==2.9.11",
+    "qdrant-client==1.17.0",
+    "openai==2.30.0",
+    "pydantic==2.12.5",
+    "pydantic-settings==2.14.2",
+    "pyyaml==6.0.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.14",
+    "ty>=0.0.39",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "testcontainers[postgres]>=4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers --cov --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["."]
+branch = true
+omit = ["tests/*", ".venv/*", "**/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

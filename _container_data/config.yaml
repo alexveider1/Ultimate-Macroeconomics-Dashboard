@@ -33,6 +33,8 @@ services:
     host_sync_dir: _container_data/python_sandbox
   clustering:
     host_sync_dir: _container_data/clustering
+  bff:
+    host_sync_dir: _container_data/bff
   backup:
     host_sync_dir: _container_data/backup
 postgres:
@@ -59,6 +61,10 @@ downloader_extra:
   port: 8003
 python_sandbox:
   port: 8004
+bff:
+  # Read-only backend-for-frontend. Additive: the Streamlit app still reads
+  # Postgres directly via connectorx until the Phase-6 frontend cutover.
+  port: 8005
 backup:
   # Cloud backups are OFF until you set enabled: true AND provide an rclone
   # remote (rclone_remote below + _container_data/backup/rclone.conf).

@@ -224,6 +224,39 @@ services:
       retries: 10
       start_period: 20s
 
+  bff:
+    build:
+      context: bff
+      dockerfile: Dockerfile
+    container_name: bff
+    restart: unless-stopped
+    # Read-only backend-for-frontend: the read-only LLM Postgres role (never the
+    # superuser) + Qdrant key + OpenAI key (news-query embeddings only).
+    environment:
+      POSTGRES_LLM_USER: ${POSTGRES_LLM_USER}
+      POSTGRES_LLM_PASSWORD: ${POSTGRES_LLM_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    ports:
+      - 8005:8005
+    depends_on:
+      db:
+        condition: service_healthy
+      vector_db:
+        condition: service_healthy
+      downloader_general:
+        condition: service_healthy
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/bff:/app/_container_data
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8005/health', timeout=3).status == 200 else 1)" ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   backup:
     build:
       context: backup

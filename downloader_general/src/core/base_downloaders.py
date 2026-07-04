@@ -179,6 +179,34 @@ class BaseEurostatDownloader(ABC):
         pass
 
 
+class BaseActuallyRelevantDownloader(ABC):
+    """Abstract contract for the Actually Relevant curated-news downloader."""
+
+    @abstractmethod
+    def _initialize_connections(self) -> bool:
+        """Test whether the Actually Relevant API, OpenAI and Qdrant are reachable"""
+        pass
+
+    @abstractmethod
+    def run(self) -> None:
+        """Fetch every story, bucket by macro-topic, embed and upload to Qdrant"""
+        pass
+
+
+class BaseWorldBankArticlesDownloader(ABC):
+    """Abstract contract for the World Bank documents (WDS) downloader."""
+
+    @abstractmethod
+    def _initialize_connections(self) -> bool:
+        """Test whether the World Bank WDS API, OpenAI and Qdrant are reachable"""
+        pass
+
+    @abstractmethod
+    def run(self) -> None:
+        """Per query fetch top-N docs, chunk their text, embed and upload to Qdrant"""
+        pass
+
+
 class BaseBinanceDownloader(ABC):
     """Abstract contract for any Binance crypto downloader implementation."""
 

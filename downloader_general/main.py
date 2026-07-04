@@ -7,7 +7,8 @@ that didn't exist at the last bootstrap). After that, run the three
 downloaders (World Bank → news → Yahoo) **once only**, gated by a marker
 file (``.download_completed``) written after a successful run; subsequent
 boots see the marker and skip downloads but still re-apply the bootstrap.
-The downloaders run in order: World Bank → news → Yahoo → Binance → FRED → Eurostat.
+The downloaders run in order: World Bank → news → Yahoo → Binance → FRED →
+Eurostat → Actually Relevant → World Bank articles.
 """
 
 import logging
@@ -17,10 +18,12 @@ import sys
 
 from src.config import load_config
 from src.extractors import (
+    ActuallyRelevantDownloader,
     BinanceDownloader,
     EurostatDownloader,
     FredDownloader,
     NewsDownloader,
+    WorldBankArticlesDownloader,
     WorldBankDownloader,
     YahooDownloader,
 )
@@ -85,6 +88,8 @@ def main() -> None:
     binance_download_config = shared.binance_download_config
     fred_download_config = shared.fred_download_config
     eurostat_download_config = shared.eurostat_download_config
+    actually_relevant_download_config = shared.actually_relevant_download_config
+    world_bank_articles_download_config = shared.world_bank_articles_download_config
     nuts_geojson = shared.nuts_geojson
     eurostat_nuts_level = shared.eurostat_nuts_level
     repo_url = config.downloader_general.repo_url
@@ -192,6 +197,32 @@ def main() -> None:
         db=postgres_db,
     ):
         eurostat_downloader.run()
+
+    actually_relevant_downloader = ActuallyRelevantDownloader(
+        env_file=env_file,
+        download_config_path=actually_relevant_download_config,
+        qdrant_host=qdrant_host,
+        qdrant_port=str(qdrant_port),
+        openai_base_url=openai_base_url,
+        openai_embedding_model=openai_embedding_model,
+        openai_token_limit=openai_embedding_model_max_tokens,
+        openai_model_dimensions=openai_model_dimensions,
+    )
+    if actually_relevant_downloader._initialize_connections():
+        actually_relevant_downloader.run()
+
+    world_bank_articles_downloader = WorldBankArticlesDownloader(
+        env_file=env_file,
+        download_config_path=world_bank_articles_download_config,
+        qdrant_host=qdrant_host,
+        qdrant_port=str(qdrant_port),
+        openai_base_url=openai_base_url,
+        openai_embedding_model=openai_embedding_model,
+        openai_token_limit=openai_embedding_model_max_tokens,
+        openai_model_dimensions=openai_model_dimensions,
+    )
+    if world_bank_articles_downloader._initialize_connections():
+        world_bank_articles_downloader.run()
 
     # Mark the one-shot download as completed so future container starts
     # only re-apply the bootstrap and skip the multi-hour ingestion.

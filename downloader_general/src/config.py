@@ -22,6 +22,8 @@ class SharedConfig(BaseModel):
     binance_download_config: str
     fred_download_config: str
     eurostat_download_config: str
+    actually_relevant_download_config: str
+    world_bank_articles_download_config: str
     nuts_geojson: str
     eurostat_nuts_level: int = 2
     openai_base_url: str

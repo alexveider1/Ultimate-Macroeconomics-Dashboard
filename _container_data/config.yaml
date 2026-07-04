@@ -8,6 +8,8 @@ shared:
   binance_download_config: _configs/binance_download_config.json
   fred_download_config: _configs/fred_download_config.json
   eurostat_download_config: _configs/eurostat_download_config.json
+  actually_relevant_download_config: _configs/actually_relevant_download_config.json
+  world_bank_articles_download_config: _configs/world_bank_articles_download_config.json
   nuts_geojson: _configs/nuts_level2_2021.geojson
   eurostat_nuts_level: 2
   openai_base_url: https://api.openai.com/v1

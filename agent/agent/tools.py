@@ -305,6 +305,12 @@ async def _get_embedding(text_input: str) -> List[float]:
     return response.data[0].embedding
 
 
+# Curated sources ingested by ``downloader_general`` under their own per-topic
+# collection names (they don't follow the ``{topic}_{sentiment}`` convention), so
+# a topic/sentiment filter would otherwise skip them. They are always searched.
+ALWAYS_SEARCH_COLLECTION_PREFIXES = ("actually_relevant_", "world_bank_")
+
+
 def _sync_qdrant_search(
     query_embedding: List[float],
     topic_filter: str | None,
@@ -342,6 +348,12 @@ def _sync_qdrant_search(
         target_collections = [c for c in all_collections if c.endswith(f"_{sentiment_filter}")]
     else:
         target_collections = all_collections
+
+    # Always fold in the curated per-topic sources (Actually Relevant, World Bank
+    # documents); irrelevant collections just return low scores and drop out of
+    # the merged top_k ranking below.
+    always_on = [c for c in all_collections if c.startswith(ALWAYS_SEARCH_COLLECTION_PREFIXES)]
+    target_collections = list(dict.fromkeys([*target_collections, *always_on]))
 
     if not target_collections:
         return {"articles": [], "message": "No matching collections found."}

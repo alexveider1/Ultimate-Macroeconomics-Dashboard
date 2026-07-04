@@ -49,3 +49,28 @@ def test_missing_repo_url_raises() -> None:
     bad = {k: v for k, v in VALID.items() if k != "downloader_general"}
     with pytest.raises(ValidationError):
         DownloaderGeneralConfig.model_validate(bad)
+
+
+def test_scheduler_defaults_when_absent() -> None:
+    cfg = DownloaderGeneralConfig.model_validate(VALID)
+    assert cfg.scheduler.enabled is True
+    assert cfg.scheduler.run_on_start is False
+    assert cfg.scheduler.sources == {}
+
+
+def test_scheduler_block_parses() -> None:
+    with_scheduler = {
+        **VALID,
+        "scheduler": {
+            "enabled": True,
+            "run_on_start": False,
+            "sources": {
+                "yahoo": {"enabled": True, "interval_minutes": 1440},
+                "fred": {"enabled": False, "interval_minutes": 10080},
+            },
+        },
+    }
+    cfg = DownloaderGeneralConfig.model_validate(with_scheduler)
+    assert cfg.scheduler.sources["yahoo"].enabled is True
+    assert cfg.scheduler.sources["yahoo"].interval_minutes == 1440
+    assert cfg.scheduler.sources["fred"].enabled is False

@@ -70,3 +70,18 @@ backup:
   rclone_config_path: _container_data/rclone.conf # container path; host: _container_data/backup/rclone.conf
   retention_days: 7 # prune remote backups older than this (negative = keep forever)
   staging_dir: _container_data/staging
+scheduler:
+  # After the one-shot initial ingest, downloader_general stays alive and
+  # refreshes each source on its OWN interval, appending only data newer than
+  # what's already stored (incremental — never a full drop+recreate re-ingest).
+  enabled: true # master switch for the whole scheduler
+  run_on_start: false # false = wait one interval before the first update (the initial ingest just ran)
+  sources:
+    world_bank: { enabled: true, interval_minutes: 10080 } # weekly (annual data)
+    yahoo: { enabled: true, interval_minutes: 1440 } # daily
+    binance: { enabled: true, interval_minutes: 1440 } # daily
+    fred: { enabled: true, interval_minutes: 10080 } # weekly
+    eurostat: { enabled: true, interval_minutes: 10080 } # weekly
+    news: { enabled: true, interval_minutes: 1440 } # daily (GitHub Webhose repo)
+    actually_relevant: { enabled: true, interval_minutes: 720 } # twice daily
+    world_bank_articles: { enabled: true, interval_minutes: 10080 } # weekly

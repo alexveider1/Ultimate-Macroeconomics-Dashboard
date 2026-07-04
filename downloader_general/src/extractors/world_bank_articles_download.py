@@ -273,3 +273,51 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
         self.upload_collections(parsed)
         if self._client is not None:
             self._client.close()
+
+    def update(self) -> None:
+        """Incrementally ingest only documents not already embedded (dedup by doc id).
+
+        Per query re-runs the WDS search, keeps only documents whose ``id`` is not
+        already in the collection (``article.doc_id``), fetches + chunks only those,
+        and upserts the new chunks (no ``recreate``).
+        """
+        parsed: dict[str, list[dict[str, Any]]] = {}
+        for item in log_progress(
+            self.queries, label="World Bank query-topics (update)", total=len(self.queries)
+        ):
+            query = item["query"]
+            collection = item["collection"]
+            records = _call_with_retries(
+                f"wds.search({query})",
+                lambda q=query: search(
+                    self._require_client(),
+                    qterm=q,
+                    rows=self.rows_per_query,
+                    base_url=self.base_url,
+                    doc_types=self.doc_types or None,
+                    lang=self.lang,
+                    from_year=self.from_year,
+                ),
+                retry_delay_seconds=5,
+                max_retries=5,
+            )
+            if not records:
+                logger.warning("No WDS documents for query %r", query)
+                parsed[collection] = []
+                continue
+
+            docs = dedup_with_text(records)
+            existing_doc_ids = self._existing_payload_values(collection, "article.doc_id")
+            new_docs = [doc for doc in docs if str(doc.get("id")) not in existing_doc_ids]
+            entries = self._build_entries_for_docs(new_docs, query, collection)
+            parsed[collection] = entries
+            logger.info(
+                "World Bank %s incremental: %d new docs -> %d chunks",
+                collection,
+                len(new_docs),
+                len(entries),
+            )
+
+        self.upsert_collections(parsed)
+        if self._client is not None:
+            self._client.close()

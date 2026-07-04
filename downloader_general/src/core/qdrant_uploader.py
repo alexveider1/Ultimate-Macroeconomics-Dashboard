@@ -16,6 +16,7 @@ page and the agent RAG worker read the new collections with no changes.
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from time import sleep
+from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 import warnings
@@ -28,6 +29,73 @@ from src.settings import Settings
 from src.utils.downloads import _call_with_retries, log_progress
 
 logger = logging.getLogger(__name__)
+
+
+def _walk_payload(payload: dict | None, field_path: str) -> Any:
+    """Descend a (possibly nested) payload by a dotted ``field_path``.
+
+    ``"archive_name"`` reads a top-level key; ``"article.id"`` descends into the
+    nested ``article`` dict. Returns ``None`` if any segment is missing.
+    """
+    node: Any = payload or {}
+    for segment in field_path.split("."):
+        if not isinstance(node, dict):
+            return None
+        node = node.get(segment)
+    return node
+
+
+def existing_payload_values(client: QdrantClient, collection: str, field_path: str) -> set[str]:
+    """Return the set of distinct payload values at ``field_path`` in a collection.
+
+    Scrolls the whole collection (payload-only, no vectors) and collects the value
+    at ``field_path`` from every point — the dedup key an incremental update uses
+    to skip documents already ingested. Returns an empty set when the collection
+    does not exist yet.
+
+    Args:
+        client: Connected Qdrant client.
+        collection: Collection name to scan.
+        field_path: Dotted payload path of the dedup key (e.g. ``"article.id"``).
+    """
+    if not client.collection_exists(collection):
+        return set()
+
+    top_key = field_path.split(".")[0]
+    values: set[str] = set()
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=collection,
+            limit=1000,
+            with_payload=[top_key],
+            with_vectors=False,
+            offset=offset,
+        )
+        for point in points:
+            value = _walk_payload(point.payload, field_path)
+            if value not in (None, ""):
+                values.add(str(value))
+        if offset is None:
+            break
+    return values
+
+
+def ensure_collection(client: QdrantClient, collection: str, dimensions: int) -> None:
+    """Create ``collection`` with the cosine ``dimensions`` space only if absent.
+
+    Unlike ``recreate_collection`` this never drops an existing collection, so an
+    incremental update appends to it rather than wiping the prior points.
+    """
+    if not client.collection_exists(collection):
+        client.create_collection(
+            collection_name=collection,
+            vectors_config=models.VectorParams(
+                size=dimensions,
+                distance=models.Distance.COSINE,
+            ),
+            on_disk_payload=True,
+        )
 
 
 class QdrantEmbeddingUploaderMixin:
@@ -189,6 +257,52 @@ class QdrantEmbeddingUploaderMixin:
             for meta, vector in zip(batch_metadata, embeddings)
         ]
 
+    def _existing_payload_values(self, collection: str, field_path: str) -> set[str]:
+        """Distinct dedup-key values already in ``collection`` (see module helper)."""
+        return existing_payload_values(self.qdrant_client, collection, field_path)
+
+    def ensure_collection(self, collection: str) -> None:
+        """Create ``collection`` (cosine, ``openai_model_dimensions``) if it's absent."""
+        ensure_collection(self.qdrant_client, collection, self.openai_model_dimensions)
+
+    def _embed_and_upsert(self, collection_name: str, metadata_entries: list[dict]) -> None:
+        """Embed ``metadata_entries`` in concurrent batches and upsert them.
+
+        Shared by :meth:`upload_collections` (which recreates first) and
+        :meth:`upsert_collections` (which only ensures the collection exists), so
+        the batching / retry / progress-logging path is defined once.
+        """
+        batch_starts = list(range(0, len(metadata_entries), self.batch_size))
+        with ThreadPoolExecutor(max_workers=self.max_parallel_embed_batches) as executor:
+            futures = {
+                executor.submit(
+                    self._embed_batch,
+                    collection_name,
+                    batch_start,
+                    metadata_entries[batch_start : batch_start + self.batch_size],
+                ): batch_start
+                for batch_start in batch_starts
+            }
+            for future in log_progress(
+                as_completed(futures),
+                label=f"Embedding and Uploading: {collection_name}",
+                total=len(futures),
+            ):
+                batch_start = futures[future]
+                try:
+                    points = future.result()
+                except Exception:
+                    logger.exception(
+                        "Embedding batch failed (collection=%s, batch_start=%s)",
+                        collection_name,
+                        batch_start,
+                    )
+                    continue
+                if points:
+                    self.qdrant_client.upsert(collection_name=collection_name, points=points)
+
+        sleep(self.download_retry_delay_seconds)
+
     def upload_collections(self, parsed_metadata: dict[str, list[dict]]) -> None:
         """Recreate each collection then embed + upsert its entries in batches.
 
@@ -211,34 +325,19 @@ class QdrantEmbeddingUploaderMixin:
                 ),
                 on_disk_payload=True,
             )
+            self._embed_and_upsert(collection_name, metadata_entries)
 
-            batch_starts = list(range(0, len(metadata_entries), self.batch_size))
-            with ThreadPoolExecutor(max_workers=self.max_parallel_embed_batches) as executor:
-                futures = {
-                    executor.submit(
-                        self._embed_batch,
-                        collection_name,
-                        batch_start,
-                        metadata_entries[batch_start : batch_start + self.batch_size],
-                    ): batch_start
-                    for batch_start in batch_starts
-                }
-                for future in log_progress(
-                    as_completed(futures),
-                    label=f"Embedding and Uploading: {collection_name}",
-                    total=len(futures),
-                ):
-                    batch_start = futures[future]
-                    try:
-                        points = future.result()
-                    except Exception:
-                        logger.exception(
-                            "Embedding batch failed (collection=%s, batch_start=%s)",
-                            collection_name,
-                            batch_start,
-                        )
-                        continue
-                    if points:
-                        self.qdrant_client.upsert(collection_name=collection_name, points=points)
+    def upsert_collections(self, parsed_metadata: dict[str, list[dict]]) -> None:
+        """Append new entries to each collection **without** dropping it.
 
-            sleep(self.download_retry_delay_seconds)
+        The incremental counterpart of :meth:`upload_collections`: each collection
+        is created only if absent (:meth:`ensure_collection`) and the entries —
+        which the caller has already filtered down to documents not yet present —
+        are embedded and upserted. Collections with no new entries are skipped.
+        """
+        for collection_name, metadata_entries in parsed_metadata.items():
+            if not metadata_entries:
+                logger.info("No new entries for collection %s; skipping", collection_name)
+                continue
+            self.ensure_collection(collection_name)
+            self._embed_and_upsert(collection_name, metadata_entries)

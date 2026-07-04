@@ -233,3 +233,27 @@ class ActuallyRelevantDownloader(QdrantEmbeddingUploaderMixin, BaseActuallyRelev
         self.upload_collections(parsed)
         if self._client is not None:
             self._client.close()
+
+    def update(self) -> None:
+        """Incrementally embed only stories not already present (dedup by story id).
+
+        Fetches the current story feed, buckets it by macro topic as usual, then
+        keeps only stories whose ``article.id`` is not already in the collection and
+        upserts them (no ``recreate``).
+        """
+        macro_map = build_macro_map(self._issues)
+        stories = self._fetch_all_stories()
+        parsed = self._build_metadata(stories, macro_map)
+
+        filtered: dict[str, list[dict[str, Any]]] = {}
+        for collection, entries in parsed.items():
+            existing_ids = self._existing_payload_values(collection, "article.id")
+            filtered[collection] = [
+                entry for entry in entries if str(entry["article"].get("id")) not in existing_ids
+            ]
+        total_new = sum(len(entries) for entries in filtered.values())
+        logger.info("Actually Relevant incremental: %d new stories to embed", total_new)
+
+        self.upsert_collections(filtered)
+        if self._client is not None:
+            self._client.close()

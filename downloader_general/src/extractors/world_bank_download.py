@@ -27,6 +27,7 @@ from src.utils.downloads import (
     _test_world_bank_api,
     log_progress,
 )
+from src.utils.incremental import group_max
 from src.utils.schema import (
     bootstrap_schema_group,
     get_table_definition,
@@ -324,6 +325,98 @@ class WorldBankDownloader(BaseWorldBankDownloader):
                 ):
                     await coro
                 logger.info("Finished downloads for World Bank database (db_id=%s)", db_id)
+
+    async def _update_indicator(
+        self, client: httpx.AsyncClient, indicator_id: str, db: int, last_year: int
+    ) -> None:
+        """Append observations for years strictly after ``last_year`` for one indicator."""
+        data_records = await wb_client.call_with_retries(
+            operation_name=f"data.fetch(indicator_id={indicator_id}, db={db})",
+            request_coro_factory=lambda: wb_client.fetch_indicator_data(client, indicator_id, db),
+            max_retries=self.download_max_retries,
+            retry_delay_seconds=self.download_retry_delay_seconds,
+        )
+        if data_records is None:
+            return
+        df = _polars_from_world_bank_records(data_records)
+        if df.is_empty():
+            return
+        df = (
+            df.select(
+                pl.col("economy").alias("economy"),
+                pl.col("time").alias("year"),
+                pl.col("value"),
+            )
+            .with_columns(
+                pl.lit(indicator_id).alias("indicator_id"),
+                pl.lit(db).alias("db_id"),
+                pl.col("time").cast(pl.Int64, strict=False).alias("year"),
+            )
+            .drop_nulls(subset=["economy", "year"])
+            .unique(subset=["economy", "year", "indicator_id", "db_id"], keep="last")
+            .filter(pl.col("year") > last_year)
+        )
+        if df.is_empty():
+            return
+        await asyncio.to_thread(
+            write_polars_to_table,
+            df,
+            self._require_sql_uri(),
+            self.indicators_table_name,
+            self._table_def(self.indicators_table_name),
+        )
+        logger.info(
+            "World Bank incremental: appended %d rows for indicator_id=%s (db=%s, year>%s)",
+            df.height,
+            indicator_id,
+            db,
+            last_year,
+        )
+
+    async def _update_async(self, maxima: dict[tuple, int]) -> None:
+        semaphore = asyncio.Semaphore(self.max_parallel_indicators)
+        async with wb_client.build_async_client() as client:
+
+            async def _bounded(indicator_id: str, db: int, last_year: int) -> None:
+                async with semaphore:
+                    try:
+                        await self._update_indicator(client, indicator_id, db, last_year)
+                    except Exception:
+                        logger.exception(
+                            "World Bank incremental update failed (indicator_id=%s, db=%s)",
+                            indicator_id,
+                            db,
+                        )
+
+            tasks = [
+                asyncio.create_task(_bounded(indicator_id, db, last_year))
+                for (indicator_id, db), last_year in maxima.items()
+            ]
+            for coro in log_progress(
+                asyncio.as_completed(tasks),
+                label="Updating World Bank indicators",
+                total=len(tasks),
+            ):
+                await coro
+
+    def update(self) -> None:
+        """Incrementally refresh every already-stored indicator (append new years).
+
+        Reads each ``(indicator_id, db_id)``'s latest stored year from
+        ``indicators`` and appends only later years. Falls back to a full
+        :meth:`run` when the table doesn't exist yet or is empty.
+        """
+        if self.sql_uri is None:
+            logger.warning("World Bank update skipped: SQL connection not initialised")
+            return
+        maxima = group_max(
+            self._require_sql_uri(), self.indicators_table_name, ["indicator_id", "db_id"], "year"
+        )
+        if not maxima:
+            logger.info("World Bank: no existing indicator data; running full ingest")
+            self.run()
+            return
+        asyncio.run(self._update_async(maxima))
 
     def run(self) -> None:
         asyncio.run(self._run_async())

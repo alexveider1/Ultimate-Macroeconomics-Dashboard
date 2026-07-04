@@ -53,6 +53,28 @@ class DownloaderGeneralSection(BaseModel):
     repo_url: str
 
 
+class SchedulerSourceConfig(BaseModel):
+    """Per-source scheduling knobs (``enabled`` + its own ``interval_minutes``)."""
+
+    enabled: bool = True
+    interval_minutes: float = 10080.0  # weekly by default
+
+
+class SchedulerConfig(BaseModel):
+    """The ``scheduler`` block driving the post-ingest incremental updater.
+
+    ``enabled`` is the master switch. When on, ``downloader_general`` stays alive
+    after the initial ingest and refreshes each source in ``sources`` on its own
+    interval (append-only). ``run_on_start`` false waits one interval before a
+    source's first update (the initial ingest just populated everything). An
+    empty/omitted ``sources`` map disables the scheduler in practice.
+    """
+
+    enabled: bool = True
+    run_on_start: bool = False
+    sources: dict[str, SchedulerSourceConfig] = {}
+
+
 class DownloaderGeneralConfig(BaseModel):
     """The portion of ``config.yaml`` the ingestion job reads."""
 
@@ -60,6 +82,7 @@ class DownloaderGeneralConfig(BaseModel):
     postgres: PostgresConfig = PostgresConfig()
     qdrant: QdrantConfig = QdrantConfig()
     downloader_general: DownloaderGeneralSection
+    scheduler: SchedulerConfig = SchedulerConfig()
 
 
 def load_config(path: Path) -> DownloaderGeneralConfig:

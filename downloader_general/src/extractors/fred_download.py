@@ -29,6 +29,7 @@ from src.core.base_downloaders import BaseFredDownloader
 from src.settings import load_settings
 from src.utils import fred_client
 from src.utils.downloads import _download_config, _get_sql_config, _test_sql, log_progress
+from src.utils.incremental import group_max, read_rows
 from src.utils.schema import (
     bootstrap_schema_group,
     get_table_definition,
@@ -298,6 +299,134 @@ class FredDownloader(BaseFredDownloader):
             ):
                 await coro
         logger.info("Finished download of all FRED state indicators")
+
+    async def _update_indicator(
+        self, client: httpx.AsyncClient, slug: str, series_id: str, last_year: int
+    ) -> None:
+        """Append state-year rows for years strictly after ``last_year`` (values only).
+
+        The description row already exists (its PK is ``indicator_id``), so an
+        incremental refresh only writes to ``state_indicator_values``.
+        """
+        group = await fred_client.call_with_retries(
+            operation_name=f"series.group({series_id})",
+            request_coro_factory=lambda: fred_client.fetch_series_group(client, series_id),
+            max_retries=self.download_max_retries,
+            retry_delay_seconds=self.download_retry_delay_seconds,
+        )
+        if group is None:
+            logger.warning(
+                "Skipping FRED update: unresolvable series group (id=%s, series=%s)",
+                slug,
+                series_id,
+            )
+            return
+
+        panel = await fred_client.call_with_retries(
+            operation_name=f"regional.data({slug})",
+            request_coro_factory=lambda: fred_client.fetch_regional_panel(
+                client,
+                series_group=group["series_group"],
+                region_type=group["region_type"],
+                start_date=group["min_date"],
+                end_date=group["max_date"],
+                units=group["units"],
+                season=group.get("season", "NSA"),
+            ),
+            max_retries=self.download_max_retries,
+            retry_delay_seconds=self.download_retry_delay_seconds,
+        )
+        if panel is None:
+            return
+        rows, _ = fred_client.parse_regional_panel(panel)
+        if not rows:
+            return
+
+        df_values = (
+            pl.DataFrame(rows)
+            .with_columns(
+                pl.lit(slug).alias("indicator_id"),
+                pl.col("year").cast(pl.Int64, strict=False).alias("year"),
+            )
+            .drop_nulls(subset=["state", "year"])
+            .unique(subset=["state", "year", "indicator_id"], keep="last", maintain_order=True)
+            .filter(pl.col("year") > last_year)
+        )
+        if df_values.is_empty():
+            return
+        await asyncio.to_thread(
+            write_polars_to_table,
+            df_values,
+            self._require_sql_uri(),
+            self.values_table_name,
+            self._table_def(self.values_table_name),
+        )
+        logger.info(
+            "FRED incremental: appended %d state-year rows for id=%s (year>%s)",
+            df_values.height,
+            slug,
+            last_year,
+        )
+
+    async def _update_async(self, maxima: dict[tuple, int], series_by_id: dict[str, str]) -> None:
+        semaphore = asyncio.Semaphore(self.max_parallel_indicators)
+        async with fred_client.build_async_client(self.fred_api_key) as client:
+
+            async def _bounded(slug: str, series_id: str, last_year: int) -> None:
+                async with semaphore:
+                    try:
+                        await self._update_indicator(client, slug, series_id, last_year)
+                    except Exception:
+                        logger.exception("FRED incremental update failed (id=%s)", slug)
+
+            tasks = []
+            for (slug,), last_year in maxima.items():
+                series_id = series_by_id.get(slug)
+                if not series_id:
+                    logger.warning(
+                        "Skipping FRED update for %s: no example_series_id in catalogue", slug
+                    )
+                    continue
+                tasks.append(asyncio.create_task(_bounded(slug, series_id, last_year)))
+            for coro in log_progress(
+                asyncio.as_completed(tasks),
+                label="Updating FRED state indicators",
+                total=len(tasks),
+            ):
+                await coro
+
+    def update(self) -> None:
+        """Incrementally refresh every already-stored indicator (append new years).
+
+        Reads each indicator's latest year from ``state_indicator_values`` and its
+        representative series id from ``state_indicators``, then appends only later
+        years. Falls back to a full :meth:`run` when the value table doesn't exist
+        yet or is empty.
+        """
+        if self.sql_uri is None:
+            logger.warning("FRED update skipped: SQL connection not initialised")
+            return
+        if not self.fred_api_key:
+            logger.warning("FRED update skipped: no FRED_API_KEY configured")
+            return
+        maxima = group_max(
+            self._require_sql_uri(), self.values_table_name, ["indicator_id"], "year"
+        )
+        if not maxima:
+            logger.info("FRED: no existing indicator values; running full ingest")
+            self.run()
+            return
+        catalog = read_rows(
+            self._require_sql_uri(),
+            self.indicators_table_name,
+            ["indicator_id", "example_series_id"],
+        )
+        series_by_id = {
+            row["indicator_id"]: row["example_series_id"]
+            for row in (catalog or [])
+            if row.get("example_series_id")
+        }
+        asyncio.run(self._update_async(maxima, series_by_id))
 
     def run(self) -> None:
         asyncio.run(self._run_async())

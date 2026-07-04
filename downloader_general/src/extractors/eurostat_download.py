@@ -31,6 +31,7 @@ from src.core.base_downloaders import BaseEurostatDownloader
 from src.settings import load_settings
 from src.utils import eurostat_client
 from src.utils.downloads import _download_config, _get_sql_config, _test_sql, log_progress
+from src.utils.incremental import group_max, read_rows
 from src.utils.schema import (
     bootstrap_schema_group,
     get_table_definition,
@@ -281,6 +282,128 @@ class EurostatDownloader(BaseEurostatDownloader):
             ):
                 await coro
         logger.info("Finished download of all Eurostat region indicators")
+
+    async def _update_indicator(
+        self,
+        client: httpx.AsyncClient,
+        slug: str,
+        dataset: str,
+        filters: Dict[str, str],
+        last_year: int,
+    ) -> None:
+        """Append region-year rows for years strictly after ``last_year`` (values only).
+
+        The description row already exists (PK ``indicator_id``), so an incremental
+        refresh only writes to ``eurostat_indicator_values``.
+        """
+        payload = await eurostat_client.call_with_retries(
+            operation_name=f"eurostat.data({dataset})",
+            request_coro_factory=lambda: eurostat_client.fetch_dataset(
+                client, dataset, geo_level=f"nuts{self.nuts_level}", filters=filters
+            ),
+            max_retries=self.download_max_retries,
+            retry_delay_seconds=self.download_retry_delay_seconds,
+        )
+        if not payload:
+            return
+        rows, _ = eurostat_client.parse_jsonstat(payload, level=self.nuts_level)
+        rows = [r for r in rows if r["region"] in self._region_ids]
+        if not rows:
+            return
+
+        df_values = (
+            pl.DataFrame(rows)
+            .with_columns(
+                pl.lit(slug).alias("indicator_id"),
+                pl.col("year").cast(pl.Int64, strict=False).alias("year"),
+            )
+            .drop_nulls(subset=["region", "year"])
+            .unique(subset=["region", "year", "indicator_id"], keep="last", maintain_order=True)
+            .filter(pl.col("year") > last_year)
+        )
+        if df_values.is_empty():
+            return
+        await asyncio.to_thread(
+            write_polars_to_table,
+            df_values,
+            self._require_sql_uri(),
+            self.values_table_name,
+            self._table_def(self.values_table_name),
+        )
+        logger.info(
+            "Eurostat incremental: appended %d region-year rows for id=%s (year>%s)",
+            df_values.height,
+            slug,
+            last_year,
+        )
+
+    async def _update_async(
+        self, maxima: dict[tuple, int], meta_by_id: dict[str, tuple[str, Dict[str, str]]]
+    ) -> None:
+        semaphore = asyncio.Semaphore(self.max_parallel_indicators)
+        async with eurostat_client.build_async_client() as client:
+
+            async def _bounded(
+                slug: str, dataset: str, filters: Dict[str, str], last_year: int
+            ) -> None:
+                async with semaphore:
+                    try:
+                        await self._update_indicator(client, slug, dataset, filters, last_year)
+                    except Exception:
+                        logger.exception("Eurostat incremental update failed (id=%s)", slug)
+
+            tasks = []
+            for (slug,), last_year in maxima.items():
+                dataset, filters = meta_by_id.get(slug, ("", {}))
+                if not dataset:
+                    logger.warning("Skipping Eurostat update for %s: no dataset in catalogue", slug)
+                    continue
+                tasks.append(asyncio.create_task(_bounded(slug, dataset, filters, last_year)))
+            for coro in log_progress(
+                asyncio.as_completed(tasks),
+                label="Updating Eurostat region indicators",
+                total=len(tasks),
+            ):
+                await coro
+
+    def update(self) -> None:
+        """Incrementally refresh every already-stored indicator (append new years).
+
+        Reads each indicator's latest year from ``eurostat_indicator_values`` and
+        its ``dataset`` + ``filters`` from ``eurostat_indicators``, then appends only
+        later years. Falls back to a full :meth:`run` when the value table doesn't
+        exist yet or is empty.
+        """
+        if self.sql_uri is None:
+            logger.warning("Eurostat update skipped: SQL connection not initialised")
+            return
+        maxima = group_max(
+            self._require_sql_uri(), self.values_table_name, ["indicator_id"], "year"
+        )
+        if not maxima:
+            logger.info("Eurostat: no existing indicator values; running full ingest")
+            self.run()
+            return
+
+        catalog = read_rows(
+            self._require_sql_uri(),
+            self.indicators_table_name,
+            ["indicator_id", "dataset", "filters"],
+        )
+        meta_by_id: dict[str, tuple[str, Dict[str, str]]] = {}
+        for row in catalog or []:
+            try:
+                filters = json.loads(row.get("filters") or "{}")
+            except (json.JSONDecodeError, TypeError):
+                filters = {}
+            meta_by_id[row["indicator_id"]] = (row.get("dataset") or "", filters)
+
+        # The region catalogue already exists in Postgres; reload the id set from
+        # the bundled GeoJSON (cheap) so the value filter matches the map polygons.
+        records = eurostat_client.regions_from_geojson(self.geojson_path, level=self.nuts_level)
+        self._region_ids = {rec["id"] for rec in records}
+
+        asyncio.run(self._update_async(maxima, meta_by_id))
 
     def run(self) -> None:
         asyncio.run(self._run_async())

@@ -9,6 +9,7 @@ under a semaphore. No API key is required (public market-data endpoints only).
 """
 
 import asyncio
+from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -24,6 +25,7 @@ from src.utils.downloads import (
     _test_sql,
     log_progress,
 )
+from src.utils.incremental import group_max
 from src.utils.schema import (
     bootstrap_schema_group,
     get_table_definition,
@@ -31,6 +33,11 @@ from src.utils.schema import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Binance candle open times are stored as naive UTC datetimes measured from this
+# epoch (see binance_client._ms_to_naive_utc); reuse it to turn a stored max date
+# back into the epoch-millisecond ``startTime`` for an incremental klines fetch.
+_EPOCH = datetime(1970, 1, 1)
 
 
 def _is_leveraged_token(base_asset: str) -> bool:
@@ -246,3 +253,83 @@ class BinanceDownloader(BaseBinanceDownloader):
     def run(self) -> None:
         bootstrap_schema_group(self.sql_uri, self.database_schema, self.SCHEMA_GROUP)
         asyncio.run(self._run_async())
+
+    async def _update_symbol(
+        self, client, symbol: str, base_asset: str, last_date: datetime
+    ) -> None:
+        """Append candles strictly after ``last_date`` for one already-stored symbol."""
+        start_ms = int((last_date + timedelta(days=1) - _EPOCH).total_seconds() * 1000)
+        rows = await wb_client.call_with_retries(
+            operation_name=f"binance.klines(symbol={symbol}, start={start_ms})",
+            request_coro_factory=lambda: binance_client.fetch_klines(
+                client, symbol, interval=self.kline_interval, start_time=start_ms
+            ),
+            max_retries=self.download_max_retries,
+            retry_delay_seconds=self.download_retry_delay_seconds,
+        )
+        if not rows:
+            return
+        df = (
+            pl.DataFrame(rows)
+            .with_columns(
+                pl.lit(symbol).alias("symbol"),
+                pl.lit(base_asset).alias("base_asset"),
+            )
+            .filter(pl.col("date") > pl.lit(last_date))
+        )
+        if df.is_empty():
+            return
+        await asyncio.to_thread(
+            write_polars_to_table,
+            df,
+            self.sql_uri,
+            self.historical_data_table_name,
+            self._table_def(self.historical_data_table_name),
+        )
+        logger.info("Binance incremental: appended %d new rows for %s", df.height, symbol)
+
+    async def _update_async(self, maxima: Dict[tuple, datetime]) -> None:
+        async with binance_client.build_async_client(self.base_url) as client:
+            if not await binance_client.healthcheck(client):
+                logger.warning("Binance API healthcheck failed; skipping update")
+                return
+
+            semaphore = asyncio.Semaphore(self.max_parallel_symbols)
+
+            async def _bounded(symbol: str, base_asset: str, last_date: datetime) -> None:
+                async with semaphore:
+                    await self._update_symbol(client, symbol, base_asset, last_date)
+
+            tasks = [
+                asyncio.create_task(_bounded(symbol, base_asset, last_date))
+                for (symbol, base_asset), last_date in maxima.items()
+            ]
+            for future in log_progress(
+                asyncio.as_completed(tasks),
+                label="Updating Binance history",
+                total=len(tasks),
+            ):
+                try:
+                    await future
+                except Exception:
+                    logger.exception("Binance incremental update failed for a symbol")
+
+    def update(self) -> None:
+        """Incrementally refresh every already-stored symbol (append-only).
+
+        Reads each symbol's latest stored candle date from
+        ``binance_historical_prices`` and appends only newer candles (does **not**
+        re-rank the top-N universe — that needs a clean boot). Falls back to a full
+        :meth:`run` when the price table doesn't exist yet or is empty.
+        """
+        if self.sql_uri is None:
+            logger.warning("Binance update skipped: SQL connection not initialised")
+            return
+        maxima = group_max(
+            self.sql_uri, self.historical_data_table_name, ["symbol", "base_asset"], "date"
+        )
+        if not maxima:
+            logger.info("Binance: no existing price history; running full ingest")
+            self.run()
+            return
+        asyncio.run(self._update_async(maxima))

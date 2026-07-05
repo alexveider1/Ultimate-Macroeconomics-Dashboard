@@ -1,29 +1,15 @@
 [project]
 name = "umd-clustering"
-version = "0.8.0"
-description = "FastAPI service exposing tabular clustering (KMeans, DBSCAN, Mean-Shift, HDBSCAN, Spectral, Hierarchical) with 2D/3D projection (t-SNE, PCA, UMAP, Kernel PCA)."
+version = "0.9.0"
+description = "FastAPI adapter forwarding clustering requests to the Triton Inference Server."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "annotated-types==0.7.0",
-    "anyio==4.13.0",
-    "click==8.3.1",
-    "colorama==0.4.6",
     "fastapi==0.135.2",
-    "h11==0.16.0",
-    "idna==3.11",
-    "joblib==1.5.3",
-    "numpy==2.4.3",
-    "pydantic==2.12.5",
-    "pydantic-core==2.41.5",
-    "pyyaml==6.0.3",
-    "scikit-learn==1.8.0",
-    "scipy==1.17.1",
-    "starlette==1.0.0",
-    "threadpoolctl==3.6.0",
-    "typing-extensions==4.15.0",
-    "typing-inspection==0.4.2",
-    "umap-learn==0.5.12",
     "uvicorn==0.42.0",
+    "pydantic==2.12.5",
+    "pyyaml==6.0.3",
+    "numpy==2.4.3",
+    "tritonclient[grpc]>=2.44.0",
 ]
 
 [build-system]

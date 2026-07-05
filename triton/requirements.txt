@@ -1,0 +1,29 @@
+# Inference dependencies installed into the Triton container's Python (the
+# python-backend stub interpreter). This is NOT a uv-managed service — Triton is
+# NVIDIA's C++ server image, so deps are pip-installed on top of it rather than
+# locked with uv. Versions are intentionally light on pins: RAPIDS cuML/cuDF
+# constrain numpy/pandas tightly, so the classical-forecasting libs are left to
+# resolve against whatever the GPU stack pins (freeze after a known-good build).
+
+# --- RAPIDS GPU stack (KMeans/DBSCAN/PCA/t-SNE/UMAP); pins numpy/pandas ---
+--extra-index-url https://pypi.nvidia.com
+cuml-cu12==25.02.*
+cudf-cu12==25.02.*
+
+# --- Deep learning: Amazon Chronos (Torch/T5) + GPU XGBoost ---
+chronos-forecasting
+xgboost
+
+# --- Classical forecasting (CPU python backend) ---
+statsmodels
+pmdarima
+prophet
+
+# --- Clustering / dim-reduction CPU fallback (sklearn, umap-learn) ---
+scikit-learn
+umap-learn
+
+# --- Shared helpers used by the ported inference code ---
+scipy
+polars
+pyyaml

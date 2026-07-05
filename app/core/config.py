@@ -33,6 +33,13 @@ class PortConfig(BaseModel):
     port: int
 
 
+class TritonConfig(BaseModel):
+    """The ``triton`` block — only the HTTP port is probed by the Monitoring page."""
+
+    host: str = "triton"
+    http_port: int = 8000
+
+
 class AppConfig(BaseModel):
     """The portion of ``config.yaml`` the dashboard reads."""
 
@@ -44,6 +51,7 @@ class AppConfig(BaseModel):
     clustering: PortConfig = PortConfig(port=8002)
     downloader_extra: PortConfig = PortConfig(port=8003)
     python_sandbox: PortConfig = PortConfig(port=8004)
+    triton: TritonConfig = TritonConfig()
 
 
 def load_config(path: Path) -> AppConfig:

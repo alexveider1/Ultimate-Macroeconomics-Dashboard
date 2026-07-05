@@ -94,6 +94,7 @@ def _http_targets() -> list[tuple[str, str]]:
         ("agent", f"http://agent:{cfg.agent.port}/health"),
         ("forecaster", f"http://forecaster:{cfg.forecaster.port}/health"),
         ("clustering", f"http://clustering:{cfg.clustering.port}/health"),
+        ("triton", f"http://{cfg.triton.host}:{cfg.triton.http_port}/v2/health/ready"),
         ("downloader_extra", f"http://downloader_extra:{cfg.downloader_extra.port}/health"),
         ("python_sandbox", f"http://python_sandbox:{cfg.python_sandbox.port}/health"),
         ("app", f"http://app:{cfg.app.port}/_stcore/health"),

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-`Ultimate Macroeconomics Dashboard` is an 11-container Docker stack: a Streamlit multi-page dashboard backed by Postgres + Qdrant, with FastAPI micro-services for the AI analyst, forecasting, clustering, on-demand data ingestion, a sandboxed Python executor, and a read-only backend-for-frontend (BFF). Read `README.md` for the full description; the sections below cover only what isn't obvious from the code.
+`Ultimate Macroeconomics Dashboard` is a 12-container Docker stack: a Streamlit multi-page dashboard backed by Postgres + Qdrant, with FastAPI micro-services for the AI analyst, forecasting, clustering, on-demand data ingestion, a sandboxed Python executor, and a read-only backend-for-frontend (BFF), plus an NVIDIA Triton Inference Server that hosts all forecasting/clustering model inference (GPU where possible, CPU python backend otherwise). Read `README.md` for the full description; the sections below cover only what isn't obvious from the code.
 
 Planning docs: `TODO.md` is the flat, actionable backlog; the detailed phased roadmap (rationale, sequencing, per-phase touchpoints, locked "Guiding decisions") lives in `.claude/roadmap.md` (the former root-level `PLAN.md`).
 
@@ -39,7 +39,7 @@ First boot requires `_container_data/.env` (copy from `_container_data/.env.exam
 
 The bootstrap step runs on **every** `downloader_general` container start (cheap, idempotent), so rotating `POSTGRES_LLM_PASSWORD` or adding new tables in a future release takes effect on the next `docker compose up -d downloader_general` without wiping volumes. Only the **initial** bulk download is one-shot, gated by `_container_data/downloader_general/.download_completed`. After that marker is written the container **does not exit** — it stays up running a per-source incremental update scheduler (see the `scheduler:` block in `config.yaml` and the "Data ingestion" section). Because the container is now long-running, its Compose `depends_on` gate flipped from `service_completed_successfully` to `service_healthy` (the healthcheck just tests for the marker file), and `restart:` is `unless-stopped`.
 
-If the host has no NVIDIA GPU, remove the `deploy:` block from the `forecaster` service in `docker-compose.yaml` (the `chronos` model will be skipped; every other model — `auto_arima`, manual `arima`, `sarima`, `prophet`, `moving_average`, `xgboost` — runs CPU-only).
+A working NVIDIA GPU + the NVIDIA Container Toolkit are **required**: all model inference runs inside the `triton` service, which reserves the GPU via its `deploy:` block in `docker-compose.yaml`. Chronos + XGBoost run on CUDA, clustering/dim-reduction on RAPIDS cuML, and the CPU-only models (ARIMA family, Prophet, moving-average) run on Triton's python CPU backend. There is no CPU-only fallback build — the `forecaster`/`clustering` containers are now GPU-free adapters, and the GPU reservation lives on `triton` alone.
 
 ## Architecture
 
@@ -52,8 +52,9 @@ If the host has no NVIDIA GPU, remove the `deploy:` block from the `forecaster` 
 | `downloader_general` | —    | Initial one-shot ingest (bootstraps LLM role, ingests WB + Yahoo + Binance + FRED + Eurostat + news), **then long-running**: a per-source incremental update scheduler keeps both DBs fresh |
 | `app`                | 8501 | Streamlit dashboard (entry point: `app/app.py`)                                                                       |
 | `agent`              | 8000 | FastAPI — LangGraph multi-agent AI analyst                                                                            |
-| `forecaster`         | 8001 | FastAPI — forecasting (ARIMA family, Prophet, Chronos, MA, XGBoost)                                                   |
-| `clustering`         | 8002 | FastAPI — KMeans / DBSCAN                                                                                             |
+| `forecaster`         | 8001 | FastAPI — thin adapter; forwards forecasting requests (ARIMA family, Prophet, Chronos, MA, XGBoost) to `triton` over gRPC |
+| `clustering`         | 8002 | FastAPI — thin adapter; forwards clustering requests (KMeans / DBSCAN / …) to `triton` over gRPC                       |
+| `triton`             | —    | NVIDIA Triton Inference Server — hosts every forecasting + clustering model (python backend; CUDA + cuML where supported, else CPU). Internal-only ports |
 | `downloader_extra`   | 8003 | FastAPI — on-demand WB indicator / Yahoo ticker / Binance pair / FRED state-indicator / Eurostat NUTS-2 dataset ingestion (called by the agent) |
 | `python_sandbox`     | 8004 | FastAPI — isolated executor for LLM-generated Plotly/Polars code                                                      |
 | `bff`                | 8005 | FastAPI — read-only backend-for-frontend: typed ORM reads + Qdrant news search + forecaster/clustering/agent proxies  |
@@ -124,23 +125,29 @@ Per-LLM-call token accounting is attached via `UsageTracker` (`agent/agent/usage
 
 External backend calls (sandbox, downloader_extra) use one shared `httpx.AsyncClient` from `agent.tools._get_httpx_client()` (closed in the FastAPI shutdown hook); the rendered database-schema text is `functools.lru_cache`d so it isn't re-serialised on every SQL step.
 
-### `forecaster`
+### Triton Inference Server (`triton`)
 
-`forecaster/main.py` exposes a single `POST /predict` endpoint backed by seven model wrappers under `forecaster/forecasters/`:
+**All** forecasting + clustering model inference lives here, in one container built from `triton/` (`FROM nvcr.io/nvidia/tritonserver:*-py3`). It is **not** a uv-managed service — Triton is NVIDIA's C++ server image, so its runtime deps are pip-installed from `triton/requirements.txt` (torch/chronos, GPU xgboost, RAPIDS cuML/cuDF, statsmodels/pmdarima/prophet, sklearn/umap) rather than locked with uv. GPU is **required**; there is no CPU-only build.
 
-| model id         | wrapper                          | notes                                                            |
-| ---------------- | -------------------------------- | ---------------------------------------------------------------- |
-| `auto_arima`     | `AutoArimaForecaster` (pmdarima) | non-seasonal `pmdarima.auto_arima`; refits per request           |
-| `arima`          | `ArimaForecaster` (statsmodels)  | manual `(p, d, q)` from `model_params`                           |
-| `sarima`         | `SarimaForecaster` (SARIMAX)     | manual `(p, d, q)` + `(P, D, Q, s)`; relaxed stationarity checks |
-| `prophet`        | `ProphetForecaster`              | Facebook Prophet; `interval_width = 1 - alpha`                   |
-| `chronos`        | `ChronosForecaster`              | Amazon Chronos T5 sample-based; preloaded at startup             |
-| `moving_average` | `MovingAverageForecaster`        | flat-mean baseline; residual sd × √horizon CI                    |
-| `xgboost`        | `XgboostForecaster`              | lag + rolling features, recursive multi-step                     |
+Layout:
 
-Per-model hyperparameters travel in a single `model_params: dict[str, Any]` field on `ForecastRequest`; each wrapper's `predict` signature pulls the keys it needs by name (`p`/`d`/`q`, `window`, `lags`, …) and `**kwargs` swallows the rest. Adding a new model means: new file under `forecaster/forecasters/`, lazy-import branch in `_get_forecaster`, the id added to the `ModelType` literal in `forecaster/schemas.py`, the GraphBox UI in `app/core/plotting.py` (model dropdown option + a branch in `_render_model_param_inputs`), and a smoke test in `forecaster/tests/test_arima_smoke.py`.
+- `triton/model_repository/` — one directory per model, each a **python-backend** model (`config.pbtxt` + `1/model.py`). Every model speaks the **same tensor contract**: a single `TYPE_STRING` `INPUT` carrying one UTF-8 JSON request, and a single `TYPE_STRING` `OUTPUT` carrying one JSON response envelope (`{"ok": true, "result": …}` or `{"ok": false, "error_code": 400|500, "detail": …}`). Modelling the heterogeneous, keyword-heavy payloads as one JSON blob is far simpler than typed tensors and keeps the request shape identical to the old FastAPI bodies. `max_batch_size: 0` (each request is a full fit — batching doesn't help train-per-request models).
+- Model list + GPU/CPU placement (`instance_group`): `forecast_arima` / `forecast_sarima` / `forecast_auto_arima` / `forecast_moving_average` / `forecast_prophet` are **KIND_CPU** (no CUDA path exists for statsmodels/pmdarima/prophet); `forecast_xgboost` (trains with `device="cuda"`) and `forecast_chronos` (Torch/T5, weights preloaded in `initialize()`) are **KIND_GPU**; `cluster` is **KIND_GPU** so cuML has a device (its sklearn-only algorithms just run on CPU inside that instance). Chronos reads its checkpoint name from the bind-mounted `config.yaml` (`forecaster.CHRONOS_MODEL`).
+- `triton/common/umd_common/` — the real fit/predict maths, baked onto `PYTHONPATH` so every `model.py` is a thin shell. `forecasting.py` (the six stateless forecasters as `run(model, payload)` + a preloaded `ChronosRunner`), `clustering.py` (feature-matrix build + estimator + 2D/3D projection; **cuML for KMeans/DBSCAN/PCA/t-SNE/UMAP, scikit-learn CPU fallback** for Mean-Shift/HDBSCAN/Spectral/Agglomerative/Kernel-PCA — every cuML path is wrapped so an import/runtime failure degrades to sklearn), `timeutil.py` (frequency inference), and `triton_io.py` (the `pb_utils` ↔ JSON glue, the only Triton-runtime-only import). This package is CPU-unit-tested under `triton/tests/` via a lean `triton/pyproject.toml` dev env (GPU-only deps `importorskip`).
 
-`ARIMA_AVAILABLE` / `PROPHET_AVAILABLE` / `CHRONOS_AVAILABLE` toggles in `config.yaml` gate the three heavy-dep families. `auto_arima` / `arima` / `sarima` all ride on `ARIMA_AVAILABLE`. `moving_average` and `xgboost` are always available.
+Ports (HTTP 8000 / gRPC 8001 / metrics 8002) are **internal to the compose network** — nothing is published to the host; the two adapters reach Triton by container name over gRPC. Health is the Triton readiness endpoint `GET /v2/health/ready` (probed by the Monitoring page too).
+
+### `forecaster` (adapter)
+
+`forecaster/main.py` keeps its original HTTP contract (`POST /predict`, `GET /models`, `GET /health`) but runs **no ML itself**. It validates + cleans the request (parse timestamps → reject unparseable ones with 400, dedup on timestamp keeping the last value, sort, truncate to trailing `n_prev`), enforces the `config.yaml` model toggles, forwards the prepared `dates`/`values` + `n_predict`/`alpha`/`model_params` to the matching Triton model (`forecast_<model_type>`) over gRPC via `triton_client.py` (`infer_json`), then reshapes the reply into the same `ForecastResponse`. A `TritonError(status_code, detail)` from the model maps straight onto the HTTP status (400 input errors, 500 model failures, 502 unreachable Triton). The container is GPU-free and its image dropped the entire ML stack (now just fastapi/uvicorn/pydantic/polars/tritonclient).
+
+Per-model hyperparameters still travel in a single `model_params: dict[str, Any]` on `ForecastRequest`; the Triton-side functions in `umd_common/forecasting.py` pull the keys they need (`p`/`d`/`q`, `window`, `lags`, …). Adding a new forecasting model means: a branch in `umd_common/forecasting.py`, a `model_repository/forecast_<id>/` dir (`config.pbtxt` KIND_CPU/GPU + `1/model.py` subclassing `ForecastModelBase` with `MODEL = "<id>"`), the id added to the `ModelType` literal in `forecaster/schemas.py`, the GraphBox UI in `app/core/plotting.py` (dropdown option + `_render_model_param_inputs` branch), and a CPU smoke test in `triton/tests/test_forecasting.py`.
+
+`ARIMA_AVAILABLE` / `PROPHET_AVAILABLE` / `CHRONOS_AVAILABLE` toggles in `config.yaml` still gate the three heavy-dep families — enforced now by the **adapter** (a disabled model 400s before Triton is contacted; Triton itself always loads every model in the repo). `auto_arima` / `arima` / `sarima` ride on `ARIMA_AVAILABLE`; `moving_average` and `xgboost` are always available.
+
+### `clustering` (adapter)
+
+`clustering/main.py` mirrors the forecaster adapter: same HTTP contract (`POST /cluster`, `GET /methods`, `GET /health`), same Pydantic `ClusterRequest`/`ClusterResponse` schema, but the whole validated request is forwarded to the Triton `cluster` model and the reply reshaped into `ClusterResponse`. Feature-matrix building, estimator selection, and the visual projection all live in `umd_common/clustering.py` now. Pydantic validation (e.g. non-empty `dataframe`) still fires in the adapter for fast 422s; input errors detected server-side (no numeric features, `k > n_rows`, …) come back as a `TritonError(400, …)`.
 
 ### Data ingestion
 

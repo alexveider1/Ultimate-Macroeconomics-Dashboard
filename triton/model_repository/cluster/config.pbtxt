@@ -1,0 +1,29 @@
+name: "cluster"
+backend: "python"
+max_batch_size: 0
+
+input [
+  {
+    name: "INPUT"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  }
+]
+
+output [
+  {
+    name: "OUTPUT"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  }
+]
+
+# GPU-placed so RAPIDS cuML (KMeans/DBSCAN/PCA/t-SNE/UMAP) has a device; the
+# sklearn-only algorithms (Mean-Shift/HDBSCAN/Spectral/Agglomerative/Kernel-PCA)
+# just run on CPU inside the same instance.
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+  }
+]

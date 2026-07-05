@@ -31,7 +31,7 @@ combine-as-imports = true
 force-sort-within-sections = true
 order-by-type = true
 split-on-trailing-comma = true
-known-first-party = ["agent", "core", "pages", "forecasters", "src"]
+known-first-party = ["agent", "core", "pages", "umd_common", "src"]
 
 [format]
 quote-style = "double"

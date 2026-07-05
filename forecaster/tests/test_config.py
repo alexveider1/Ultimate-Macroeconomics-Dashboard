@@ -28,6 +28,17 @@ def test_defaults_when_section_absent() -> None:
     assert cfg.forecaster.ARIMA_AVAILABLE is False
     assert cfg.forecaster.CHRONOS_MODEL is None
     assert cfg.forecaster.port == 8001
+    # Triton endpoint defaults to the compose service name + gRPC port.
+    assert cfg.triton.host == "triton"
+    assert cfg.triton.grpc_port == 8001
+
+
+def test_triton_section_parses() -> None:
+    cfg = ForecasterConfig.model_validate(
+        {"triton": {"host": "triton", "grpc_port": 8001, "http_port": 8000}}
+    )
+    assert cfg.triton.grpc_port == 8001
+    assert cfg.triton.http_port == 8000
 
 
 def test_invalid_toggle_type_raises() -> None:

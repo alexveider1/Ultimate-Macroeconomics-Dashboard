@@ -11,7 +11,18 @@ def test_valid_config_parses() -> None:
 
 
 def test_default_when_section_absent() -> None:
-    assert ClusteringConfig.model_validate({}).clustering.port == 8002
+    cfg = ClusteringConfig.model_validate({})
+    assert cfg.clustering.port == 8002
+    # Triton endpoint defaults to the compose service name + gRPC port.
+    assert cfg.triton.host == "triton"
+    assert cfg.triton.grpc_port == 8001
+
+
+def test_triton_section_parses() -> None:
+    cfg = ClusteringConfig.model_validate(
+        {"triton": {"host": "triton", "grpc_port": 8001, "http_port": 8000}}
+    )
+    assert cfg.triton.http_port == 8000
 
 
 def test_invalid_port_raises() -> None:

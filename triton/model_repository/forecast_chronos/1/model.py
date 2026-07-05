@@ -8,9 +8,10 @@ the ``forecaster.CHRONOS_MODEL`` key the old service used.
 
 from pathlib import Path
 
+import yaml
+
 from umd_common import forecasting
 from umd_common.triton_io import make_json_response, parse_json_input
-import yaml
 
 _CONFIG_PATH = Path("/app/config.yaml")
 

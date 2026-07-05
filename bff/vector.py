@@ -44,8 +44,17 @@ def build_openai_client(api_key: str, base_url: str) -> AsyncOpenAI:
 
 
 def _make_collection_name(topic: str, sentiment: str) -> str:
-    """Return the ``{topic}_{sentiment}`` Qdrant collection name."""
-    return f"{topic}_{sentiment}"
+    """Return the ``{topic}_{sentiment}`` Qdrant collection name.
+
+    Must match the writer in ``downloader_general``
+    (``extractors/github_download.py:_collection_name_for``) and the agent's reader
+    (``agent/agent/tools.py:_make_collection_name``) byte-for-byte, since Qdrant
+    collection names are case-sensitive: the corpus is stored lowercased with spaces
+    ``->`` ``_`` and commas ``->`` ``" "``. A bare ``f"{topic}_{sentiment}"`` would
+    look up e.g. ``"Politics_positive"`` and miss the real ``"politics_positive"``.
+    """
+    topic_normalized = topic.strip().lower()
+    return f"{topic_normalized}_{sentiment}".replace(" ", "_").replace(",", " ").lower()
 
 
 def _article_from_payload(payload: dict, point_id: Any, collection: str) -> dict:

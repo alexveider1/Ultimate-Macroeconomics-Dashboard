@@ -9,6 +9,26 @@ def test_make_collection_name() -> None:
     assert vector._make_collection_name("economy", "positive") == "economy_positive"
 
 
+def test_make_collection_name_matches_writer_normalization() -> None:
+    # Qdrant names are case-sensitive and the corpus is stored lowercased, so a raw
+    # capitalized topic label must fold to the real (lowercase) collection name.
+    assert vector._make_collection_name("Politics", "positive") == "politics_positive"
+    # Comma/space handling must match downloader_general's writer byte-for-byte
+    # (github_download.py:_collection_name_for): spaces -> "_", commas -> " ".
+    assert (
+        vector._make_collection_name("Economy, Business and Finance", "positive")
+        == "economy _business_and_finance_positive"
+    )
+
+
+def test_resolve_target_collections_normalizes_raw_topic_label() -> None:
+    # A caller passing the human topic label ("Politics") must still resolve to the
+    # stored lowercase collection — this is the regression the bare f-string missed.
+    cols = ["politics_positive", "politics_negative", "world_bank_growth"]
+    result = _resolve(cols, "Politics", "positive")
+    assert result == ["politics_positive", "world_bank_growth"]
+
+
 def test_article_from_payload_flattens_nested_shape() -> None:
     payload = {
         "topic": "trade",

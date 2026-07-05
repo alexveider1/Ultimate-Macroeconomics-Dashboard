@@ -329,6 +329,13 @@ class ChatRequest(BaseModel):
 
     user_message: str
     chat_history: list[ChatMessage] = Field(default_factory=list)
+    session_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional stable id for the chat session, forwarded to Langfuse as "
+            "the trace session id so turns of one conversation group together."
+        ),
+    )
 
 
 class PlotInterpretationRequest(BaseModel):

@@ -35,6 +35,12 @@ class Settings(BaseSettings):
             "QDRANT__SERVICE__API_KEY", "QDRANT__API_KEY", "QDRANT_API_KEY"
         ),
     )
+    langfuse_public_key: str = Field(
+        default="", validation_alias=AliasChoices("LANGFUSE_PUBLIC_KEY")
+    )
+    langfuse_secret_key: str = Field(
+        default="", validation_alias=AliasChoices("LANGFUSE_SECRET_KEY")
+    )
 
 
 def load_settings(env_file: str | os.PathLike[str]) -> Settings:

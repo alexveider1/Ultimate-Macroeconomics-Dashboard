@@ -23,6 +23,7 @@ from routers import agent, cluster, crypto, eurostat, forecast, fred, news, worl
 from schema import Base
 from settings import get_settings
 from sqlalchemy.orm import sessionmaker
+import tracing
 import vector
 
 logging.basicConfig(level=logging.INFO)
@@ -46,6 +47,15 @@ def _cors_origins() -> list[str]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Build shared clients on startup; dispose them on shutdown."""
+    # Initialise Langfuse tracing before the OpenAI client is built so the
+    # news-embedding calls it makes are instrumented (no-op unless enabled).
+    tracing.init_tracing(
+        CONFIG.langfuse,
+        public_key=SETTINGS.langfuse_public_key,
+        secret_key=SETTINGS.langfuse_secret_key,
+        release="bff",
+    )
+
     engine = build_engine(build_sql_uri(CONFIG.postgres, SETTINGS))
     # No-op against the live tables; materialises them for an isolated test DB.
     Base.metadata.create_all(bind=engine)
@@ -79,6 +89,7 @@ async def lifespan(app: FastAPI):
         await app.state.http_client.aclose()
         await app.state.qdrant.close()
         await app.state.openai.close()
+        tracing.flush()
 
 
 app = FastAPI(

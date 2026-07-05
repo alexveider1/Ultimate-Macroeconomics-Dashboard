@@ -9,6 +9,7 @@ renders any returned artifacts (plot JSON, tabular data) inline.
 
 import hashlib
 import re
+import uuid
 
 import plotly.io as pio
 import polars as pl
@@ -21,6 +22,7 @@ from core.token_usage import record_usage
 from core.token_usage_store import record_persistent
 
 CHAT_STATE_KEY = "agent_chat_messages"
+SESSION_ID_KEY = "agent_chat_session_id"
 TABLE_PREVIEW_LIMIT = 100
 
 STEP_DISPLAY_NAMES = {
@@ -52,9 +54,11 @@ def _normalize_math_delimiters(text: str) -> str:
 
 
 def _ensure_chat_state() -> None:
-    """Create the empty chat history list on first render."""
+    """Create the empty chat history list + a session id on first render."""
     if CHAT_STATE_KEY not in st.session_state:
         st.session_state[CHAT_STATE_KEY] = []
+    if SESSION_ID_KEY not in st.session_state:
+        st.session_state[SESSION_ID_KEY] = uuid.uuid4().hex
 
 
 def _as_artifacts(value: object) -> dict:
@@ -261,6 +265,7 @@ def _handle_chat() -> None:
             for event in agent_chat_stream(
                 user_message=prompt,
                 chat_history=_trim_history_for_api(),
+                session_id=st.session_state.get(SESSION_ID_KEY),
             ):
                 event_type = event.get("type", "")
                 if event_type == "step":
@@ -328,6 +333,8 @@ def render_page() -> None:
     with right_col:
         if st.button("Clear chat", width="stretch"):
             st.session_state[CHAT_STATE_KEY] = []
+            # New conversation → new Langfuse session id.
+            st.session_state[SESSION_ID_KEY] = uuid.uuid4().hex
             st.rerun()
 
     _render_messages()

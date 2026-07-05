@@ -27,6 +27,12 @@ class Settings(BaseSettings):
         default="", validation_alias=AliasChoices("QDRANT__SERVICE__API_KEY")
     )
     openai_api_key: str = Field(default="", validation_alias=AliasChoices("OPENAI_API_KEY"))
+    langfuse_public_key: str = Field(
+        default="", validation_alias=AliasChoices("LANGFUSE_PUBLIC_KEY")
+    )
+    langfuse_secret_key: str = Field(
+        default="", validation_alias=AliasChoices("LANGFUSE_SECRET_KEY")
+    )
 
 
 @lru_cache(maxsize=1)

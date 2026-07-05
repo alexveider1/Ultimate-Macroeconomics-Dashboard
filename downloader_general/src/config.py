@@ -75,6 +75,20 @@ class SchedulerConfig(BaseModel):
     sources: dict[str, SchedulerSourceConfig] = {}
 
 
+class LangfuseConfig(BaseModel):
+    """The ``langfuse`` section — LLM/embedding tracing knobs.
+
+    The API keys are secrets (read from the environment via :class:`Settings`),
+    so only these non-secret knobs live in ``config.yaml``. Absent or
+    ``enabled: false`` makes the embedding-trace integration a no-op.
+    """
+
+    enabled: bool = False
+    host: str = "http://langfuse_web:3000"
+    environment: str = "dev"
+    sample_rate: float = 1.0
+
+
 class DownloaderGeneralConfig(BaseModel):
     """The portion of ``config.yaml`` the ingestion job reads."""
 
@@ -83,6 +97,7 @@ class DownloaderGeneralConfig(BaseModel):
     qdrant: QdrantConfig = QdrantConfig()
     downloader_general: DownloaderGeneralSection
     scheduler: SchedulerConfig = SchedulerConfig()
+    langfuse: LangfuseConfig = LangfuseConfig()
 
 
 def load_config(path: Path) -> DownloaderGeneralConfig:

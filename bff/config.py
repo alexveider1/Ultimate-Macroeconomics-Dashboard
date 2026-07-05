@@ -49,6 +49,19 @@ class BffPortConfig(BaseModel):
     port: int = 8005
 
 
+class LangfuseConfig(BaseModel):
+    """The ``langfuse`` section — news-embedding tracing knobs.
+
+    Keys are secrets (read via :class:`Settings`); only these non-secret knobs
+    live in ``config.yaml``. Absent/``enabled: false`` makes tracing a no-op.
+    """
+
+    enabled: bool = False
+    host: str = "http://langfuse_web:3000"
+    environment: str = "dev"
+    sample_rate: float = 1.0
+
+
 class BffConfig(BaseModel):
     """The portion of ``config.yaml`` the BFF service reads."""
 
@@ -59,6 +72,7 @@ class BffConfig(BaseModel):
     agent: PortConfig = PortConfig(port=8000)
     forecaster: PortConfig = PortConfig(port=8001)
     clustering: PortConfig = PortConfig(port=8002)
+    langfuse: LangfuseConfig = LangfuseConfig()
 
 
 def load_config(path: Path) -> BffConfig:

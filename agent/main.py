@@ -12,6 +12,7 @@ returned in the SSE ``final`` event so the dashboard can show it.
 """
 
 import asyncio
+from contextlib import nullcontext
 from functools import lru_cache
 import json
 import logging
@@ -31,6 +32,12 @@ from agent.schemas import (
 )
 from agent.settings import get_settings
 from agent.tools import aclose_runtime_clients, configure_runtime
+from agent.tracing import (
+    flush as flush_tracing,
+    get_callback_handler,
+    init_tracing,
+    tracing_enabled,
+)
 from agent.usage import UsageTracker
 
 logger = logging.getLogger(__name__)
@@ -62,6 +69,17 @@ POSTGRES_DATABASE_URI = (
 )
 OPENAI_EMBEDDING_MODEL = SHARED_CFG.openai_embedding_model
 
+# Initialise Langfuse tracing (no-op unless config.langfuse.enabled + keys set).
+# Must run before configure_runtime so the RAG-embed client picks the wrapped
+# variant, and before the vision client is built below.
+init_tracing(
+    CONFIG.langfuse,
+    public_key=SETTINGS.langfuse_public_key,
+    secret_key=SETTINGS.langfuse_secret_key,
+    release="agent-0.8.0",
+)
+TRACING_ENABLED = tracing_enabled()
+
 configure_runtime(
     database_schema_path=DATABASE_SCHEMA_PATH,
     news_topics_path=NEWS_TOPICS_PATH,
@@ -85,7 +103,13 @@ def _require_api_key() -> str:
 
 @lru_cache(maxsize=1)
 def _get_openai_client() -> OpenAI:
-    """Return a process-wide sync OpenAI client (used for vision calls)."""
+    """Return a process-wide sync OpenAI client (used for vision calls).
+
+    Deliberately the *plain* client: the Langfuse ``openai`` integration patches
+    the module globally, which would double-trace the graph's ``ChatOpenAI``
+    calls. The vision call is instead traced with a scoped manual generation in
+    :func:`interpret_plot`.
+    """
     return OpenAI(
         base_url=OPENAI_API_BASE_URL,
         api_key=_require_api_key(),
@@ -113,8 +137,9 @@ app = FastAPI(
 
 @app.on_event("shutdown")
 async def _close_runtime_clients() -> None:
-    """Close the shared httpx pool so uvicorn shuts down cleanly."""
+    """Close the shared httpx pool + flush pending traces on shutdown."""
     await aclose_runtime_clients()
+    flush_tracing()
 
 
 @app.get("/")
@@ -159,6 +184,11 @@ async def process_chat_stream(request: ChatRequest):
     agent = _get_macro_agent()
     chat_history = [m.model_dump() for m in request.chat_history]
     usage_tracker = UsageTracker()
+    langfuse_handler = get_callback_handler()
+    trace_metadata = {
+        "langfuse_session_id": request.session_id,
+        "langfuse_tags": ["macro-agent", CONFIG.langfuse.environment],
+    }
 
     async def event_generator():
         """Inner generator that yields SSE-formatted ``data: ...`` strings."""
@@ -168,6 +198,8 @@ async def process_chat_stream(request: ChatRequest):
                     message=request.user_message,
                     chat_history=chat_history,
                     usage_tracker=usage_tracker,
+                    langfuse_handler=langfuse_handler,
+                    trace_metadata=trace_metadata,
                 ):
                     event_type = event.get("type", "step")
                     if event_type == "step":
@@ -211,6 +243,30 @@ async def process_chat_stream(request: ChatRequest):
     )
 
 
+def _start_vision_generation(mode: str, context: str):
+    """Return a Langfuse generation context for the vision call, else a no-op.
+
+    We trace the vision completion with a scoped manual generation (rather than
+    the global ``langfuse.openai`` patch) so it doesn't interfere with the
+    graph's LLM tracing. The image itself is never sent to Langfuse — only the
+    mode + textual context — to keep traces light.
+    """
+    if not TRACING_ENABLED:
+        return nullcontext()
+    try:
+        from langfuse import get_client
+
+        return get_client().start_as_current_observation(
+            name="plot-interpretation",
+            as_type="generation",
+            model=AGENT_MODEL or "",
+            input={"mode": mode, "chart_context": context},
+        )
+    except Exception:
+        logger.exception("Failed to start Langfuse vision generation.")
+        return nullcontext()
+
+
 @app.post("/plots/interpret", response_model=PlotInterpretationResponse)
 async def interpret_plot(request: PlotInterpretationRequest):
     """Send a rendered chart image to the vision LLM for description.
@@ -248,37 +304,50 @@ async def interpret_plot(request: PlotInterpretationRequest):
         if request.chart_context.strip():
             user_text += f" Context: {request.chart_context.strip()}"
 
-        completion = await asyncio.to_thread(
-            client.chat.completions.create,
-            model=AGENT_MODEL,
-            temperature=temperature,
-            max_tokens=200 if request.mode == "no_hallucinations" else 260,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_text},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{request.image_base64}"},
-                        },
-                    ],
-                },
-            ],
-        )
+        with _start_vision_generation(request.mode, request.chart_context) as generation:
+            completion = await asyncio.to_thread(
+                client.chat.completions.create,
+                model=AGENT_MODEL,
+                temperature=temperature,
+                max_tokens=200 if request.mode == "no_hallucinations" else 260,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": user_text},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{request.image_base64}"
+                                },
+                            },
+                        ],
+                    },
+                ],
+            )
 
-        description = ""
-        if completion.choices and completion.choices[0].message is not None:
-            description = str(completion.choices[0].message.content or "").strip()
+            description = ""
+            if completion.choices and completion.choices[0].message is not None:
+                description = str(completion.choices[0].message.content or "").strip()
 
-        usage = getattr(completion, "usage", None)
-        token_usage = TokenUsage(
-            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-            completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
-            total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
-            model=AGENT_MODEL or "",
-        )
+            usage = getattr(completion, "usage", None)
+            token_usage = TokenUsage(
+                prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+                completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+                total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+                model=AGENT_MODEL or "",
+            )
+
+            if generation is not None:
+                generation.update(
+                    output=description or "No interpretation returned.",
+                    usage_details={
+                        "input": token_usage.prompt_tokens,
+                        "output": token_usage.completion_tokens,
+                        "total": token_usage.total_tokens,
+                    },
+                )
 
         return PlotInterpretationResponse(
             description=description or "No interpretation returned.",

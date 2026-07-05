@@ -56,6 +56,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       FRED_API_KEY: ${FRED_API_KEY}
       QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
     depends_on:
       db:
         condition: service_healthy
@@ -89,6 +91,8 @@ services:
       POSTGRES_LLM_USER: ${POSTGRES_LLM_USER}
       POSTGRES_LLM_PASSWORD: ${POSTGRES_LLM_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
     ports:
       - 8000:8000
     depends_on:
@@ -270,6 +274,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
     ports:
       - 8005:8005
     depends_on:
@@ -358,6 +364,159 @@ services:
       retries: 10
       start_period: 30s
 
+  # --- Langfuse (LLM tracing / observability, self-hosted) -------------------
+  # Independent observability stack. Core services (agent / downloader_general /
+  # bff) emit traces to langfuse_web but intentionally do NOT depend_on it, so a
+  # Langfuse outage never blocks the app — the SDK degrades to a no-op. Image
+  # tags mirror Langfuse's official self-host compose (the server is the `:3`
+  # line, versioned separately from the v4 Python SDK). Only langfuse_web is
+  # published to the host (:3000 UI); the rest are internal to the network.
+  langfuse_worker:
+    image: langfuse/langfuse-worker:3
+    container_name: langfuse_worker
+    restart: unless-stopped
+    depends_on: &langfuse-depends-on
+      langfuse_postgres:
+        condition: service_healthy
+      langfuse_clickhouse:
+        condition: service_healthy
+      langfuse_redis:
+        condition: service_healthy
+      langfuse_minio:
+        condition: service_healthy
+    environment: &langfuse-common-env
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD}@langfuse_postgres:5432/langfuse
+      SALT: ${LANGFUSE_SALT}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
+      TELEMETRY_ENABLED: "true"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
+      NEXTAUTH_URL: http://localhost:3000
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse_clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse_clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_HOST: langfuse_redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: ${LANGFUSE_REDIS_AUTH}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse_minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse_minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      LANGFUSE_S3_MEDIA_UPLOAD_EXTERNAL_ENDPOINT: http://localhost:9090
+
+  langfuse_web:
+    image: langfuse/langfuse:3
+    container_name: langfuse_web
+    restart: unless-stopped
+    depends_on: *langfuse-depends-on
+    ports:
+      - 3000:3000
+    environment:
+      <<: *langfuse-common-env
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
+      # Auto-provision an org + project + login on first boot so the project
+      # keys in .env work immediately (no manual UI setup). Idempotent.
+      LANGFUSE_INIT_ORG_ID: umd
+      LANGFUSE_INIT_ORG_NAME: Ultimate Macro Dashboard
+      LANGFUSE_INIT_PROJECT_ID: umd-agent
+      LANGFUSE_INIT_PROJECT_NAME: macro-agent
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL}
+      LANGFUSE_INIT_USER_NAME: Admin
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
+    healthcheck:
+      # Langfuse's Next.js server binds to the container's own hostname IP (not
+      # 0.0.0.0 or loopback), so localhost / 127.0.0.1 both refuse — resolve the
+      # hostname at runtime via CMD-SHELL.
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://$(hostname):3000/api/public/health || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  langfuse_postgres:
+    image: postgres:17
+    container_name: langfuse_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD}
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U langfuse -d langfuse" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  langfuse_clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: langfuse_clickhouse
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  langfuse_redis:
+    image: redis:7-alpine
+    container_name: langfuse_redis
+    restart: unless-stopped
+    command: --requirepass ${LANGFUSE_REDIS_AUTH} --maxmemory-policy noeviction
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: [ "CMD-SHELL", "redis-cli -a ${LANGFUSE_REDIS_AUTH} ping | grep -q PONG" ]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  langfuse_minio:
+    image: minio/minio:latest
+    container_name: langfuse_minio
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_PASSWORD}
+    ports:
+      # API on 9090 (media presigned URLs), console on 9091.
+      - 9090:9000
+      - 9091:9001
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: [ "CMD", "mc", "ready", "local" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
 networks:
   default:
     driver: bridge
@@ -366,3 +525,8 @@ volumes:
   postgres_data:
   qdrant_data:
   triton_hf_cache:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_redis_data:
+  langfuse_minio_data:

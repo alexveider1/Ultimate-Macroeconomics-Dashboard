@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     postgres_llm_user: str = Field(validation_alias=AliasChoices("POSTGRES_LLM_USER"))
     postgres_llm_password: str = Field(validation_alias=AliasChoices("POSTGRES_LLM_PASSWORD"))
     postgres_db: str | None = Field(default=None, validation_alias=AliasChoices("POSTGRES_DB"))
+    langfuse_public_key: str = Field(
+        default="", validation_alias=AliasChoices("LANGFUSE_PUBLIC_KEY")
+    )
+    langfuse_secret_key: str = Field(
+        default="", validation_alias=AliasChoices("LANGFUSE_SECRET_KEY")
+    )
 
 
 @lru_cache(maxsize=1)

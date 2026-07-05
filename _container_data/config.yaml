@@ -85,6 +85,17 @@ backup:
   rclone_config_path: _container_data/rclone.conf # container path; host: _container_data/backup/rclone.conf
   retention_days: 7 # prune remote backups older than this (negative = keep forever)
   staging_dir: _container_data/staging
+langfuse:
+  # LLM observability / tracing (self-hosted Langfuse). Traces every agent
+  # worker, tool, LLM + embedding call with tokens, latency and cost. The keys
+  # live in .env (LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY); only these
+  # non-secret knobs live here. When disabled — or when the keys are missing —
+  # the SDK integration in agent / downloader_general / bff degrades to a no-op.
+  enabled: true # master switch read by every Python service that emits traces
+  host: http://langfuse_web:3000 # in-network URL the SDK POSTs traces to (UI is published on :3000)
+  environment: dev # tag applied to every trace (dev / staging / production)
+  sample_rate: 1.0 # fraction of traces to keep (1.0 = all)
+
 scheduler:
   # After the one-shot initial ingest, downloader_general stays alive and
   # refreshes each source on its OWN interval, appending only data newer than

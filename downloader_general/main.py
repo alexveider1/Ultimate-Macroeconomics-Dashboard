@@ -18,6 +18,7 @@ healthy via the ``.download_completed`` marker so dependents that used to wait o
 ``service_completed_successfully`` now wait on ``service_healthy``.
 """
 
+import atexit
 from collections.abc import Callable
 import logging
 import os
@@ -26,6 +27,7 @@ import sys
 from typing import Any
 
 from src.config import DownloaderGeneralConfig, load_config
+from src.core import tracing
 from src.extractors import (
     ActuallyRelevantDownloader,
     BinanceDownloader,
@@ -251,6 +253,17 @@ def main() -> None:
 
     config = load_config(CONFIG_PATH)
     secrets = load_settings(config.shared.env_file)
+
+    # Initialise Langfuse tracing (no-op unless enabled + keys set) before the
+    # downloaders build their embedding clients, and flush on exit so the last
+    # traces aren't lost when the scheduler is signalled to stop.
+    tracing.init_tracing(
+        config.langfuse,
+        public_key=secrets.langfuse_public_key,
+        secret_key=secrets.langfuse_secret_key,
+        release="downloader_general",
+    )
+    atexit.register(tracing.flush)
 
     # config.yaml holds the fallback DB name; POSTGRES_DB in .env wins because
     # that's the value the postgres image uses on first volume init.

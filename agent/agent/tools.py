@@ -113,7 +113,14 @@ def _get_qdrant_client() -> QdrantClient:
 
 
 def _get_openai_async_client() -> AsyncOpenAI:
-    """Return the cached async OpenAI client, building it on first use."""
+    """Return the cached async OpenAI client, building it on first use.
+
+    Kept as the plain client on purpose: the Langfuse ``openai`` integration
+    patches the ``openai`` module *globally*, which would double-trace every
+    LangGraph ``ChatOpenAI`` call (already captured by the graph-level Langfuse
+    callback). The RAG query embedding is negligible cost and is covered by the
+    ``rag_agent`` node span in the trace.
+    """
     if _runtime.get("_openai_async_client") is None:
         _runtime["_openai_async_client"] = AsyncOpenAI(
             api_key=_runtime["openai_api_key"],

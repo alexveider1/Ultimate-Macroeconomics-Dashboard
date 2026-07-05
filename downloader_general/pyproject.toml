@@ -26,6 +26,7 @@ dependencies = [
     "hyperframe==6.1.0",
     "idna==3.11",
     "jiter==0.13.0",
+    "langfuse==4.13.0",
     "multitasking==0.0.12",
     "numpy==2.4.2",
     "openai==2.25.0",

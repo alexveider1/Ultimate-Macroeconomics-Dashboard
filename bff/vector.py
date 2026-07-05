@@ -16,6 +16,7 @@ from typing import Any
 from models import NewsArticle, NewsSearchHit
 from openai import AsyncOpenAI
 from qdrant_client import AsyncQdrantClient
+import tracing
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,13 @@ def build_qdrant_client(host: str, port: int, api_key: str) -> AsyncQdrantClient
 
 
 def build_openai_client(api_key: str, base_url: str) -> AsyncOpenAI:
-    """Build the async OpenAI-compatible client used for query embeddings."""
-    return AsyncOpenAI(api_key=api_key, base_url=base_url)
+    """Build the async OpenAI-compatible client used for query embeddings.
+
+    Uses the Langfuse-instrumented ``AsyncOpenAI`` when tracing is enabled so the
+    news-search embedding calls are traced; the plain client otherwise.
+    """
+    client_cls = tracing.async_openai_client_class()
+    return client_cls(api_key=api_key, base_url=base_url)
 
 
 def _make_collection_name(topic: str, sentiment: str) -> str:

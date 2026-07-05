@@ -21,10 +21,10 @@ from zipfile import ZipFile
 
 from git import Repo
 import httpx
-from openai import OpenAI
 from qdrant_client import QdrantClient, models
 from tiktoken import encoding_for_model
 
+from src.core import tracing
 from src.core.base_downloaders import BaseNewsDownloader
 from src.core.qdrant_uploader import ensure_collection, existing_payload_values
 from src.settings import load_settings
@@ -105,7 +105,8 @@ class NewsDownloader(BaseNewsDownloader):
         if not openai_api_key:
             logger.error("OPENAI_API_KEY is not set; news embeddings cannot be generated")
             return False
-        self.openai_client = OpenAI(base_url=self.openai_base_url, api_key=openai_api_key)
+        client_cls = tracing.openai_client_class()
+        self.openai_client = client_cls(base_url=self.openai_base_url, api_key=openai_api_key)
         try:
             qdrant_api_key = secrets.qdrant_api_key or None
             response = _call_with_retries(

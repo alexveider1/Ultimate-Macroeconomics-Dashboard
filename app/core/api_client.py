@@ -138,6 +138,7 @@ def agent_chat_stream(
     user_message: str,
     chat_history: list[dict[str, str]] | None = None,
     base_url: str | None = None,
+    session_id: str | None = None,
 ):
     """Open an SSE stream to ``POST /chat/stream`` on the agent and yield events.
 
@@ -148,6 +149,8 @@ def agent_chat_stream(
         user_message: Latest user message.
         chat_history: Prior chat turns in ``{"role", "content"}`` form.
         base_url: Agent service URL (or ``None`` to use the default).
+        session_id: Optional stable chat-session id, forwarded to the agent so
+            Langfuse groups the turns of one conversation under one session.
 
     Yields:
         One decoded event dict per SSE frame.
@@ -156,10 +159,12 @@ def agent_chat_stream(
         RuntimeError: When the stream errors out or an event is invalid JSON.
     """
     resolved_base_url = resolve_agent_base_url(base_url)
-    payload = {
+    payload: dict[str, object] = {
         "user_message": user_message,
         "chat_history": chat_history or [],
     }
+    if session_id:
+        payload["session_id"] = session_id
     try:
         log_http_request(
             resolved_base_url,

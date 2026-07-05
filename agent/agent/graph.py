@@ -1470,6 +1470,8 @@ class MacroAgentGraph:
         message: str,
         chat_history: list[dict] | None = None,
         usage_tracker: Any | None = None,
+        langfuse_handler: Any | None = None,
+        trace_metadata: dict[str, Any] | None = None,
     ):
         """Yield events the API layer relays to the chat UI.
 
@@ -1478,6 +1480,12 @@ class MacroAgentGraph:
           - {"type": "token", "delta": <str>}
           - {"type": "final", "response": <str>, "artifacts": {...}}
           - {"type": "error", "response": <str>}
+
+        ``langfuse_handler`` (when supplied) is attached as an extra LangChain
+        callback so the whole run — every worker, tool and LLM call — is traced
+        in Langfuse alongside the ``usage_tracker``. ``trace_metadata`` may carry
+        Langfuse trace attributes (``langfuse_session_id`` / ``langfuse_user_id``
+        / ``langfuse_tags``) that surface on the trace.
         """
         state = self._build_initial_state(message, chat_history or [])
         accumulated_artifacts: dict[str, Any] = {}
@@ -1485,8 +1493,16 @@ class MacroAgentGraph:
         final_state: dict[str, Any] = {}
 
         graph_config: dict[str, Any] = {"recursion_limit": self.recursion_limit}
-        if usage_tracker is not None:
-            graph_config["callbacks"] = [usage_tracker]
+        callbacks = [cb for cb in (usage_tracker, langfuse_handler) if cb is not None]
+        if callbacks:
+            graph_config["callbacks"] = callbacks
+        if langfuse_handler is not None:
+            # Name the root run so the Langfuse trace is grouped/searchable, and
+            # forward any session/user/tag attributes onto the trace.
+            graph_config["run_name"] = "macro-agent-chat"
+            metadata = {k: v for k, v in (trace_metadata or {}).items() if v is not None}
+            if metadata:
+                graph_config["metadata"] = metadata
 
         try:
             async for chunk in self.graph.astream(state, config=graph_config):

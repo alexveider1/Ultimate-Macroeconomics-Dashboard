@@ -27,28 +27,16 @@ def init_global_state():
     """Initialise the cross-page session-state entries the first time the app loads.
 
     Streamlit clears ``session_state`` only on browser disconnect, so this
-    runs once per user session. Holds the chat history and the per-service
-    health flags consumed by the Monitoring page.
+    runs once per user session. Holds the chat history.
     """
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
-
-    if "api_health" not in st.session_state:
-        st.session_state.api_health = {
-            "db": True,
-            "vector_db": True,
-            "agent": True,
-            "clustering": True,
-            "python_sandbox": True,
-            "forecaster": True,
-            "downloader_extra": True,
-        }
 
 
 def setup_routing():
     """Declare every ``st.Page`` and group them into the sidebar navigation.
 
-    Page-file order (``01_…`` through ``18_…``) drives the in-group order
+    Page-file order (``01_…`` through ``20_…``) drives the in-group order
     while the dict keys define the section labels in the sidebar.
 
     Returns:
@@ -95,7 +83,6 @@ def setup_routing():
         "pages/20_eurostat_regional.py", title="European Union (Eurostat)", icon="🇪🇺"
     )
     p_token_usage = st.Page("pages/17_token_usage.py", title="Token Usage", icon="🪙")
-    p_monitoring = st.Page("pages/18_monitoring.py", title="Monitoring", icon="🛰️")
 
     pg = st.navigation(
         {
@@ -115,7 +102,7 @@ def setup_routing():
             "Regional Statistics": [p_fred_regional, p_eurostat_regional],
             "Constructors": [p_custom_plot, p_cluster],
             "AI": [p_agent],
-            "Settings": [p_token_usage, p_monitoring],
+            "Settings": [p_token_usage],
         }
     )
 

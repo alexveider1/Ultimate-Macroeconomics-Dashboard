@@ -96,6 +96,17 @@ langfuse:
   environment: dev # tag applied to every trace (dev / staging / production)
   sample_rate: 1.0 # fraction of traces to keep (1.0 = all)
 
+monitoring:
+  # External container + service monitoring (self-hosted Netdata). Watches
+  # per-container CPU/RAM/mem/net + host metrics, and probes each service's
+  # health via go.d httpcheck/portcheck jobs (see _container_data/netdata/go.d/).
+  # Runs fully independent of the dashboard; nothing in Python reads this block —
+  # it documents the port the same way postgres:/qdrant:/langfuse: do.
+  enabled: true # master switch (informational; Netdata itself is toggled via Compose)
+  netdata:
+    host: netdata # in-network hostname
+    port: 19999 # UI + API (published to the host)
+
 scheduler:
   # After the one-shot initial ingest, downloader_general stays alive and
   # refreshes each source on its OWN interval, appending only data newer than

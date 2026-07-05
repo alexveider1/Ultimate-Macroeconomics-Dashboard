@@ -352,11 +352,6 @@ services:
       - ./_container_data/themes.yaml:/app/themes.yaml
       - ./_container_data/_configs:/app/_configs
       - ./_container_data/app:/app/_container_data
-      # Read-only docker socket so the Monitoring page can read container stats.
-      # The app process inside the container runs as root, so it can talk to
-      # the socket directly. Remove this mount if you don't want the dashboard
-      # to introspect the host's containers.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=3).status == 200 else 1)" ]
       interval: 30s
@@ -517,6 +512,52 @@ services:
       retries: 10
       start_period: 10s
 
+  # --- External monitoring (Netdata) -----------------------------------------
+  # Standalone container + service monitor, independent of the dashboard. Reads
+  # the host's cgroups/proc/sys + the docker socket for per-container
+  # CPU/RAM/mem/net (auto-discovers every Compose container by name) and host
+  # metrics; go.d httpcheck/portcheck jobs probe each service's health. It sits
+  # on the default bridge so it can reach internal-only services (triton,
+  # langfuse_*) by name. Like Langfuse it has NO depends_on and nothing
+  # depends_on it — a monitor outage can never block or be blocked by the stack.
+  netdata:
+    image: netdata/netdata:v2.10.3
+    container_name: netdata
+    hostname: umd-netdata # label shown in the Netdata UI
+    restart: unless-stopped
+    pid: host # host PID namespace so apps.plugin can attribute host processes
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    ports:
+      - 19999:19999 # UI + API
+    environment:
+      DO_NOT_TRACK: "1" # disable anonymous telemetry; no NETDATA_CLAIM_* => stays fully local/offline
+    volumes:
+      - netdata_lib:/var/lib/netdata # registry + health state (persist across restarts)
+      - netdata_cache:/var/cache/netdata # dbengine metrics history
+      # Custom health-probe collectors (read-only).
+      - ./_container_data/netdata/go.d/httpcheck.conf:/etc/netdata/go.d/httpcheck.conf:ro
+      - ./_container_data/netdata/go.d/portcheck.conf:/etc/netdata/go.d/portcheck.conf:ro
+      # Host introspection for per-container + host CPU/RAM/mem/net.
+      # NB: no `rslave` propagation on /host/root — WSL2/Docker Desktop mounts
+      # the host root `private`, and `rslave` fails there ("not a shared or
+      # slave mount"). Per-container metrics come from /host/sys + /host/proc +
+      # the docker socket, none of which need mount propagation.
+      - /:/host/root:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:19999/api/v1/info" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 networks:
   default:
     driver: bridge
@@ -530,3 +571,5 @@ volumes:
   langfuse_clickhouse_logs:
   langfuse_redis_data:
   langfuse_minio_data:
+  netdata_lib:
+  netdata_cache:

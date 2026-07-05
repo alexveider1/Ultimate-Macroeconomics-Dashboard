@@ -207,6 +207,15 @@ docker compose run --rm backup python restore.py --qdrant full-snapshot-....snap
 
 Postgres restore is automated (`pg_restore --clean --if-exists`); a full Qdrant snapshot is recovered into storage at Qdrant startup, so `restore.py` downloads it and prints the exact steps.
 
+## Monitoring
+
+Container and service health is monitored **externally** by a self-hosted [Netdata](https://www.netdata.cloud/) container — deliberately separate from the dashboard so it keeps reporting even when the app is down. Open it at **`http://localhost:19999`**. It gives you, out of the box:
+
+- **Per-container CPU / RAM / disk / network** for every container in the stack (auto-discovered by name), plus host-level metrics — with history, not just a live snapshot.
+- **Per-service health checks** — HTTP probes against each service's health endpoint (`agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, `bff`, `app`, `triton`, `vector_db`, `langfuse_web`) and TCP probes for the databases (Postgres + the Langfuse backing stores), configured in `_container_data/netdata/go.d/`.
+
+The dashboard is unauthenticated and local-only (telemetry disabled). To add or change a health probe, edit `_container_data/netdata/go.d/httpcheck.conf` / `portcheck.conf` and restart the `netdata` service. It runs fully independently of the app services (no `depends_on` either way), so a monitor outage can never affect the stack.
+
 ## Disclaimer
 
 All data is sourced from third-party providers and presented as-is. The author makes no representations about its accuracy or completeness.

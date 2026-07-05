@@ -141,10 +141,11 @@ All sources **extend the existing downloaders**: new modules under `downloader_g
 
 ## Phase 4 — Ops: monitoring + backups *(was #11, #8)*
 
-**#11 — Self-hosted Grafana LGTM observability**
-- Add **OTel Collector + Loki + Tempo + Prometheus + Grafana + cAdvisor** services. The OTel Collector receives the OTLP logs/traces emitted by every service since Phase 1 and fans out to Loki (logs) and Tempo (traces); FastAPI services also expose `/metrics` (`prometheus-fastapi-instrumentator`) scraped by Prometheus, plus `postgres_exporter`, Qdrant's native `/metrics`, and cAdvisor for per-container CPU/mem/net.
-- Provision Grafana dashboards + datasources (service health, latency, traces, logs, container stats) as code.
-- **Remove** `app/core/monitoring.py`, `app/pages/18_monitoring.py`, and the read-only `/var/run/docker.sock` bind-mount from the `app` service — the bespoke health/Docker-socket probing is replaced by the standard stack.
+**#11 — Container/service monitoring (metrics + health)** — ✅ **SHIPPED (via Netdata, scope narrowed).**
+- Instead of the full Grafana **LGTM** stack, the container-metrics + service-health slice landed as a single self-hosted **Netdata** container (`netdata`, `netdata/netdata:v2.10.3`, UI `:19999`). It auto-discovers every Compose container's CPU/RAM/mem/net + host metrics from the host cgroups/`proc`/`sys` + docker socket (bind-mounted read-only), and probes each service's health with `go.d` **httpcheck** (HTTP `/health` endpoints) + **portcheck** (Postgres + Langfuse backing stores) jobs, configured under `_container_data/netdata/go.d/`.
+- Independent observability (mirrors the Langfuse precedent): on the default bridge so it reaches internal-only services by name, **no `depends_on`** in either direction, telemetry off (`DO_NOT_TRACK=1`, no Cloud claim), no new `.env` secrets; non-secret knobs in `config.yaml` `monitoring:`; history persisted in `netdata_lib` / `netdata_cache` volumes.
+- **Removed** `app/core/monitoring.py`, `app/pages/18_monitoring.py`, and the read-only `/var/run/docker.sock` bind-mount from the `app` service — the bespoke health/Docker-socket probing is replaced by Netdata (which now owns the socket mount).
+- **Still open (deferred):** the log/trace-aggregation half — **OTel Collector + Loki + Tempo (+ Prometheus/Grafana)** for OTLP structured logs + non-LLM distributed traces. Netdata covers metrics + health but not centralized log/trace search; that remains future work (see TODO "Observability — logs & traces").
 
 **#8 — rclone backups** — ✅ **SHIPPED.**
 - New `backup/` service — a long-running **Python** scheduler (simple `interval_minutes` loop, `run_on_start`, SIGTERM-aware; no OS cron). Each run: `pg_dump -Fc` the Postgres DB + take a **full-storage** Qdrant snapshot (`POST /snapshots` → download → `DELETE`), then `rclone copy` both artifacts to the configured remote and prune the remote `--min-age <retention_days>d`.
@@ -152,8 +153,8 @@ All sources **extend the existing downloaders**: new modules under `downloader_g
 - Committed **`restore.py`**: automates `pg_restore --clean --if-exists` and downloads + documents the Qdrant full-snapshot recovery (a live-instance full-snapshot restore needs a boot-time `--storage-snapshot`, so it's a documented manual step).
 - Image adds `postgresql-client-18` (PGDG apt, matches the server major) + `rclone` (multi-stage `COPY --from=rclone/rclone`). Chose **full-storage** over per-collection snapshots (single artifact) and **interval** over cron (matches the Python-everywhere convention).
 
-**Touchpoints:** `docker-compose.yaml` (otel-collector/loki/tempo/prometheus/grafana/cadvisor/postgres_exporter/backup services), each service's `main.py` (`/metrics`), new `monitoring/` (Grafana + collector provisioning) and `backup/` dirs, secrets for the rclone remote, `config.yaml`.
-**Risks:** consistent snapshots (snapshot Qdrant and dump Postgres close in time); rclone remote secret handling (via Phase-1 Docker secrets).
+**Touchpoints:** *(shipped)* `docker-compose.yaml` (`netdata` + `backup` services), `_container_data/netdata/go.d/` (httpcheck/portcheck), `config.yaml` (`monitoring:` + `backup:`), removal of `app/core/monitoring.py` / `app/pages/18_monitoring.py` / the `app` docker.sock mount, `backup/` dir + rclone secret. *(still open, logs/traces half)* OTel-collector/loki/tempo services, each service's `main.py` (OTLP export), new `monitoring/` provisioning dir.
+**Risks:** consistent snapshots (snapshot Qdrant and dump Postgres close in time); rclone remote secret handling; Netdata cgroup access on WSL2 (host `/proc`+`/sys` mounts must populate per-container charts).
 
 ---
 

@@ -71,6 +71,16 @@ test*/
 *.dump
 *.snapshot
 
+# Per-service local-dev config.yaml stubs. The single source of truth is
+# _container_data/config.yaml, bind-mounted read-only into every container at
+# /app/config.yaml; these tiny per-service copies only let a service boot
+# standalone outside Docker and are auto-created by each service's
+# tests/conftest.py. Kept untracked so they can never drift from the real file.
+# (Root-anchored so _container_data/config.yaml is never matched.)
+/forecaster/config.yaml
+/clustering/config.yaml
+/python_sandbox/config.yaml
+
 # Logs
 logs/
 *.log

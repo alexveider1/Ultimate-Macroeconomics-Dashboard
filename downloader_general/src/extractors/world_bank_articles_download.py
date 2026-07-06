@@ -14,7 +14,9 @@ the payload shape matches the news pipeline so the app + agent read it unchanged
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from pathlib import Path
+import random
 import re
+import time
 from typing import Any, Protocol
 
 import httpx
@@ -23,11 +25,14 @@ from src.core.base_downloaders import BaseWorldBankArticlesDownloader
 from src.core.qdrant_uploader import QdrantEmbeddingUploaderMixin
 from src.settings import load_settings
 from src.utils.downloads import _call_with_retries, _download_config, log_progress
-from src.utils.wds_client import DEFAULT_BASE_URL, build_client, fetch_text, search
+from src.utils.wds_client import DEFAULT_BASE_URL, build_client, fetch_text, search, warm_up
 
 logger = logging.getLogger(__name__)
 
-_MAX_PARALLEL_TEXT_FETCHES = 8
+# documents.worldbank.org is Cloudflare-fronted and 403s bursty bot-like traffic
+# (see src.utils.wds_client); keep the parallelism modest and warm the bot cookie
+# once per query so the burst reuses it.
+_MAX_PARALLEL_TEXT_FETCHES = 4
 
 
 class TokenEncoding(Protocol):
@@ -197,13 +202,21 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
         return self._client
 
     def _fetch_doc_text(self, doc: dict[str, Any]) -> str:
-        """Fetch + retry one document's ``txturl`` plain text (empty on failure)."""
+        """Fetch + retry one document's ``txturl`` plain text (empty on failure).
+
+        A Cloudflare ``403`` raises inside ``fetch_text`` and is retried with
+        backoff here; blocks are transient so an extra attempt usually clears it.
+        A small random pre-fetch delay desynchronises the parallel workers and
+        keeps the aggregate request rate under Cloudflare's bot threshold (the
+        same jitter rationale as the WB indicator client).
+        """
+        time.sleep(random.uniform(0.1, 0.6))
         return (
             _call_with_retries(
                 f"wds.text({doc.get('id')})",
                 lambda: fetch_text(self._require_client(), str(doc["txturl"])),
                 retry_delay_seconds=3,
-                max_retries=3,
+                max_retries=4,
             )
             or ""
         )
@@ -213,6 +226,10 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
     ) -> list[dict[str, Any]]:
         """Fetch each doc's text concurrently, chunk it, and build entries."""
         entries: list[dict[str, Any]] = []
+        # Prime Cloudflare's __cf_bm cookie before the parallel burst so the
+        # concurrent fetches reuse it instead of each racing a cookie-less 403.
+        if docs:
+            warm_up(self._require_client(), str(docs[0]["txturl"]))
         with ThreadPoolExecutor(max_workers=_MAX_PARALLEL_TEXT_FETCHES) as executor:
             futures = {executor.submit(self._fetch_doc_text, doc): doc for doc in docs}
             for future in log_progress(

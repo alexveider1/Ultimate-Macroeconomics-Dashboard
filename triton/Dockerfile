@@ -16,8 +16,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Inference deps installed into the container's Python (the python-backend
 # stub interpreter). RAPIDS wheels come from the NVIDIA index in requirements.
+# `--ignore-installed pip`: the base image's pip 24.0 is a Debian apt package
+# (no RECORD file), so a plain `--upgrade` fails to uninstall it — install the
+# new pip alongside it into /usr/local, which wins on PATH.
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --upgrade pip && pip install -r /tmp/requirements.txt
+RUN pip install --upgrade --ignore-installed pip \
+    && pip install -r /tmp/requirements.txt
 
 # Shared inference code, importable by every model.py through PYTHONPATH.
 COPY common/ /opt/umd/

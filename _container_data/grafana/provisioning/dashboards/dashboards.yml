@@ -1,0 +1,15 @@
+# Grafana dashboard provisioning — loads the JSON dashboards bind-mounted at
+# /var/lib/grafana/dashboards. Bind-mounted read-only to
+# /etc/grafana/provisioning/dashboards/.
+apiVersion: 1
+
+providers:
+  - name: UMD monitoring
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

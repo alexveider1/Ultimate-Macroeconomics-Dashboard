@@ -209,12 +209,13 @@ Postgres restore is automated (`pg_restore --clean --if-exists`); a full Qdrant 
 
 ## Monitoring
 
-Container and service health is monitored **externally** by a self-hosted [Netdata](https://www.netdata.cloud/) container — deliberately separate from the dashboard so it keeps reporting even when the app is down. Open it at **`http://localhost:19999`**. It gives you, out of the box:
+Container and service health is monitored **externally** by a fully open-source **Grafana + Prometheus + OpenTelemetry** stack — deliberately separate from the dashboard so it keeps reporting even when the app is down. Every container is treated as an external service: both its resources and its health are tracked from the outside, with no per-service instrumentation. Open **Grafana at `http://localhost:3001`** (log in as `admin` with `GRAFANA_ADMIN_PASSWORD` from your `.env`). It gives you, out of the box:
 
-- **Per-container CPU / RAM / disk / network** for every container in the stack (auto-discovered by name), plus host-level metrics — with history, not just a live snapshot.
-- **Per-service health checks** — HTTP probes against each service's health endpoint (`agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, `bff`, `app`, `triton`, `vector_db`, `langfuse_web`) and TCP probes for the databases (Postgres + the Langfuse backing stores), configured in `_container_data/netdata/go.d/`.
+- **Per-container CPU / RAM / disk / network** for every container in the stack, plus host-level metrics — collected by an **OpenTelemetry Collector** (`docker_stats` + `hostmetrics` receivers reading the Docker socket + host `/proc`/`/sys`), with history, not just a live snapshot.
+- **Per-service health checks** — a **blackbox exporter** runs HTTP probes against each service's health endpoint (`agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, `bff`, `app`, `triton`, `vector_db`, `langfuse_web`) and TCP probes for the databases (Postgres + the Langfuse backing stores).
+- Three provisioned dashboards — **Containers**, **Host**, and **Service health** — backed by **Prometheus** (`http://localhost:9092`), which also scrapes Triton's native inference/GPU metrics.
 
-The dashboard is unauthenticated and local-only (telemetry disabled). To add or change a health probe, edit `_container_data/netdata/go.d/httpcheck.conf` / `portcheck.conf` and restart the `netdata` service. It runs fully independently of the app services (no `depends_on` either way), so a monitor outage can never affect the stack.
+To add or change a health probe, edit the target list in `_container_data/prometheus/prometheus.yml` (the `blackbox-http` / `blackbox-tcp` jobs) and restart the `prometheus` service. The stack runs fully independently of the app services (no `depends_on` either way), so a monitor outage can never affect the stack. Set `GRAFANA_ADMIN_PASSWORD` in `_container_data/.env` before first boot (see `.env.example`).
 
 ## Disclaimer
 

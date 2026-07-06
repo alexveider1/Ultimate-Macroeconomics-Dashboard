@@ -2,10 +2,25 @@
   "base_url": "https://actually-relevant-api.onrender.com",
   "page_size": 100,
   "topics": [
-    { "slug": "human-development", "collection": "actually_relevant_human_development" },
-    { "slug": "planet-climate", "collection": "actually_relevant_planet_climate" },
-    { "slug": "existential-threats", "collection": "actually_relevant_existential_threats" },
-    { "slug": "science-technology", "collection": "actually_relevant_science_technology" },
-    { "slug": "general-news", "collection": "actually_relevant_general_news" }
+    {
+      "slug": "human-development",
+      "collection": "actually_relevant_human_development"
+    },
+    {
+      "slug": "planet-climate",
+      "collection": "actually_relevant_planet_climate"
+    },
+    {
+      "slug": "existential-threats",
+      "collection": "actually_relevant_existential_threats"
+    },
+    {
+      "slug": "science-technology",
+      "collection": "actually_relevant_science_technology"
+    },
+    {
+      "slug": "general-news",
+      "collection": "actually_relevant_general_news"
+    }
   ]
 }

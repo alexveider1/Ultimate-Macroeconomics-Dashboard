@@ -1,41 +1,131 @@
 {
   "base_url": "https://search.worldbank.org/api/v3/wds",
-  "rows_per_query": 100,
+  "rows_per_query": 10,
   "lang": "English",
   "from_year": 2010,
   "doc_types": [],
   "chunk_size_tokens": 800,
   "chunk_overlap_tokens": 100,
   "queries": [
-    { "query": "inflation", "collection": "world_bank_inflation" },
-    { "query": "population", "collection": "world_bank_population" },
-    { "query": "international trade", "collection": "world_bank_trade" },
-    { "query": "economic growth", "collection": "world_bank_growth" },
-    { "query": "monetary policy", "collection": "world_bank_monetary_policy" },
-    { "query": "fiscal policy", "collection": "world_bank_fiscal_policy" },
-    { "query": "public debt", "collection": "world_bank_public_debt" },
-    { "query": "unemployment", "collection": "world_bank_unemployment" },
-    { "query": "poverty", "collection": "world_bank_poverty" },
-    { "query": "inequality", "collection": "world_bank_inequality" },
-    { "query": "exchange rate", "collection": "world_bank_exchange_rate" },
-    { "query": "banking sector", "collection": "world_bank_banking" },
-    { "query": "financial crisis", "collection": "world_bank_financial_crisis" },
-    { "query": "productivity", "collection": "world_bank_productivity" },
-    { "query": "investment", "collection": "world_bank_investment" },
-    { "query": "labor market", "collection": "world_bank_labor_market" },
-    { "query": "energy", "collection": "world_bank_energy" },
-    { "query": "climate finance", "collection": "world_bank_climate_finance" },
-    { "query": "agriculture", "collection": "world_bank_agriculture" },
-    { "query": "urbanization", "collection": "world_bank_urbanization" },
-    { "query": "education", "collection": "world_bank_education" },
-    { "query": "health spending", "collection": "world_bank_health" },
-    { "query": "remittances", "collection": "world_bank_remittances" },
-    { "query": "foreign direct investment", "collection": "world_bank_fdi" },
-    { "query": "commodity prices", "collection": "world_bank_commodity_prices" },
-    { "query": "housing", "collection": "world_bank_housing" },
-    { "query": "taxation", "collection": "world_bank_taxation" },
-    { "query": "pensions", "collection": "world_bank_pensions" },
-    { "query": "informal economy", "collection": "world_bank_informality" },
-    { "query": "digital economy", "collection": "world_bank_digital_economy" }
+    {
+      "query": "inflation",
+      "collection": "world_bank_inflation"
+    },
+    {
+      "query": "population",
+      "collection": "world_bank_population"
+    },
+    {
+      "query": "international trade",
+      "collection": "world_bank_trade"
+    },
+    {
+      "query": "economic growth",
+      "collection": "world_bank_growth"
+    },
+    {
+      "query": "monetary policy",
+      "collection": "world_bank_monetary_policy"
+    },
+    {
+      "query": "fiscal policy",
+      "collection": "world_bank_fiscal_policy"
+    },
+    {
+      "query": "public debt",
+      "collection": "world_bank_public_debt"
+    },
+    {
+      "query": "unemployment",
+      "collection": "world_bank_unemployment"
+    },
+    {
+      "query": "poverty",
+      "collection": "world_bank_poverty"
+    },
+    {
+      "query": "inequality",
+      "collection": "world_bank_inequality"
+    },
+    {
+      "query": "exchange rate",
+      "collection": "world_bank_exchange_rate"
+    },
+    {
+      "query": "banking sector",
+      "collection": "world_bank_banking"
+    },
+    {
+      "query": "financial crisis",
+      "collection": "world_bank_financial_crisis"
+    },
+    {
+      "query": "productivity",
+      "collection": "world_bank_productivity"
+    },
+    {
+      "query": "investment",
+      "collection": "world_bank_investment"
+    },
+    {
+      "query": "labor market",
+      "collection": "world_bank_labor_market"
+    },
+    {
+      "query": "energy",
+      "collection": "world_bank_energy"
+    },
+    {
+      "query": "climate finance",
+      "collection": "world_bank_climate_finance"
+    },
+    {
+      "query": "agriculture",
+      "collection": "world_bank_agriculture"
+    },
+    {
+      "query": "urbanization",
+      "collection": "world_bank_urbanization"
+    },
+    {
+      "query": "education",
+      "collection": "world_bank_education"
+    },
+    {
+      "query": "health spending",
+      "collection": "world_bank_health"
+    },
+    {
+      "query": "remittances",
+      "collection": "world_bank_remittances"
+    },
+    {
+      "query": "foreign direct investment",
+      "collection": "world_bank_fdi"
+    },
+    {
+      "query": "commodity prices",
+      "collection": "world_bank_commodity_prices"
+    },
+    {
+      "query": "housing",
+      "collection": "world_bank_housing"
+    },
+    {
+      "query": "taxation",
+      "collection": "world_bank_taxation"
+    },
+    {
+      "query": "pensions",
+      "collection": "world_bank_pensions"
+    },
+    {
+      "query": "informal economy",
+      "collection": "world_bank_informality"
+    },
+    {
+      "query": "digital economy",
+      "collection": "world_bank_digital_economy"
+    }
   ]
 }

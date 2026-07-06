@@ -512,47 +512,94 @@ services:
       retries: 10
       start_period: 10s
 
-  # --- External monitoring (Netdata) -----------------------------------------
-  # Standalone container + service monitor, independent of the dashboard. Reads
-  # the host's cgroups/proc/sys + the docker socket for per-container
-  # CPU/RAM/mem/net (auto-discovers every Compose container by name) and host
-  # metrics; go.d httpcheck/portcheck jobs probe each service's health. It sits
-  # on the default bridge so it can reach internal-only services (triton,
-  # langfuse_*) by name. Like Langfuse it has NO depends_on and nothing
-  # depends_on it — a monitor outage can never block or be blocked by the stack.
-  netdata:
-    image: netdata/netdata:v2.10.3
-    container_name: netdata
-    hostname: umd-netdata # label shown in the Netdata UI
+  # --- External monitoring (Grafana + Prometheus + OpenTelemetry) ------------
+  # Standalone metrics + health monitor, independent of the dashboard (mirrors
+  # the Langfuse precedent): on the default bridge so it reaches internal-only
+  # services (triton, langfuse_*) by name, with NO depends_on in either
+  # direction — a monitor outage can never block or be blocked by the stack.
+  # Replaces the former Netdata container. Every container is treated as an
+  # external service: the OTel Collector reads the Docker socket for
+  # per-container CPU/RAM/net/disk (ALL containers) + host metrics;
+  # blackbox_exporter probes each service's health; Prometheus scrapes both
+  # (+ Triton's native metrics); Grafana visualises. Fully FOSS, no paid tiers.
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.119.0
+    container_name: otel-collector
+    hostname: umd-otel-collector
     restart: unless-stopped
-    pid: host # host PID namespace so apps.plugin can attribute host processes
-    cap_add:
-      - SYS_PTRACE
-      - SYS_ADMIN
-    security_opt:
-      - apparmor:unconfined
-    ports:
-      - 19999:19999 # UI + API
-    environment:
-      DO_NOT_TRACK: "1" # disable anonymous telemetry; no NETDATA_CLAIM_* => stays fully local/offline
+    command: [ "--config=/etc/otelcol-contrib/config.yaml" ]
+    # Run as root so the docker_stats receiver can read the root-owned Docker
+    # socket. The collector image is distroless (no shell), hence no healthcheck.
+    user: "0:0"
     volumes:
-      - netdata_lib:/var/lib/netdata # registry + health state (persist across restarts)
-      - netdata_cache:/var/cache/netdata # dbengine metrics history
-      # Custom health-probe collectors (read-only).
-      - ./_container_data/netdata/go.d/httpcheck.conf:/etc/netdata/go.d/httpcheck.conf:ro
-      - ./_container_data/netdata/go.d/portcheck.conf:/etc/netdata/go.d/portcheck.conf:ro
-      # Host introspection for per-container + host CPU/RAM/mem/net.
-      # NB: no `rslave` propagation on /host/root — WSL2/Docker Desktop mounts
-      # the host root `private`, and `rslave` fails there ("not a shared or
-      # slave mount"). Per-container metrics come from /host/sys + /host/proc +
-      # the docker socket, none of which need mount propagation.
-      - /:/host/root:ro
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /etc/os-release:/host/etc/os-release:ro
+      - ./_container_data/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      # docker_stats reads per-container metrics via the Docker Engine API over
+      # the socket (moved here from the old netdata service).
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # hostmetrics reads the host's /proc + /sys via this read-only root mount
+      # (root_path: /hostfs in the collector config). No `rslave` — WSL2 mounts
+      # the host root `private` (the same caveat the old netdata service noted).
+      - /:/hostfs:ro
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: prometheus
+    hostname: umd-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    ports:
+      - 9092:9090 # UI/API (host 9090/9091 are taken by langfuse_minio)
+    volumes:
+      - ./_container_data/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:19999/api/v1/info" ]
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  blackbox_exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: blackbox_exporter
+    hostname: umd-blackbox
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
+    volumes:
+      - ./_container_data/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9115/-/healthy" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    hostname: umd-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - 3001:3000 # UI (host 3000 is taken by langfuse_web)
+    volumes:
+      # Datasource + dashboard-provider provisioning, and the dashboard JSONs.
+      - ./_container_data/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./_container_data/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana # grafana.db + state
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health" ]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -571,5 +618,5 @@ volumes:
   langfuse_clickhouse_logs:
   langfuse_redis_data:
   langfuse_minio_data:
-  netdata_lib:
-  netdata_cache:
+  prometheus_data:
+  grafana_data:

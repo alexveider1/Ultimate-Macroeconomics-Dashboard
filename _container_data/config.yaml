@@ -97,15 +97,29 @@ langfuse:
   sample_rate: 1.0 # fraction of traces to keep (1.0 = all)
 
 monitoring:
-  # External container + service monitoring (self-hosted Netdata). Watches
-  # per-container CPU/RAM/mem/net + host metrics, and probes each service's
-  # health via go.d httpcheck/portcheck jobs (see _container_data/netdata/go.d/).
-  # Runs fully independent of the dashboard; nothing in Python reads this block —
-  # it documents the port the same way postgres:/qdrant:/langfuse: do.
-  enabled: true # master switch (informational; Netdata itself is toggled via Compose)
-  netdata:
-    host: netdata # in-network hostname
-    port: 19999 # UI + API (published to the host)
+  # External container + service monitoring (self-hosted, fully FOSS): an
+  # OpenTelemetry Collector (per-container + host metrics via docker_stats /
+  # hostmetrics) + blackbox_exporter (per-service HTTP/TCP health probes, target
+  # lists in _container_data/prometheus/prometheus.yml) + Prometheus (scrape +
+  # TSDB) + Grafana (dashboards, login required). Runs fully independent of the
+  # dashboard; nothing in Python reads this block — it documents the ports the
+  # same way postgres:/qdrant:/langfuse: do (ports are duplicated in
+  # docker-compose.yaml; the two files are not auto-synced).
+  enabled: true # master switch (informational; the stack is toggled via Compose)
+  grafana:
+    host: grafana # in-network hostname
+    port: 3001 # UI (published to the host; container listens on 3000)
+  prometheus:
+    host: prometheus # in-network hostname
+    port: 9092 # UI/API (published to the host; container listens on 9090)
+  otel_collector:
+    host: otel-collector # in-network hostname
+    metrics_port: 8889 # Prometheus-format metrics endpoint (internal; scraped by Prometheus)
+    otlp_grpc_port: 4317 # OTLP ingest (internal; idle until app traces/logs land)
+    otlp_http_port: 4318 # OTLP ingest (internal; idle until app traces/logs land)
+  blackbox_exporter:
+    host: blackbox_exporter # in-network hostname
+    port: 9115 # probe endpoint (internal; driven by Prometheus)
 
 scheduler:
   # After the one-shot initial ingest, downloader_general stays alive and

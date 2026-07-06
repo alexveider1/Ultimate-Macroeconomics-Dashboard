@@ -1,0 +1,103 @@
+# OpenTelemetry Collector (contrib) — the metrics source for the monitoring
+# stack. Bind-mounted read-only to /etc/otelcol-contrib/config.yaml.
+#
+# It treats every Docker container as an external service: the docker_stats
+# receiver reads the Docker socket and produces per-container CPU/RAM/net/block
+# metrics (keyed by container.name) for ALL running containers — including the
+# ones with no health endpoint (downloader_general, backup). The hostmetrics
+# receiver adds host-level CPU/mem/disk/fs/net/load. Everything is re-exported in
+# Prometheus format on :8889, which Prometheus scrapes.
+#
+# The otlp receiver is wired but idle — no app currently sends OTLP. It's here so
+# app traces/logs (the deferred "logs & traces" phase) can be added later without
+# re-architecting the collector.
+
+receivers:
+  # Per-container resource metrics via the Docker Engine API (the socket is
+  # bind-mounted read-only). No cgroup mounts needed — stats come from the API.
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    # Must be >= the collector floor (1.25) AND >= the Docker daemon's minimum
+    # supported API (1.40 on current engines). 1.40 is accepted by any modern daemon.
+    api_version: "1.40"
+    collection_interval: 15s
+    timeout: 20s
+    container_labels_to_metric_labels:
+      com.docker.compose.service: compose_service
+    metrics:
+      container.cpu.utilization:
+        enabled: true
+      container.memory.usage.total:
+        enabled: true
+      container.memory.percent:
+        enabled: true
+      container.network.io.usage.rx_bytes:
+        enabled: true
+      container.network.io.usage.tx_bytes:
+        enabled: true
+      container.blockio.io_service_bytes_recursive:
+        enabled: true
+
+  # Host-level metrics. root_path points at the read-only host bind-mount so the
+  # scrapers read the host's /proc and /sys (not the container's).
+  hostmetrics:
+    collection_interval: 15s
+    root_path: /hostfs
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      load:
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      disk:
+      filesystem:
+      network:
+      paging:
+
+  # Idle for now (no senders). Reserved for the future app logs/traces phase.
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+extensions:
+  # Liveness endpoint (the collector image is distroless, so there is no Docker
+  # healthcheck; this endpoint is available in-network if ever needed).
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+exporters:
+  # Expose all collected metrics for Prometheus to scrape. Turning on
+  # resource_to_telemetry_conversion promotes resource attributes
+  # (container.name, container.image.name, host.name, …) to metric labels, so
+  # Prometheus sees a `container_name` label to break panels out per container.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+    # Keep clean metric names (no _ratio/_bytes/_total unit/type suffixes) so
+    # they read as e.g. container_cpu_utilization / container_memory_usage_total.
+    add_metric_suffixes: false
+    send_timestamps: true
+    metric_expiration: 5m
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [docker_stats, hostmetrics, otlp]
+      processors: [batch]
+      exporters: [prometheus]
+  telemetry:
+    metrics:
+      # The collector's own internal telemetry (scrapeable at :8888 if wanted).
+      level: basic

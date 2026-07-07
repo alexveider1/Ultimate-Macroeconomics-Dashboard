@@ -343,14 +343,13 @@ class WorldBankDownloader(BaseWorldBankDownloader):
             return
         df = (
             df.select(
-                pl.col("economy").alias("economy"),
-                pl.col("time").alias("year"),
+                pl.col("economy"),
+                pl.col("time").cast(pl.Int64, strict=False).alias("year"),
                 pl.col("value"),
             )
             .with_columns(
                 pl.lit(indicator_id).alias("indicator_id"),
                 pl.lit(db).alias("db_id"),
-                pl.col("time").cast(pl.Int64, strict=False).alias("year"),
             )
             .drop_nulls(subset=["economy", "year"])
             .unique(subset=["economy", "year", "indicator_id", "db_id"], keep="last")

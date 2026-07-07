@@ -6,9 +6,10 @@
 # resolve against whatever the GPU stack pins (freeze after a known-good build).
 
 # --- RAPIDS GPU stack (KMeans/DBSCAN/PCA/t-SNE/UMAP); pins numpy/pandas ---
+# cu13 wheels to match the CUDA 13 base image (tritonserver:25.10-vllm-python-py3).
 --extra-index-url https://pypi.nvidia.com
-cuml-cu12==25.02.*
-cudf-cu12==25.02.*
+cuml-cu13==25.10.*
+cudf-cu13==25.10.*
 
 # --- Deep learning: Amazon Chronos (Torch/T5) + GPU XGBoost ---
 chronos-forecasting

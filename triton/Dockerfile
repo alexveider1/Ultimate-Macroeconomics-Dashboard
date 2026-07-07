@@ -1,8 +1,11 @@
-# NVIDIA Triton Inference Server. The `-vllm-py3` image ships BOTH the python
-# backend (Python 3.12, CUDA 12.x — every forecasting/clustering model) AND the
-# vLLM backend + the OpenAI-compatible frontend used to serve the docling VLM
-# (granite-docling) over `/v1/chat/completions`. GPU is required at runtime.
-FROM nvcr.io/nvidia/tritonserver:25.02-vllm-py3
+# NVIDIA Triton Inference Server. The `-vllm-python-py3` image ships BOTH the
+# python backend (Python 3.12, CUDA 13.x — every forecasting/clustering model)
+# AND the vLLM backend + the OpenAI-compatible frontend used to serve the
+# docling VLM (granite-docling) over `/v1/chat/completions`. GPU is required at
+# runtime. 25.10 bundles vLLM 0.10.2, whose newer multimodal processor can run
+# granite-docling (25.02's vLLM 0.7.0 could not); the tied-weights bug is worked
+# around by serving the model's `untied` revision (see granite_docling/model.json).
+FROM nvcr.io/nvidia/tritonserver:25.10-vllm-python-py3
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

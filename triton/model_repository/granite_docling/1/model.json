@@ -1,8 +1,9 @@
 {
     "model": "ibm-granite/granite-docling-258M",
+    "revision": "untied",
     "gpu_memory_utilization": 0.3,
     "max_model_len": 8192,
     "enforce_eager": true,
     "dtype": "auto",
-    "disable_log_requests": true
+    "enable_log_requests": false
 }

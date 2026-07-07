@@ -1,11 +1,15 @@
 {
   "base_url": "https://search.worldbank.org/api/v3/wds",
-  "rows_per_query": 10,
+  "rows_per_query": 30,
   "lang": "English",
   "from_year": 2010,
   "doc_types": [],
-  "chunk_size_tokens": 800,
-  "chunk_overlap_tokens": 100,
+  "max_parallel_text_fetches": 3,
+  "download_max_retries": 6,
+  "download_retry_delay_seconds": 5,
+  "inter_query_pause_seconds": 5,
+  "fetch_jitter_min_seconds": 0.5,
+  "fetch_jitter_max_seconds": 2.0,
   "queries": [
     {
       "query": "inflation",

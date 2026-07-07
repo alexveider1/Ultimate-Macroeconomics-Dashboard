@@ -23,6 +23,8 @@ VALID: dict = {
         "openai_embedding_model": "text-embedding-3-small",
         "openai_embedding_model_max_tokens": 8192,
         "openai_embedding_model_dimensions": 1536,
+        "news_chunk_size_tokens": 700,
+        "news_chunk_overlap_tokens": 90,
     },
     "postgres": {"host": "db", "port": 5432},
     "qdrant": {"host": "vector_db", "port": 6333},
@@ -34,9 +36,18 @@ VALID: dict = {
 def test_valid_config_parses() -> None:
     cfg = DownloaderGeneralConfig.model_validate(VALID)
     assert cfg.shared.openai_embedding_model_max_tokens == 8192
+    assert cfg.shared.news_chunk_size_tokens == 700
+    assert cfg.shared.news_chunk_overlap_tokens == 90
     assert cfg.postgres.host == "db"
     assert cfg.qdrant.port == 6333
     assert cfg.downloader_general.repo_url == "https://example.com/news.git"
+
+
+def test_news_chunk_settings_default_when_absent() -> None:
+    bare = {**VALID, "shared": {k: v for k, v in VALID["shared"].items() if "news_chunk" not in k}}
+    cfg = DownloaderGeneralConfig.model_validate(bare)
+    assert cfg.shared.news_chunk_size_tokens == 800
+    assert cfg.shared.news_chunk_overlap_tokens == 100
 
 
 def test_missing_required_shared_key_raises() -> None:

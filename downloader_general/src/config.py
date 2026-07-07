@@ -30,6 +30,10 @@ class SharedConfig(BaseModel):
     openai_embedding_model: str
     openai_embedding_model_max_tokens: int
     openai_embedding_model_dimensions: int
+    # News RAG chunking, shared by every news source (webhose / Actually Relevant
+    # / World Bank documents): overlapping token windows instead of truncation.
+    news_chunk_size_tokens: int = 800
+    news_chunk_overlap_tokens: int = 100
 
 
 class PostgresConfig(BaseModel):

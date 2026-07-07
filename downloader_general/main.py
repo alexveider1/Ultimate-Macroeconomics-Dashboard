@@ -112,6 +112,8 @@ def build_downloaders(
         openai_embedding_model=shared.openai_embedding_model,
         openai_token_limit=shared.openai_embedding_model_max_tokens,
         openai_model_dimensions=shared.openai_embedding_model_dimensions,
+        chunk_size_tokens=shared.news_chunk_size_tokens,
+        chunk_overlap_tokens=shared.news_chunk_overlap_tokens,
     )
     yahoo = YahooDownloader(
         env_path=shared.env_file,
@@ -144,6 +146,8 @@ def build_downloaders(
         openai_embedding_model=shared.openai_embedding_model,
         openai_token_limit=shared.openai_embedding_model_max_tokens,
         openai_model_dimensions=shared.openai_embedding_model_dimensions,
+        chunk_size_tokens=shared.news_chunk_size_tokens,
+        chunk_overlap_tokens=shared.news_chunk_overlap_tokens,
     )
     world_bank_articles = WorldBankArticlesDownloader(
         env_file=shared.env_file,
@@ -154,6 +158,8 @@ def build_downloaders(
         openai_embedding_model=shared.openai_embedding_model,
         openai_token_limit=shared.openai_embedding_model_max_tokens,
         openai_model_dimensions=shared.openai_embedding_model_dimensions,
+        chunk_size_tokens=shared.news_chunk_size_tokens,
+        chunk_overlap_tokens=shared.news_chunk_overlap_tokens,
     )
 
     downloaders: dict[str, tuple[Any, Callable[[], bool]]] = {

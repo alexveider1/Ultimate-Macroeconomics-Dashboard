@@ -15,6 +15,7 @@ page and the agent RAG worker read the new collections with no changes.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
+import re
 from time import sleep
 from typing import Any
 from urllib.parse import urlparse
@@ -30,6 +31,83 @@ from src.settings import Settings
 from src.utils.downloads import _call_with_retries, log_progress
 
 logger = logging.getLogger(__name__)
+
+
+def clean_text(text: str) -> str:
+    """Normalise article plain text: drop form-feeds and collapse blank-line runs.
+
+    Shared by every news source so chunk boundaries are computed on the same
+    normalised text (originally the World Bank documents pipeline's helper).
+    """
+    text = text.replace("\x0c", "\n")
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def chunk_text(text: str, encoding: Encoding, chunk_size: int, overlap: int) -> list[str]:
+    """Split ``text`` into overlapping token windows of ``chunk_size`` tokens.
+
+    Windows advance by ``chunk_size - overlap`` tokens; a text that fits in one
+    window is returned whole. Each returned chunk decodes back to text. This is
+    the single chunking primitive every news source funnels through so no
+    article is truncated to the embedding limit.
+    """
+    token_ids = encoding.encode(text)
+    if not token_ids:
+        return []
+    if len(token_ids) <= chunk_size:
+        return [text]
+
+    step = max(1, chunk_size - overlap)
+    chunks: list[str] = []
+    for start in range(0, len(token_ids), step):
+        window = token_ids[start : start + chunk_size]
+        if not window:
+            break
+        chunks.append(encoding.decode(window))
+        if start + chunk_size >= len(token_ids):
+            break
+    return chunks
+
+
+def _chunk_entry(entry: dict, encoding: Encoding, chunk_size: int, overlap: int) -> list[dict]:
+    """Expand one RAG entry into one entry per token-window chunk of its text.
+
+    The embed text lives at ``entry["article"]["text"]``. It is cleaned and split
+    into overlapping windows; each window becomes its own entry (a shallow copy
+    with a fresh ``article`` dict) carrying ``chunk_index``/``total_chunks`` and,
+    when the source split into more than one chunk, a ``"… (part i/N)"`` title
+    suffix. Entries with no article text pass through unchanged.
+    """
+    article = entry.get("article")
+    if not isinstance(article, dict):
+        return [entry]
+
+    text = clean_text(str(article.get("text") or ""))
+    chunks = chunk_text(text, encoding, chunk_size, overlap)
+    if not chunks:
+        return [entry]
+
+    total = len(chunks)
+    base_title = str(article.get("title") or "")
+    result: list[dict] = []
+    for index, chunk in enumerate(chunks):
+        new_article = {**article, "text": chunk, "chunk_index": index, "total_chunks": total}
+        if total > 1 and base_title:
+            new_article["title"] = f"{base_title} (part {index + 1}/{total})"
+        result.append({**entry, "article": new_article})
+    return result
+
+
+def chunk_entries(
+    entries: list[dict], encoding: Encoding, chunk_size: int, overlap: int
+) -> list[dict]:
+    """Expand every entry into its per-chunk entries (see :func:`_chunk_entry`)."""
+    chunked: list[dict] = []
+    for entry in entries:
+        chunked.extend(_chunk_entry(entry, encoding, chunk_size, overlap))
+    return chunked
 
 
 def _walk_payload(payload: dict | None, field_path: str) -> Any:
@@ -109,6 +187,8 @@ class QdrantEmbeddingUploaderMixin:
       ``openai_model_dimensions`` — embedding config (mirrors ``config.yaml``).
     - ``qdrant_host``, ``qdrant_port`` — Qdrant connection (host may be a full URL).
     - ``embedding_encoding`` — result of :meth:`_build_embedding_encoding`.
+    - ``chunk_size_tokens`` / ``chunk_overlap_tokens`` — token-window chunking of
+      each entry's ``article.text`` before embedding (global news RAG settings).
 
     ``batch_size``, ``max_parallel_embed_batches`` and
     ``download_retry_delay_seconds`` have sensible class-level defaults.
@@ -124,11 +204,16 @@ class QdrantEmbeddingUploaderMixin:
     openai_client: OpenAI
     qdrant_client: QdrantClient
 
+    # Token-window chunking of each entry's article text (shared news RAG knobs);
+    # subclasses override from config.yaml's shared.news_chunk_* settings.
+    chunk_size_tokens: int = 800
+    chunk_overlap_tokens: int = 100
+
     batch_size: int = 100
     # Concurrent embedding batches per collection. The OpenAI SDK is thread-safe;
     # keep this conservative so we don't blow through the tokens-per-minute quota.
     max_parallel_embed_batches: int = 4
-    download_retry_delay_seconds: int = 5
+    download_retry_delay_seconds: float = 5.0
 
     def _build_embedding_encoding(self) -> Encoding:
         """Build the ``tiktoken`` encoding for the configured embedding model."""
@@ -272,8 +357,16 @@ class QdrantEmbeddingUploaderMixin:
 
         Shared by :meth:`upload_collections` (which recreates first) and
         :meth:`upsert_collections` (which only ensures the collection exists), so
-        the batching / retry / progress-logging path is defined once.
+        the batching / retry / progress-logging path is defined once. Each entry
+        is first expanded into one entry per token-window chunk of its article
+        text (:func:`chunk_entries`) so long articles are split, never truncated.
         """
+        metadata_entries = chunk_entries(
+            metadata_entries,
+            self.embedding_encoding,
+            self.chunk_size_tokens,
+            self.chunk_overlap_tokens,
+        )
         batch_starts = list(range(0, len(metadata_entries), self.batch_size))
         with ThreadPoolExecutor(max_workers=self.max_parallel_embed_batches) as executor:
             futures = {

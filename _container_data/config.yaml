@@ -18,6 +18,12 @@ shared:
   openai_embedding_model: openai/text-embedding-3-small
   openai_embedding_model_max_tokens: 8192
   openai_embedding_model_dimensions: 1536
+  # News RAG chunking (webhose + Actually Relevant + World Bank documents). Long
+  # articles are split into overlapping token windows of `news_chunk_size_tokens`
+  # (advancing by size - overlap) instead of being truncated to the embedding
+  # limit, so no article text is lost. One Qdrant point per chunk.
+  news_chunk_size_tokens: 800
+  news_chunk_overlap_tokens: 100
 services:
   app:
     host_sync_dir: _container_data/app

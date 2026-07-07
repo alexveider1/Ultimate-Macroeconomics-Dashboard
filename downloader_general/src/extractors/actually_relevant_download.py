@@ -114,6 +114,8 @@ class ActuallyRelevantDownloader(QdrantEmbeddingUploaderMixin, BaseActuallyRelev
         openai_embedding_model: str = "openai/text-embedding-3-small",
         openai_token_limit: int = 8192,
         openai_model_dimensions: int = 1536,
+        chunk_size_tokens: int = 800,
+        chunk_overlap_tokens: int = 100,
     ) -> None:
         """Capture config; OpenAI/Qdrant/HTTP clients are built in ``_initialize_connections``."""
         self.env_path = Path(env_file)
@@ -133,6 +135,8 @@ class ActuallyRelevantDownloader(QdrantEmbeddingUploaderMixin, BaseActuallyRelev
         self.openai_embedding_model = openai_embedding_model
         self.embedding_token_limit = openai_token_limit
         self.openai_model_dimensions = openai_model_dimensions
+        self.chunk_size_tokens = chunk_size_tokens
+        self.chunk_overlap_tokens = chunk_overlap_tokens
         self.embedding_encoding = self._build_embedding_encoding()
 
         self._client: httpx.Client | None = None

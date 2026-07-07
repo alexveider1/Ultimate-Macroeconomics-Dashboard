@@ -6,27 +6,28 @@ import vector
 
 
 def test_make_collection_name() -> None:
-    assert vector._make_collection_name("economy", "positive") == "economy_positive"
+    assert vector._make_collection_name("economy", "positive") == "economy_positive_webhose"
 
 
 def test_make_collection_name_matches_writer_normalization() -> None:
     # Qdrant names are case-sensitive and the corpus is stored lowercased, so a raw
     # capitalized topic label must fold to the real (lowercase) collection name.
-    assert vector._make_collection_name("Politics", "positive") == "politics_positive"
-    # Comma/space handling must match downloader_general's writer byte-for-byte
-    # (github_download.py:_collection_name_for): spaces -> "_", commas -> " ".
+    assert vector._make_collection_name("Politics", "positive") == "politics_positive_webhose"
+    # Comma/space handling + the _webhose source suffix must match downloader_general's
+    # writer byte-for-byte (github_download.py:_collection_name_for): spaces -> "_",
+    # commas -> " ", then a trailing "_webhose".
     assert (
         vector._make_collection_name("Economy, Business and Finance", "positive")
-        == "economy _business_and_finance_positive"
+        == "economy _business_and_finance_positive_webhose"
     )
 
 
 def test_resolve_target_collections_normalizes_raw_topic_label() -> None:
     # A caller passing the human topic label ("Politics") must still resolve to the
     # stored lowercase collection — this is the regression the bare f-string missed.
-    cols = ["politics_positive", "politics_negative", "world_bank_growth"]
+    cols = ["politics_positive_webhose", "politics_negative_webhose", "world_bank_growth"]
     result = _resolve(cols, "Politics", "positive")
-    assert result == ["politics_positive", "world_bank_growth"]
+    assert result == ["politics_positive_webhose", "world_bank_growth"]
 
 
 def test_article_from_payload_flattens_nested_shape() -> None:
@@ -64,17 +65,29 @@ def _resolve(all_collections, topic, sentiment):
 
 
 def test_resolve_target_collections_topic_and_sentiment() -> None:
-    cols = ["economy_positive", "economy_negative", "trade_positive", "actually_relevant_economy"]
+    cols = [
+        "economy_positive_webhose",
+        "economy_negative_webhose",
+        "trade_positive_webhose",
+        "actually_relevant_economy",
+    ]
     result = _resolve(cols, "economy", "positive")
     # Exact match + always-on curated source folded in.
-    assert result == ["economy_positive", "actually_relevant_economy"]
+    assert result == ["economy_positive_webhose", "actually_relevant_economy"]
+
+
+def test_resolve_target_collections_sentiment_only() -> None:
+    cols = ["economy_positive_webhose", "economy_negative_webhose", "world_bank_growth"]
+    result = _resolve(cols, None, "positive")
+    # Only the matching-sentiment webhose collection + the always-on curated source.
+    assert result == ["economy_positive_webhose", "world_bank_growth"]
 
 
 def test_resolve_target_collections_topic_only() -> None:
-    cols = ["economy_positive", "economy_negative", "world_bank_growth"]
+    cols = ["economy_positive_webhose", "economy_negative_webhose", "world_bank_growth"]
     result = _resolve(cols, "economy", None)
-    assert "economy_positive" in result
-    assert "economy_negative" in result
+    assert "economy_positive_webhose" in result
+    assert "economy_negative_webhose" in result
     assert "world_bank_growth" in result  # always-on curated prefix.
 
 

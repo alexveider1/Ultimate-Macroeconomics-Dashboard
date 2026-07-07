@@ -288,6 +288,13 @@ def encode_data_for_sandbox(rows: list[dict]) -> str:
     return base64.b64encode(raw.encode()).decode()
 
 
+# Source suffix appended to every Webhose news collection name by the writer
+# (``downloader_general/src/extractors/github_download.py:NEWS_SOURCE_SUFFIX``).
+# Must match byte-for-byte so topic/sentiment filters still resolve to the right
+# collection.
+NEWS_COLLECTION_SUFFIX = "_webhose"
+
+
 def _make_collection_name(topic: str, sentiment: str) -> str:
     """Replicate the Qdrant collection naming used by ``downloader_general``.
 
@@ -296,12 +303,12 @@ def _make_collection_name(topic: str, sentiment: str) -> str:
         sentiment: ``positive`` or ``negative``.
 
     Returns:
-        A Qdrant-safe collection name (lowercased, underscores).
+        A Qdrant-safe collection name (lowercased, underscores, ``_webhose`` suffix).
     """
     topic_normalized = topic.strip().lower()
     name = f"{topic_normalized}_{sentiment}"
     name = name.replace(" ", "_").replace(",", " ").lower()
-    return name
+    return f"{name}{NEWS_COLLECTION_SUFFIX}"
 
 
 async def _get_embedding(text_input: str) -> List[float]:
@@ -352,7 +359,8 @@ def _sync_qdrant_search(
             if name in all_collections:
                 target_collections.append(name)
     elif sentiment_filter:
-        target_collections = [c for c in all_collections if c.endswith(f"_{sentiment_filter}")]
+        suffix = f"_{sentiment_filter}{NEWS_COLLECTION_SUFFIX}"
+        target_collections = [c for c in all_collections if c.endswith(suffix)]
     else:
         target_collections = all_collections
 

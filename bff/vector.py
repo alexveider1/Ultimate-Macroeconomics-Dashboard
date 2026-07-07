@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 # the topic/sentiment filter, exactly like the agent's RAG worker.
 ALWAYS_SEARCH_COLLECTION_PREFIXES = ("actually_relevant_", "world_bank_")
 
+# Source suffix the Webhose news writer appends to every collection name
+# (``downloader_general/src/extractors/github_download.py:NEWS_SOURCE_SUFFIX``);
+# must match byte-for-byte so topic/sentiment filters resolve correctly.
+NEWS_COLLECTION_SUFFIX = "_webhose"
+
 
 def build_qdrant_client(host: str, port: int, api_key: str) -> AsyncQdrantClient:
     """Build the async Qdrant client from host/port/key."""
@@ -44,17 +49,19 @@ def build_openai_client(api_key: str, base_url: str) -> AsyncOpenAI:
 
 
 def _make_collection_name(topic: str, sentiment: str) -> str:
-    """Return the ``{topic}_{sentiment}`` Qdrant collection name.
+    """Return the ``{topic}_{sentiment}_webhose`` Qdrant collection name.
 
     Must match the writer in ``downloader_general``
     (``extractors/github_download.py:_collection_name_for``) and the agent's reader
     (``agent/agent/tools.py:_make_collection_name``) byte-for-byte, since Qdrant
     collection names are case-sensitive: the corpus is stored lowercased with spaces
-    ``->`` ``_`` and commas ``->`` ``" "``. A bare ``f"{topic}_{sentiment}"`` would
-    look up e.g. ``"Politics_positive"`` and miss the real ``"politics_positive"``.
+    ``->`` ``_``, commas ``->`` ``" "`` and a ``_webhose`` source suffix. A bare
+    ``f"{topic}_{sentiment}"`` would look up e.g. ``"politics_positive"`` and miss
+    the real ``"politics_positive_webhose"``.
     """
     topic_normalized = topic.strip().lower()
-    return f"{topic_normalized}_{sentiment}".replace(" ", "_").replace(",", " ").lower()
+    base = f"{topic_normalized}_{sentiment}".replace(" ", "_").replace(",", " ").lower()
+    return f"{base}{NEWS_COLLECTION_SUFFIX}"
 
 
 def _article_from_payload(payload: dict, point_id: Any, collection: str) -> dict:
@@ -125,7 +132,8 @@ async def _resolve_target_collections(
             if _make_collection_name(topic, sent) in all_collections
         ]
     elif sentiment:
-        targets = [c for c in all_collections if c.endswith(f"_{sentiment}")]
+        suffix = f"_{sentiment}{NEWS_COLLECTION_SUFFIX}"
+        targets = [c for c in all_collections if c.endswith(suffix)]
     else:
         targets = list(all_collections)
 

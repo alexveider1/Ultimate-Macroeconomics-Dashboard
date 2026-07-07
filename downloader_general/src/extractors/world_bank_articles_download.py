@@ -3,21 +3,27 @@
 Runs once per clean boot via :meth:`WorldBankArticlesDownloader.run`. For each
 configured query-topic it fetches the top-N matching documents from the WDS API,
 pulls each document's plain text from its ``txturl`` (no docling — see
-:mod:`src.utils.wds_client`), splits the text into overlapping token windows, and
-uploads one Qdrant point per chunk into a per-topic collection
-(``world_bank_<slug>``).
+:mod:`src.utils.wds_client`), and builds one entry per document. The overlapping
+token-window chunking + embedding + upload all live in the shared
+:class:`~src.core.qdrant_uploader.QdrantEmbeddingUploaderMixin` (same path every
+news source uses), so a long document is split into multiple Qdrant points
+rather than truncated. The payload shape matches the news pipeline so the app +
+agent read it unchanged.
 
-Embedding + upload reuse :class:`~src.core.qdrant_uploader.QdrantEmbeddingUploaderMixin`;
-the payload shape matches the news pipeline so the app + agent read it unchanged.
+``documents.worldbank.org`` sits behind Cloudflare Bot Management, so this
+downloader takes extra anti-bot care: modest concurrency, a randomised
+pre-fetch delay per request, a per-query cookie warm-up, a re-warm on every
+blocked (403/429) response before the retry backs off, generous retry budgets,
+and a pause between query-topics. All of those are tunable from the download
+config (see :meth:`__init__`).
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from pathlib import Path
 import random
-import re
 import time
-from typing import Any, Protocol
+from typing import Any
 
 import httpx
 
@@ -29,70 +35,32 @@ from src.utils.wds_client import DEFAULT_BASE_URL, build_client, fetch_text, sea
 
 logger = logging.getLogger(__name__)
 
-# documents.worldbank.org is Cloudflare-fronted and 403s bursty bot-like traffic
-# (see src.utils.wds_client); keep the parallelism modest and warm the bot cookie
-# once per query so the burst reuses it.
-_MAX_PARALLEL_TEXT_FETCHES = 4
+# Anti-bot defaults (overridable from the download config). documents.worldbank.org
+# is Cloudflare-fronted and 403s bursty bot-like traffic, so the parallelism is
+# modest, retries are generous, and requests are jittered + paced.
+_DEFAULT_MAX_PARALLEL_TEXT_FETCHES = 3
+_DEFAULT_DOWNLOAD_MAX_RETRIES = 6
+_DEFAULT_DOWNLOAD_RETRY_DELAY_SECONDS = 5.0
+_DEFAULT_INTER_QUERY_PAUSE_SECONDS = 5.0
+_DEFAULT_FETCH_JITTER_MIN_SECONDS = 0.5
+_DEFAULT_FETCH_JITTER_MAX_SECONDS = 2.0
+
+# HTTP statuses that mean "Cloudflare blocked this as a bot" — worth re-warming
+# the __cf_bm cookie before the retry wrapper backs off and tries again.
+_ANTIBOT_STATUS_CODES = frozenset({403, 429})
 
 
-class TokenEncoding(Protocol):
-    """Minimal token-codec surface used by :func:`chunk_text` (tiktoken-shaped)."""
+def build_doc_entry(doc: dict[str, Any], text: str, query: str, collection: str) -> dict[str, Any]:
+    """Build one Qdrant entry payload for a document (news payload shape).
 
-    def encode(self, text: str) -> list[int]: ...
-
-    def decode(self, tokens: list[int]) -> str: ...
-
-
-def clean_text(text: str) -> str:
-    """Normalise WB plain text: drop form-feeds and collapse blank-line runs."""
-    text = text.replace("\x0c", "\n")
-    text = re.sub(r"[ \t]+\n", "\n", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
-
-
-def chunk_text(text: str, encoding: TokenEncoding, chunk_size: int, overlap: int) -> list[str]:
-    """Split ``text`` into overlapping token windows of ``chunk_size`` tokens.
-
-    Windows advance by ``chunk_size - overlap`` tokens. A text within one window
-    is returned whole. Each returned chunk decodes back to text.
+    The full document text is stored on the entry; the shared uploader splits it
+    into overlapping token-window chunks (one Qdrant point each) and adds the
+    ``chunk_index`` / ``total_chunks`` / ``"(part i/N)"`` title metadata.
     """
-    token_ids = encoding.encode(text)
-    if not token_ids:
-        return []
-    if len(token_ids) <= chunk_size:
-        return [text]
-
-    step = max(1, chunk_size - overlap)
-    chunks: list[str] = []
-    for start in range(0, len(token_ids), step):
-        window = token_ids[start : start + chunk_size]
-        if not window:
-            break
-        chunks.append(encoding.decode(window))
-        if start + chunk_size >= len(token_ids):
-            break
-    return chunks
-
-
-def build_chunk_entry(
-    doc: dict[str, Any],
-    chunk: str,
-    chunk_index: int,
-    total_chunks: int,
-    query: str,
-    collection: str,
-) -> dict[str, Any]:
-    """Build one Qdrant entry payload for a document chunk (news payload shape)."""
     display_title = str(doc.get("display_title") or doc.get("id") or "Untitled")
     docdt = str(doc.get("docdt") or "")
     docty = doc.get("docty") or ""
     country = doc.get("count") or ""
-    title = (
-        f"{display_title} (part {chunk_index + 1}/{total_chunks})"
-        if total_chunks > 1
-        else display_title
-    )
 
     return {
         "topic": query,
@@ -101,8 +69,8 @@ def build_chunk_entry(
         "source": "world_bank",
         "archive_name": collection,
         "article": {
-            "title": title,
-            "text": chunk,
+            "title": display_title,
+            "text": text,
             "url": doc.get("url") or "",
             "pdfurl": doc.get("pdfurl") or "",
             "published": docdt,
@@ -112,8 +80,6 @@ def build_chunk_entry(
             "thread": {"site": "World Bank", "site_section": docty, "country": country},
             "doc_id": doc.get("id") or "",
             "doc_title": display_title,
-            "chunk_index": chunk_index,
-            "total_chunks": total_chunks,
             "docty": docty,
         },
     }
@@ -145,6 +111,8 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
         openai_embedding_model: str = "openai/text-embedding-3-small",
         openai_token_limit: int = 8192,
         openai_model_dimensions: int = 1536,
+        chunk_size_tokens: int = 800,
+        chunk_overlap_tokens: int = 100,
     ) -> None:
         """Capture config; OpenAI/Qdrant/HTTP clients are built in ``_initialize_connections``."""
         self.env_path = Path(env_file)
@@ -155,13 +123,32 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
         self.lang: str | None = config.get("lang") or None
         self.from_year: int | None = config.get("from_year")
         self.doc_types: list[str] = list(config.get("doc_types") or [])
-        self.chunk_size_tokens = int(config.get("chunk_size_tokens", 800))
-        self.chunk_overlap_tokens = int(config.get("chunk_overlap_tokens", 100))
         self.queries: list[dict[str, str]] = [
             {"query": str(item["query"]), "collection": str(item["collection"])}
             for item in config.get("queries", [])
             if item.get("query") and item.get("collection")
         ]
+
+        # Anti-bot / resilience knobs (bigger pauses + more retries than the other
+        # sources because of the Cloudflare bot manager on the document host).
+        self.max_parallel_text_fetches = int(
+            config.get("max_parallel_text_fetches", _DEFAULT_MAX_PARALLEL_TEXT_FETCHES)
+        )
+        self.download_max_retries = int(
+            config.get("download_max_retries", _DEFAULT_DOWNLOAD_MAX_RETRIES)
+        )
+        self.download_retry_delay_seconds = float(
+            config.get("download_retry_delay_seconds", _DEFAULT_DOWNLOAD_RETRY_DELAY_SECONDS)
+        )
+        self.inter_query_pause_seconds = float(
+            config.get("inter_query_pause_seconds", _DEFAULT_INTER_QUERY_PAUSE_SECONDS)
+        )
+        self.fetch_jitter_min_seconds = float(
+            config.get("fetch_jitter_min_seconds", _DEFAULT_FETCH_JITTER_MIN_SECONDS)
+        )
+        self.fetch_jitter_max_seconds = float(
+            config.get("fetch_jitter_max_seconds", _DEFAULT_FETCH_JITTER_MAX_SECONDS)
+        )
 
         self.qdrant_host = qdrant_host
         self.qdrant_port = str(qdrant_port)
@@ -169,6 +156,8 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
         self.openai_embedding_model = openai_embedding_model
         self.embedding_token_limit = openai_token_limit
         self.openai_model_dimensions = openai_model_dimensions
+        self.chunk_size_tokens = chunk_size_tokens
+        self.chunk_overlap_tokens = chunk_overlap_tokens
         self.embedding_encoding = self._build_embedding_encoding()
 
         self._client: httpx.Client | None = None
@@ -188,8 +177,8 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
                 base_url=self.base_url,
                 lang=self.lang,
             ),
-            retry_delay_seconds=5,
-            max_retries=5,
+            retry_delay_seconds=self.download_retry_delay_seconds,
+            max_retries=self.download_max_retries,
         )
         if probe is None:
             logger.error("World Bank WDS API probe failed; skipping source")
@@ -204,19 +193,35 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
     def _fetch_doc_text(self, doc: dict[str, Any]) -> str:
         """Fetch + retry one document's ``txturl`` plain text (empty on failure).
 
-        A Cloudflare ``403`` raises inside ``fetch_text`` and is retried with
-        backoff here; blocks are transient so an extra attempt usually clears it.
-        A small random pre-fetch delay desynchronises the parallel workers and
-        keeps the aggregate request rate under Cloudflare's bot threshold (the
-        same jitter rationale as the WB indicator client).
+        A Cloudflare block (``403``/``429``) raises inside ``fetch_text``; before
+        re-raising so the retry wrapper backs off, the ``__cf_bm`` cookie is
+        re-warmed so the next attempt looks like a returning browser. A small
+        random pre-fetch delay desynchronises the parallel workers and keeps the
+        aggregate request rate under Cloudflare's bot threshold (the same jitter
+        rationale as the WB indicator client).
         """
-        time.sleep(random.uniform(0.1, 0.6))
+        time.sleep(random.uniform(self.fetch_jitter_min_seconds, self.fetch_jitter_max_seconds))
+        txturl = str(doc["txturl"])
+
+        def _attempt() -> str:
+            try:
+                return fetch_text(self._require_client(), txturl)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in _ANTIBOT_STATUS_CODES:
+                    logger.warning(
+                        "WDS text fetch blocked (%s) for %s; re-warming bot cookie",
+                        exc.response.status_code,
+                        doc.get("id"),
+                    )
+                    warm_up(self._require_client(), txturl)
+                raise
+
         return (
             _call_with_retries(
                 f"wds.text({doc.get('id')})",
-                lambda: fetch_text(self._require_client(), str(doc["txturl"])),
-                retry_delay_seconds=3,
-                max_retries=4,
+                _attempt,
+                retry_delay_seconds=self.download_retry_delay_seconds,
+                max_retries=self.download_max_retries,
             )
             or ""
         )
@@ -224,13 +229,13 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
     def _build_entries_for_docs(
         self, docs: list[dict[str, Any]], query: str, collection: str
     ) -> list[dict[str, Any]]:
-        """Fetch each doc's text concurrently, chunk it, and build entries."""
+        """Fetch each doc's text concurrently and build one entry per document."""
         entries: list[dict[str, Any]] = []
         # Prime Cloudflare's __cf_bm cookie before the parallel burst so the
         # concurrent fetches reuse it instead of each racing a cookie-less 403.
         if docs:
             warm_up(self._require_client(), str(docs[0]["txturl"]))
-        with ThreadPoolExecutor(max_workers=_MAX_PARALLEL_TEXT_FETCHES) as executor:
+        with ThreadPoolExecutor(max_workers=self.max_parallel_text_fetches) as executor:
             futures = {executor.submit(self._fetch_doc_text, doc): doc for doc in docs}
             for future in log_progress(
                 as_completed(futures),
@@ -245,38 +250,40 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
                     continue
                 if not text:
                     continue
-                chunks = chunk_text(
-                    clean_text(text),
-                    self.embedding_encoding,
-                    self.chunk_size_tokens,
-                    self.chunk_overlap_tokens,
-                )
-                total = len(chunks)
-                for index, chunk in enumerate(chunks):
-                    entries.append(build_chunk_entry(doc, chunk, index, total, query, collection))
+                entries.append(build_doc_entry(doc, text, query, collection))
         return entries
+
+    def _search_query(self, query: str) -> list[dict[str, Any]] | None:
+        """Run one WDS search with the shared retry budget."""
+        return _call_with_retries(
+            f"wds.search({query})",
+            lambda: search(
+                self._require_client(),
+                qterm=query,
+                rows=self.rows_per_query,
+                base_url=self.base_url,
+                doc_types=self.doc_types or None,
+                lang=self.lang,
+                from_year=self.from_year,
+            ),
+            retry_delay_seconds=self.download_retry_delay_seconds,
+            max_retries=self.download_max_retries,
+        )
+
+    def _pace_between_queries(self, index: int) -> None:
+        """Pause before every query after the first to stay under the bot threshold."""
+        if index > 0 and self.inter_query_pause_seconds > 0:
+            time.sleep(self.inter_query_pause_seconds)
 
     def run(self) -> None:
         parsed: dict[str, list[dict[str, Any]]] = {}
-        for item in log_progress(
-            self.queries, label="World Bank query-topics", total=len(self.queries)
+        for index, item in enumerate(
+            log_progress(self.queries, label="World Bank query-topics", total=len(self.queries))
         ):
+            self._pace_between_queries(index)
             query = item["query"]
             collection = item["collection"]
-            records = _call_with_retries(
-                f"wds.search({query})",
-                lambda q=query: search(
-                    self._require_client(),
-                    qterm=q,
-                    rows=self.rows_per_query,
-                    base_url=self.base_url,
-                    doc_types=self.doc_types or None,
-                    lang=self.lang,
-                    from_year=self.from_year,
-                ),
-                retry_delay_seconds=5,
-                max_retries=5,
-            )
+            records = self._search_query(query)
             if not records:
                 logger.warning("No WDS documents for query %r", query)
                 parsed[collection] = []
@@ -285,7 +292,7 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
             docs = dedup_with_text(records)
             entries = self._build_entries_for_docs(docs, query, collection)
             parsed[collection] = entries
-            logger.info("World Bank %s: %d docs -> %d chunks", collection, len(docs), len(entries))
+            logger.info("World Bank %s: %d docs -> %d entries", collection, len(docs), len(entries))
 
         self.upload_collections(parsed)
         if self._client is not None:
@@ -295,29 +302,20 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
         """Incrementally ingest only documents not already embedded (dedup by doc id).
 
         Per query re-runs the WDS search, keeps only documents whose ``id`` is not
-        already in the collection (``article.doc_id``), fetches + chunks only those,
-        and upserts the new chunks (no ``recreate``).
+        already in the collection (``article.doc_id``), fetches only those, and
+        upserts them (no ``recreate``). The shared uploader chunks each new
+        document into its Qdrant points.
         """
         parsed: dict[str, list[dict[str, Any]]] = {}
-        for item in log_progress(
-            self.queries, label="World Bank query-topics (update)", total=len(self.queries)
+        for index, item in enumerate(
+            log_progress(
+                self.queries, label="World Bank query-topics (update)", total=len(self.queries)
+            )
         ):
+            self._pace_between_queries(index)
             query = item["query"]
             collection = item["collection"]
-            records = _call_with_retries(
-                f"wds.search({query})",
-                lambda q=query: search(
-                    self._require_client(),
-                    qterm=q,
-                    rows=self.rows_per_query,
-                    base_url=self.base_url,
-                    doc_types=self.doc_types or None,
-                    lang=self.lang,
-                    from_year=self.from_year,
-                ),
-                retry_delay_seconds=5,
-                max_retries=5,
-            )
+            records = self._search_query(query)
             if not records:
                 logger.warning("No WDS documents for query %r", query)
                 parsed[collection] = []
@@ -329,7 +327,7 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
             entries = self._build_entries_for_docs(new_docs, query, collection)
             parsed[collection] = entries
             logger.info(
-                "World Bank %s incremental: %d new docs -> %d chunks",
+                "World Bank %s incremental: %d new docs -> %d entries",
                 collection,
                 len(new_docs),
                 len(entries),

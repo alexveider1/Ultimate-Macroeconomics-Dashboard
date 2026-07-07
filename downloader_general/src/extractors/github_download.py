@@ -26,7 +26,7 @@ from tiktoken import encoding_for_model
 
 from src.core import tracing
 from src.core.base_downloaders import BaseNewsDownloader
-from src.core.qdrant_uploader import ensure_collection, existing_payload_values
+from src.core.qdrant_uploader import chunk_entries, ensure_collection, existing_payload_values
 from src.settings import load_settings
 from src.utils.downloads import (
     CloneProgress,
@@ -39,6 +39,11 @@ from src.utils.downloads import (
 logger = logging.getLogger(__name__)
 
 SUPPORTED_ARTICLE_LANGUAGES = {"english", "en"}
+
+# Source suffix appended to every Webhose news collection name so the source is
+# identifiable in Qdrant, mirroring the ``actually_relevant_`` / ``world_bank_``
+# prefixes the curated sources use. Readers must append the same suffix.
+NEWS_SOURCE_SUFFIX = "_webhose"
 
 
 class NewsDownloader(BaseNewsDownloader):
@@ -56,6 +61,8 @@ class NewsDownloader(BaseNewsDownloader):
         openai_embedding_model: str = "openai/text-embedding-3-small",
         openai_token_limit: int = 8192,
         openai_model_dimensions: int = 1536,
+        chunk_size_tokens: int = 800,
+        chunk_overlap_tokens: int = 100,
     ) -> None:
         """Capture configuration; OpenAI/Qdrant clients are built lazily.
 
@@ -69,8 +76,11 @@ class NewsDownloader(BaseNewsDownloader):
             config_path: Path to the JSON file listing allowed topics.
             openai_base_url: OpenAI-compatible base URL, or ``None`` for default.
             openai_embedding_model: Embedding model identifier.
-            openai_token_limit: Max tokens per embedding call (input truncated).
+            openai_token_limit: Max tokens per embedding call (safety net only —
+                articles are chunked below this, never truncated).
             openai_model_dimensions: Embedding dimensionality (Qdrant param).
+            chunk_size_tokens: Token-window size each article is split into.
+            chunk_overlap_tokens: Overlap between consecutive chunks.
         """
         self.env_path = Path(env_file)
         self.github_api_url = "https://api.github.com"
@@ -93,6 +103,8 @@ class NewsDownloader(BaseNewsDownloader):
         self.openai_embedding_model = openai_embedding_model
         self.embedding_token_limit = openai_token_limit
         self.openai_model_dimensions = openai_model_dimensions
+        self.chunk_size_tokens = chunk_size_tokens
+        self.chunk_overlap_tokens = chunk_overlap_tokens
         self.embedding_encoding = self._build_embedding_encoding()
         # Concurrent embedding batches per collection. The OpenAI SDK is
         # thread-safe; keep this conservative so we don't blow through the
@@ -220,9 +232,16 @@ class NewsDownloader(BaseNewsDownloader):
 
     @staticmethod
     def _collection_name_for(topic: str, sentiment: str) -> str:
-        """Derive the Qdrant collection name from a topic + sentiment (news convention)."""
+        """Derive the Qdrant collection name from a topic + sentiment (news convention).
+
+        A ``_webhose`` source suffix is appended so this source's collections carry
+        a source marker like the curated ones do with their prefixes
+        (``actually_relevant_*`` / ``world_bank_*``). Readers that reconstruct the
+        name (``agent/agent/tools.py``, ``bff/vector.py``) append the same suffix.
+        """
         topic_normalized = topic.strip().lower()
-        return f"{topic_normalized}_{sentiment}".replace(" ", "_").replace(",", " ").lower()
+        base = f"{topic_normalized}_{sentiment}".replace(" ", "_").replace(",", " ").lower()
+        return f"{base}{NEWS_SOURCE_SUFFIX}"
 
     def _parse_archive_name(
         self, archive_path: Path, allowed_topics: list[str]
@@ -486,7 +505,15 @@ class NewsDownloader(BaseNewsDownloader):
 
         Shared by :meth:`upload_to_qdrant` (recreate-first) and
         :meth:`upsert_to_qdrant` (ensure-first) so the batching path is defined once.
+        Each article is first split into overlapping token-window chunks (one
+        Qdrant point per chunk) so long articles are chunked, never truncated.
         """
+        metadata_entries = chunk_entries(
+            metadata_entries,
+            self.embedding_encoding,
+            self.chunk_size_tokens,
+            self.chunk_overlap_tokens,
+        )
         batch_starts = list(range(0, len(metadata_entries), self.batch_size))
         with ThreadPoolExecutor(max_workers=self.max_parallel_embed_batches) as executor:
             futures = {

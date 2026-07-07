@@ -39,7 +39,7 @@ def test_process_archive_extracts_english_articles(tmp_path: Path) -> None:
     result = downloader._process_archive(archive, allowed_topics=["economy"])
     assert result is not None
     collection_name, entries = result
-    assert collection_name == "economy_positive"
+    assert collection_name == "economy_positive_webhose"
     assert len(entries) == 1
     assert entries[0]["topic"] == "economy"
     assert entries[0]["sentiment"] == "positive"

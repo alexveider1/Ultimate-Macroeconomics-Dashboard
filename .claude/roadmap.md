@@ -174,6 +174,8 @@ All sources **extend the existing downloaders**: new modules under `downloader_g
 
 **Touchpoints:** `forecaster/`, `clustering/`, new `triton/` model repo, `docker-compose.yaml` (`deploy.resources.reservations.devices` GPU block, already used by `forecaster`).
 
+**Follow-up shipped (multimodal input):** Triton now also hosts a **vLLM-backend VLM** (`granite_docling`) behind Triton's **OpenAI-compatible frontend** (`--enable-kserve-frontends` keeps the gRPC/HTTP endpoints for the forecaster/clustering adapters). This backs the new **`docling`** service (document→Markdown) and the BFF **multimodal chat endpoint** (`POST /agent/chat/multimodal`): text/image/audio/document uploads are normalized at the BFF (audio via an OpenAI-compatible Whisper endpoint, documents via `docling`, images forwarded to the agent's vision path via `ChatRequest.images`). UI wiring + agent voice **output** remain open (see TODO's "Voice and file input").
+
 ---
 
 ## Phase 6 — Next.js + ECharts frontend *(was #1 frontend)* — **LAST**

@@ -200,6 +200,7 @@ async def process_chat_stream(request: ChatRequest):
                     usage_tracker=usage_tracker,
                     langfuse_handler=langfuse_handler,
                     trace_metadata=trace_metadata,
+                    images=request.images,
                 ):
                     event_type = event.get("type", "step")
                     if event_type == "step":

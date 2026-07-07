@@ -27,6 +27,20 @@ def test_chat_request_accepts_history() -> None:
     assert req.chat_history[0].role == "user"
 
 
+def test_chat_request_defaults_images_empty() -> None:
+    req = ChatRequest(user_message="What is GDP?")
+    assert req.images == []
+
+
+def test_chat_request_accepts_images() -> None:
+    req = ChatRequest(
+        user_message="Describe this chart",
+        images=["data:image/png;base64,AAAA", "data:image/jpeg;base64,BBBB"],
+    )
+    assert len(req.images) == 2
+    assert req.images[0].startswith("data:image/png;base64,")
+
+
 def test_supervisor_decision_rejects_unknown_worker() -> None:
     with pytest.raises(ValidationError):
         SupervisorDecision(

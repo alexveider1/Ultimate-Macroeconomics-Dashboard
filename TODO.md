@@ -36,7 +36,7 @@
 * **Triton follow-ups (Phase 5):** freeze `triton/requirements.txt` to the exact known-good resolution after the first successful GPU build (RAPIDS pins numpy/pandas — currently light on pins); consider Triton **explicit model-control** so disabled families (`*_AVAILABLE: false`) aren't loaded at all; optionally revisit a true ONNX/TensorRT Chronos export (deferred — fragile enc/dec + sampling, marginal at short horizons).
 * Interactive graph networks visualizing connections between countries in the global economy; dedicated graph-based analysis pages.
 * Option for RAG over a graph-based knowledge database.
-* Voice and file input for the AI agent; voice output from the agent.
+* ~~Voice and file input for the AI agent~~ **DONE (input, BFF-level, no UI yet)** — a multimodal chat endpoint on the BFF (`POST /agent/chat/multimodal`, `bff/multimodal.py`) normalizes uploads before they reach the agent: text (`.json`/`.md`/`.txt`) decoded, images (`.png`/`.jpg`/…) forwarded as vision content-parts (agent `ChatRequest.images` → multimodal `HumanMessage`), audio (`.mp3`/`.wav`/…) transcribed via an OpenAI-compatible **Whisper** endpoint (`config.yaml` `whisper:`), and documents (`.pdf`/`.docx`/`.pptx`/`.xlsx`) converted to Markdown by a new **`docling`** service whose PDF VLM inference runs on the Triton-hosted `granite_docling` model (vLLM backend + Triton OpenAI frontend on :9000). Remaining: wire it into the Streamlit/Next.js UI; **voice output** from the agent.
 * Dashboard page with educational videos explaining how the ML/DL models used in the project work.
 * Option to store data in cloud services.
 

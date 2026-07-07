@@ -5,6 +5,8 @@ these run with no network and no live containers.
 """
 
 from collections.abc import Iterator
+import json
+from types import SimpleNamespace
 
 import clients
 from fastapi import FastAPI, HTTPException
@@ -119,3 +121,123 @@ def test_agent_chat_stream_relays_sse(proxy_client: TestClient) -> None:
     response = proxy_client.post("/agent/chat/stream", json={"user_message": "hi"})
     assert response.status_code == 200
     assert 'data: {"type": "final"' in response.text
+
+
+# --- Multimodal chat endpoint -------------------------------------------------
+
+
+class _FakeTranscriptions:
+    async def create(self, model: str, file: tuple) -> SimpleNamespace:  # noqa: A002
+        return SimpleNamespace(text="transcribed words")
+
+
+class _FakeWhisper:
+    audio = SimpleNamespace(transcriptions=_FakeTranscriptions())
+
+    async def close(self) -> None:  # pragma: no cover - parity with real client
+        return None
+
+
+@pytest.fixture()
+def mm_client() -> Iterator[tuple[TestClient, list[dict]]]:
+    captured: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/chat/stream":
+            captured.append(json.loads(request.content))
+            return httpx.Response(
+                200,
+                content=b'data: {"type": "final", "answer": "ok"}\n\n',
+                headers={"content-type": "text/event-stream"},
+            )
+        if path == "/convert":
+            return httpx.Response(200, json={"markdown": "# Report\n\nquarterly gdp"})
+        raise httpx.ConnectError("refused")
+
+    app = FastAPI()
+    app.include_router(agent.router)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    app.state.agent_url = "http://agent:8000"
+    app.state.docling_url = "http://docling:8006"
+    app.state.docling_timeout = 30.0
+    app.state.whisper_client = _FakeWhisper()
+    app.state.whisper_model = "whisper-1"
+    app.state.whisper_enabled = True
+
+    with TestClient(app) as test_client:
+        yield test_client, captured
+
+
+def test_multimodal_text_file_folds_into_message(
+    mm_client: tuple[TestClient, list[dict]],
+) -> None:
+    client, captured = mm_client
+    resp = client.post(
+        "/agent/chat/multimodal",
+        data={"user_message": "summarize", "session_id": "s1"},
+        files=[("files", ("notes.md", b"hello world", "text/markdown"))],
+    )
+    assert resp.status_code == 200
+    assert 'data: {"type": "final"' in resp.text
+    body = captured[-1]
+    assert body["session_id"] == "s1"
+    assert "summarize" in body["user_message"]
+    assert "hello world" in body["user_message"]
+    assert body["images"] == []
+
+
+def test_multimodal_image_becomes_data_uri(
+    mm_client: tuple[TestClient, list[dict]],
+) -> None:
+    client, captured = mm_client
+    resp = client.post(
+        "/agent/chat/multimodal",
+        data={"user_message": "what is this"},
+        files=[("files", ("chart.png", b"\x89PNGbytes", "image/png"))],
+    )
+    assert resp.status_code == 200
+    body = captured[-1]
+    assert len(body["images"]) == 1
+    assert body["images"][0].startswith("data:image/png;base64,")
+    assert "chart.png" in body["user_message"]
+
+
+def test_multimodal_audio_is_transcribed(
+    mm_client: tuple[TestClient, list[dict]],
+) -> None:
+    client, captured = mm_client
+    resp = client.post(
+        "/agent/chat/multimodal",
+        data={"user_message": "listen"},
+        files=[("files", ("memo.mp3", b"ID3audio", "audio/mpeg"))],
+    )
+    assert resp.status_code == 200
+    assert "transcribed words" in captured[-1]["user_message"]
+
+
+def test_multimodal_document_uses_docling(
+    mm_client: tuple[TestClient, list[dict]],
+) -> None:
+    client, captured = mm_client
+    resp = client.post(
+        "/agent/chat/multimodal",
+        data={"user_message": "read this"},
+        files=[("files", ("report.pdf", b"%PDF-1.4", "application/pdf"))],
+    )
+    assert resp.status_code == 200
+    assert "quarterly gdp" in captured[-1]["user_message"]
+
+
+def test_multimodal_audio_disabled_notes_gracefully(
+    mm_client: tuple[TestClient, list[dict]],
+) -> None:
+    client, captured = mm_client
+    client.app.state.whisper_enabled = False
+    resp = client.post(
+        "/agent/chat/multimodal",
+        data={"user_message": "listen"},
+        files=[("files", ("memo.mp3", b"ID3audio", "audio/mpeg"))],
+    )
+    assert resp.status_code == 200
+    assert "not configured" in captured[-1]["user_message"]

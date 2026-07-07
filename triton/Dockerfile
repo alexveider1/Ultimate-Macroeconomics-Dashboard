@@ -1,7 +1,8 @@
-# NVIDIA Triton Inference Server. The `-py3` image ships the python backend
-# (Python 3.12, CUDA 12.x) that every model in model_repository/ uses. GPU is
-# required at runtime (Chronos/XGBoost on CUDA, cuML for clustering).
-FROM nvcr.io/nvidia/tritonserver:25.02-py3
+# NVIDIA Triton Inference Server. The `-vllm-py3` image ships BOTH the python
+# backend (Python 3.12, CUDA 12.x — every forecasting/clustering model) AND the
+# vLLM backend + the OpenAI-compatible frontend used to serve the docling VLM
+# (granite-docling) over `/v1/chat/completions`. GPU is required at runtime.
+FROM nvcr.io/nvidia/tritonserver:25.02-vllm-py3
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -23,13 +24,28 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade --ignore-installed pip \
     && pip install -r /tmp/requirements.txt
 
+# Extra Python deps required by Triton's OpenAI-compatible frontend (fastapi /
+# uvicorn / sse-starlette / openai + the HF tokenizer loader). Install the
+# frontend's own requirements file if the image ships one.
+RUN if [ -f /opt/tritonserver/python/openai/requirements.txt ]; then \
+        pip install -r /opt/tritonserver/python/openai/requirements.txt; \
+    fi
+
 # Shared inference code, importable by every model.py through PYTHONPATH.
 COPY common/ /opt/umd/
 
-# The python-backend model repository (one dir per algorithm).
+# The model repository: python-backend forecasting/clustering models + the
+# `granite_docling` vLLM-backend model for docling PDF conversion.
 COPY model_repository/ /models/
 
-EXPOSE 8000 8001 8002
+# HTTP :8000, gRPC :8001, metrics :8002 (KServe) + OpenAI :9000 — all internal.
+EXPOSE 8000 8001 8002 9000
 
-# HTTP :8000, gRPC :8001, metrics :8002 (internal to the compose network).
-CMD ["tritonserver", "--model-repository=/models", "--log-verbose=0"]
+# Launch the OpenAI-compatible frontend (serves granite_docling on its default
+# port :9000) while `--enable-kserve-frontends` keeps the standard HTTP/gRPC/
+# metrics endpoints up so forecaster/clustering gRPC + the `/v2/health/ready`
+# probe still work.
+CMD ["python3", "/opt/tritonserver/python/openai/openai_frontend/main.py", \
+     "--model-repository", "/models", \
+     "--tokenizer", "ibm-granite/granite-docling-258M", \
+     "--enable-kserve-frontends"]

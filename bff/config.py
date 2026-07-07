@@ -37,6 +37,26 @@ class SharedConfig(BaseModel):
     openai_embedding_model: str = "openai/text-embedding-3-small"
 
 
+class WhisperConfig(BaseModel):
+    """The ``whisper`` block — OpenAI-compatible audio-transcription endpoint.
+
+    Used by the multimodal chat endpoint to transcribe uploaded audio. The API
+    key is the shared ``OPENAI_API_KEY`` (read via :class:`Settings`); only these
+    non-secret knobs live in ``config.yaml``.
+    """
+
+    enabled: bool = True
+    base_url: str = "https://api.openai.com/v1"
+    model: str = "whisper-1"
+
+
+class DoclingConfig(BaseModel):
+    """The ``docling`` service block — document→Markdown conversion endpoint."""
+
+    port: int = 8006
+    convert_timeout_seconds: int = 120
+
+
 class PortConfig(BaseModel):
     """A bare ``{port: int}`` service block."""
 
@@ -68,6 +88,8 @@ class BffConfig(BaseModel):
     postgres: PostgresConfig = PostgresConfig()
     qdrant: QdrantConfig = QdrantConfig()
     shared: SharedConfig = SharedConfig()
+    whisper: WhisperConfig = WhisperConfig()
+    docling: DoclingConfig = DoclingConfig()
     bff: BffPortConfig = BffPortConfig()
     agent: PortConfig = PortConfig(port=8000)
     forecaster: PortConfig = PortConfig(port=8001)

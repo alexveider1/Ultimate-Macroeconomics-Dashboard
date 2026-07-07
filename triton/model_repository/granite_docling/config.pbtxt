@@ -1,0 +1,14 @@
+# granite-docling VLM served by Triton's vLLM backend. Consumed by the docling
+# service over the OpenAI-compatible frontend (`/v1/chat/completions`, model
+# name "granite_docling"). The vLLM backend auto-completes the tensor schema and
+# manages its own batching/scheduling, so no input/output/max_batch_size here.
+# KIND_MODEL lets vLLM own device placement; GPU memory is capped in model.json
+# so Chronos/XGBoost keep headroom on the shared GPU.
+backend: "vllm"
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_MODEL
+  }
+]

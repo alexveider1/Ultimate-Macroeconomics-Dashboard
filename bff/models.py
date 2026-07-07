@@ -288,10 +288,17 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    """Body for ``POST /agent/chat/stream`` — forwarded to the agent."""
+    """Body for ``POST /agent/chat/stream`` — forwarded to the agent.
+
+    ``session_id`` groups turns in Langfuse; ``images`` carries per-turn image
+    attachments as base64 data URIs (populated by the multimodal endpoint), which
+    the agent injects as OpenAI vision content-parts.
+    """
 
     user_message: str
     chat_history: list[ChatMessage] = Field(default_factory=list)
+    session_id: str | None = None
+    images: list[str] = Field(default_factory=list)
 
 
 class PlotInterpretRequest(BaseModel):

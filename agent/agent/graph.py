@@ -65,6 +65,26 @@ WORKER_NAMES = [
 WORKER_HISTORY_TURNS = 3
 
 
+def _message_text(content: Any) -> str:
+    """Return the plain-text of a message, tolerating multimodal content.
+
+    A ``HumanMessage`` carrying image attachments has ``content`` as a list of
+    OpenAI content-parts (``{"type": "text", ...}`` / ``{"type": "image_url",
+    ...}``) rather than a bare string. This concatenates the text parts and
+    drops image parts so callers never stringify (and leak) base64 data URIs.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            str(part.get("text", ""))
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        ]
+        return " ".join(p for p in parts if p)
+    return str(content)
+
+
 def _format_chat_history(messages: list, max_turns: int = WORKER_HISTORY_TURNS) -> str:
     """Render the last ``max_turns`` messages as a compact text block.
 
@@ -79,9 +99,9 @@ def _format_chat_history(messages: list, max_turns: int = WORKER_HISTORY_TURNS) 
     lines: list[str] = []
     for msg in trimmed:
         if isinstance(msg, HumanMessage):
-            lines.append(f"USER: {str(msg.content).strip()}")
+            lines.append(f"USER: {_message_text(msg.content).strip()}")
         elif isinstance(msg, AIMessage):
-            text = str(msg.content).strip()
+            text = _message_text(msg.content).strip()
             if len(text) > 400:
                 text = text[:400] + "…"
             lines.append(f"ASSISTANT: {text}")
@@ -168,7 +188,7 @@ class GuardrailAgent:
         last_user_msg = ""
         for msg in reversed(state.get("messages", [])):
             if isinstance(msg, HumanMessage):
-                last_user_msg = str(msg.content)
+                last_user_msg = _message_text(msg.content)
                 break
         if not last_user_msg.strip():
             return {
@@ -1395,8 +1415,17 @@ class MacroAgentGraph:
     def _build_initial_state(
         message: str,
         chat_history: list[dict],
+        images: list[str] | None = None,
     ) -> dict:
-        """Convert raw chat history + the current message into a LangGraph state."""
+        """Convert raw chat history + the current message into a LangGraph state.
+
+        When ``images`` (base64 data URIs) are supplied, the current turn becomes
+        a multimodal ``HumanMessage`` whose ``content`` is a list of OpenAI
+        content-parts (one ``text`` part + one ``image_url`` part per image), the
+        same shape used by ``/plots/interpret``. Only the vision-capable supervisor
+        receives the raw messages, so the images are visible there; text workers see
+        the text-only history via :func:`_message_text`.
+        """
         messages: list = []
         for msg in chat_history:
             role = msg.get("role", "user")
@@ -1405,7 +1434,12 @@ class MacroAgentGraph:
                 messages.append(HumanMessage(content=content))
             elif role == "assistant":
                 messages.append(AIMessage(content=content))
-        messages.append(HumanMessage(content=message))
+        if images:
+            content_parts: list[dict[str, Any]] = [{"type": "text", "text": message}]
+            content_parts.extend({"type": "image_url", "image_url": {"url": uri}} for uri in images)
+            messages.append(HumanMessage(content=content_parts))
+        else:
+            messages.append(HumanMessage(content=message))
 
         return {
             "messages": messages,
@@ -1472,6 +1506,7 @@ class MacroAgentGraph:
         usage_tracker: Any | None = None,
         langfuse_handler: Any | None = None,
         trace_metadata: dict[str, Any] | None = None,
+        images: list[str] | None = None,
     ):
         """Yield events the API layer relays to the chat UI.
 
@@ -1487,7 +1522,7 @@ class MacroAgentGraph:
         Langfuse trace attributes (``langfuse_session_id`` / ``langfuse_user_id``
         / ``langfuse_tags``) that surface on the trace.
         """
-        state = self._build_initial_state(message, chat_history or [])
+        state = self._build_initial_state(message, chat_history or [], images)
         accumulated_artifacts: dict[str, Any] = {}
         last_isolated_task = ""
         final_state: dict[str, Any] = {}

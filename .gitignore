@@ -80,6 +80,7 @@ test*/
 /forecaster/config.yaml
 /clustering/config.yaml
 /python_sandbox/config.yaml
+/docling/config.yaml
 /
 
 # Logs

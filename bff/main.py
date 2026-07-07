@@ -71,6 +71,15 @@ async def lifespan(app: FastAPI):
     app.state.embedding_model = CONFIG.shared.openai_embedding_model
     app.state.news_search_enabled = bool(SETTINGS.openai_api_key)
 
+    # Multimodal chat backends: audio transcription (OpenAI-compatible Whisper,
+    # reusing OPENAI_API_KEY) and the docling document→Markdown service.
+    app.state.whisper_client = vector.build_openai_client(
+        SETTINGS.openai_api_key, CONFIG.whisper.base_url
+    )
+    app.state.whisper_model = CONFIG.whisper.model
+    app.state.whisper_enabled = CONFIG.whisper.enabled and bool(SETTINGS.openai_api_key)
+    app.state.docling_timeout = float(CONFIG.docling.convert_timeout_seconds)
+
     app.state.http_client = httpx.AsyncClient(limits=_HTTPX_LIMITS)
     app.state.forecaster_url = clients.resolve_base_url(
         "FORECASTER_BASE_URL", f"http://forecaster:{CONFIG.forecaster.port}"
@@ -81,6 +90,9 @@ async def lifespan(app: FastAPI):
     app.state.agent_url = clients.resolve_base_url(
         "AGENT_BASE_URL", f"http://agent:{CONFIG.agent.port}"
     )
+    app.state.docling_url = clients.resolve_base_url(
+        "DOCLING_BASE_URL", f"http://docling:{CONFIG.docling.port}"
+    )
 
     try:
         yield
@@ -89,6 +101,7 @@ async def lifespan(app: FastAPI):
         await app.state.http_client.aclose()
         await app.state.qdrant.close()
         await app.state.openai.close()
+        await app.state.whisper_client.close()
         tracing.flush()
 
 

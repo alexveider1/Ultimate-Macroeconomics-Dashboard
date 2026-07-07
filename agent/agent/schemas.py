@@ -336,6 +336,16 @@ class ChatRequest(BaseModel):
             "the trace session id so turns of one conversation group together."
         ),
     )
+    images: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional image attachments for the current turn as base64 data URIs "
+            "(``data:image/<fmt>;base64,...``). Injected into the user message as "
+            "OpenAI vision content-parts so the (vision-capable) supervisor can see "
+            "them. Non-image modalities (audio, documents) are folded into "
+            "``user_message`` as text upstream at the BFF."
+        ),
+    )
 
 
 class PlotInterpretationRequest(BaseModel):

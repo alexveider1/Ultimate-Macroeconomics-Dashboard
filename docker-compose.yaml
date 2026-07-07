@@ -140,16 +140,18 @@ services:
       # Persist the Hugging Face weight cache so Chronos isn't re-downloaded on
       # every container restart.
       - triton_hf_cache:/root/.cache/huggingface
-    # Ports (HTTP 8000 / gRPC 8001 / metrics 8002) stay internal to the compose
-    # network — the adapters reach Triton over gRPC by container name.
+    # Ports (HTTP 8000 / gRPC 8001 / metrics 8002 + OpenAI 9000) stay internal to
+    # the compose network — the adapters reach Triton over gRPC, and the docling
+    # service reaches the OpenAI frontend at triton:9000, both by container name.
     healthcheck:
       test: [ "CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/v2/health/ready', timeout=3).status == 200 else 1)" ]
       interval: 30s
       timeout: 5s
-      retries: 20
-      # First boot pip-loads RAPIDS/torch, downloads Chronos weights, and inits
-      # every python-backend model — allow a long ramp before marking healthy.
-      start_period: 600s
+      retries: 30
+      # First boot pip-loads RAPIDS/torch, downloads Chronos + granite-docling
+      # weights, and inits every model (incl. the vLLM engine) — allow a long
+      # ramp before marking healthy.
+      start_period: 900s
 
   forecaster:
     build:
@@ -290,6 +292,30 @@ services:
       - ./_container_data/bff:/app/_container_data
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8005/health', timeout=3).status == 200 else 1)" ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  docling:
+    build:
+      context: docling
+      dockerfile: Dockerfile
+    container_name: docling
+    restart: unless-stopped
+    # Converts document uploads to Markdown for the BFF multimodal chat. Holds no
+    # secrets — PDF VLM inference is offloaded to the keyless internal Triton
+    # OpenAI endpoint (triton:9000); Office formats parse locally.
+    ports:
+      - 8006:8006
+    depends_on:
+      triton:
+        condition: service_healthy
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/docling:/app/_container_data
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8006/health', timeout=3).status == 200 else 1)" ]
       interval: 30s
       timeout: 5s
       retries: 10

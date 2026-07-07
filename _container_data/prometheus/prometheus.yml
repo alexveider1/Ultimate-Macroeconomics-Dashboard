@@ -55,6 +55,7 @@ scrape_configs:
           - http://downloader_extra:8003/health
           - http://python_sandbox:8004/health
           - http://bff:8005/health
+          - http://docling:8006/health
           - http://app:8501/_stcore/health
           - http://triton:8000/v2/health/ready
           - http://vector_db:6333/readyz

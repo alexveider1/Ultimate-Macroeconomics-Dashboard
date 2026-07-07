@@ -23,7 +23,7 @@ Technical stack (not exhaustive):
 
 [`Ultimate Macroeconomics Dashboard`](https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard) is an AI-powered macroeconomic analytics tool: a Streamlit dashboard backed by Postgres + Qdrant, plus FastAPI services for an AI analyst, forecasting, clustering, on-demand data ingestion, and a Python sandbox. **70+** World Bank indicators, **30 000+** news articles, **50+** Yahoo Finance tickers, **150+** prebuilt charts.
 
-The full stack consists of 10 `Docker` containers — `db`, `vector_db`, `downloader_general`, `app`, `agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, and `bff` (plus the optional `backup` service described below). The project follows a strict micro-service design, with each container responsible for one capability:
+The full stack consists of 11 `Docker` containers — `db`, `vector_db`, `downloader_general`, `app`, `agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, `bff`, and `docling` (plus the optional `backup` service described below). The project follows a strict micro-service design, with each container responsible for one capability:
 
 * `db` — relational database (`PostgreSQL`) for tabular data from `World Bank Data API` and `Yahoo Finance`.
 * `vector_db` — vector database (`Qdrant`) for news article embeddings sourced from the `Webz.io` open dataset.
@@ -34,7 +34,8 @@ The full stack consists of 10 `Docker` containers — `db`, `vector_db`, `downlo
 * `clustering` — `FastAPI` micro-service for unsupervised clustering (KMeans, DBSCAN).
 * `downloader_extra` — `FastAPI` micro-service that downloads additional World Bank indicators on demand.
 * `python_sandbox` — `FastAPI` sandbox that executes LLM-generated code in an isolated environment.
-* `bff` — read-only `FastAPI` backend-for-frontend: typed JSON reads of the macro data, Qdrant news search, and proxies to the forecaster / clustering / agent services (for a future JS frontend; the Streamlit app does not use it yet).
+* `bff` — read-only `FastAPI` backend-for-frontend: typed JSON reads of the macro data, Qdrant news search, and proxies to the forecaster / clustering / agent services (for a future JS frontend; the Streamlit app does not use it yet). Also hosts the **multimodal chat endpoint** — attach text/image/audio/document files to a chat message and it normalizes them (transcribes audio via Whisper, converts documents via `docling`, forwards images to the vision model) before streaming to the agent.
+* `docling` — `FastAPI` micro-service that converts uploaded documents (`.pdf` / `.docx` / `.pptx` / `.xlsx`) to Markdown for the multimodal chat. PDFs use docling's VLM pipeline, offloading inference to the `granite-docling` model hosted on the `triton` container (vLLM backend behind Triton's OpenAI-compatible frontend).
 
 ## Quick start
 
@@ -212,7 +213,7 @@ Postgres restore is automated (`pg_restore --clean --if-exists`); a full Qdrant 
 Container and service health is monitored **externally** by a fully open-source **Grafana + Prometheus + OpenTelemetry** stack — deliberately separate from the dashboard so it keeps reporting even when the app is down. Every container is treated as an external service: both its resources and its health are tracked from the outside, with no per-service instrumentation. Open **Grafana at `http://localhost:3001`** (log in as `admin` with `GRAFANA_ADMIN_PASSWORD` from your `.env`). It gives you, out of the box:
 
 - **Per-container CPU / RAM / disk / network** for every container in the stack, plus host-level metrics — collected by an **OpenTelemetry Collector** (`docker_stats` + `hostmetrics` receivers reading the Docker socket + host `/proc`/`/sys`), with history, not just a live snapshot.
-- **Per-service health checks** — a **blackbox exporter** runs HTTP probes against each service's health endpoint (`agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, `bff`, `app`, `triton`, `vector_db`, `langfuse_web`) and TCP probes for the databases (Postgres + the Langfuse backing stores).
+- **Per-service health checks** — a **blackbox exporter** runs HTTP probes against each service's health endpoint (`agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, `bff`, `docling`, `app`, `triton`, `vector_db`, `langfuse_web`) and TCP probes for the databases (Postgres + the Langfuse backing stores).
 - Three provisioned dashboards — **Containers**, **Host**, and **Service health** — backed by **Prometheus** (`http://localhost:9092`), which also scrapes Triton's native inference/GPU metrics.
 
 To add or change a health probe, edit the target list in `_container_data/prometheus/prometheus.yml` (the `blackbox-http` / `blackbox-tcp` jobs) and restart the `prometheus` service. The stack runs fully independently of the app services (no `depends_on` either way), so a monitor outage can never affect the stack. Set `GRAFANA_ADMIN_PASSWORD` in `_container_data/.env` before first boot (see `.env.example`).

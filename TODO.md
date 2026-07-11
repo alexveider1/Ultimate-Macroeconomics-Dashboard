@@ -16,11 +16,11 @@
 * **Agent eval harness:** a fixture table of prompts → asserted worker path / `last_worker_status` / answer-contains checks, run against the LangGraph in `agent/agent/graph.py`, as the regression net for prompt and routing changes.
 * **Observability — logs & traces:** OpenTelemetry structured logs + non-LLM distributed traces aggregated with self-hosted **Loki / Tempo** alongside the existing Prometheus/Grafana. The OTel Collector already runs with an **idle `otlp` receiver** (4317/4318) ready to accept them; still to do is standing up Loki/Tempo and instrumenting each service with the OTel SDK. Complements the shipped resource/health monitor (which covers metrics + health but not log/trace aggregation).
 * **Observability — Langfuse follow-ups:** define custom **model prices** for `gpt-5.4` / `gpt-5.4-mini` in the Langfuse UI (Settings → Models) so cost populates; optionally set `langfuse.sample_rate` < 1.0 for the high-volume initial ingest.
-* **Shared DB models package:** extract the duplicated ORM `Mapped` models into a shared `packages/db_models/` imported by `bff` / `downloader_*` / `agent` (today the BFF carries its own read-subset `schema.py` copy — the deferral avoids rewiring `agent` + `downloader_*` + three Dockerfiles).
+* **Shared DB models package:** extract the duplicated ORM `Mapped` models into a shared `packages/db_models/` imported by `bff` / `downloader_*` / `agent` (today the BFF carries its own read-subset `schema.py` copy).
 
 ## Long-term
 
-* **Triton follow-ups:** freeze `triton/requirements.txt` to the exact known-good resolution after the first successful GPU build (RAPIDS pins numpy/pandas — currently light on pins); consider Triton **explicit model-control** so disabled families (`*_AVAILABLE: false`) aren't loaded at all; optionally revisit a true ONNX/TensorRT Chronos export (deferred — fragile enc/dec + sampling, marginal at short horizons).
+* **Triton follow-ups:** freeze `triton/requirements.txt` to the exact known-good resolution after the first successful GPU build (RAPIDS pins numpy/pandas — currently light on pins); consider Triton **explicit model-control** so disabled families (`*_AVAILABLE: false`) aren't loaded at all; optionally revisit a true ONNX/TensorRT Chronos export.
 * **Voice & file input — remaining:** the multimodal ingestion endpoint already exists on the BFF (`POST /agent/chat/multimodal`, normalizing text/image/audio/document uploads). Still to do: wire a file/mic upload control into the React AI-chat page → that endpoint, and add **voice output** from the agent.
 * Interactive graph networks visualizing connections between countries in the global economy; dedicated graph-based analysis pages.
 * Option for RAG over a graph-based knowledge database.

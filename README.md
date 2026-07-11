@@ -10,36 +10,53 @@ Technical stack (not exhaustive):
 ![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
 ![uv](https://img.shields.io/badge/uv-%23DE5FE9.svg?style=for-the-badge&logo=uv&logoColor=white)
-![PyPi](https://img.shields.io/badge/pypi-%23ececec.svg?style=for-the-badge&logo=pypi&logoColor=1f73b7)
-![Streamlit](https://img.shields.io/badge/Streamlit-%23FE4B4B.svg?style=for-the-badge&logo=streamlit&logoColor=white)
+![React](https://img.shields.io/badge/react-%2320232a.svg?style=for-the-badge&logo=react&logoColor=%2361DAFB)
+![TypeScript](https://img.shields.io/badge/typescript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/vite-%23646CFF.svg?style=for-the-badge&logo=vite&logoColor=white)
+![Apache ECharts](https://img.shields.io/badge/Apache%20ECharts-AA344D?style=for-the-badge&logo=apacheecharts&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
 ![Pydantic](https://img.shields.io/badge/pydantic-%23E92063.svg?style=for-the-badge&logo=pydantic&logoColor=white)
 ![Polars](https://img.shields.io/badge/polars-0075ff?style=for-the-badge&logo=polars&logoColor=white)
-![Plotly](https://img.shields.io/badge/Plotly-%233F4F75.svg?style=for-the-badge&logo=plotly&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/langgraph-%231C3C3C.svg?style=for-the-badge&logo=langgraph&logoColor=white)
+![NVIDIA Triton](https://img.shields.io/badge/nvidia%20triton-%2376B900.svg?style=for-the-badge&logo=nvidia&logoColor=white)
 ![Postgres](https://img.shields.io/badge/postgres-%23316192.svg?style=for-the-badge&logo=postgresql&logoColor=white)
 ![Qdrant](https://img.shields.io/badge/qdrant-%23dc2626.svg?style=for-the-badge&logo=qdrant&logoColor=white)
+![Plotly](https://img.shields.io/badge/Plotly-%233F4F75.svg?style=for-the-badge&logo=plotly&logoColor=white)
 ![DuckDuckGo](https://img.shields.io/badge/duckduckgo-de5833?style=for-the-badge&logo=duckduckgo&logoColor=white)
 
-[`Ultimate Macroeconomics Dashboard`](https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard) is an AI-powered macroeconomic analytics tool: a Streamlit dashboard backed by Postgres + Qdrant, plus FastAPI services for an AI analyst, forecasting, clustering, on-demand data ingestion, and a Python sandbox. **70+** World Bank indicators, **30 000+** news articles, **50+** Yahoo Finance tickers, **150+** prebuilt charts.
+[`Ultimate Macroeconomics Dashboard`](https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard) is an AI-powered macroeconomic analytics tool: a **React (TypeScript + Vite) single-page dashboard** served by nginx, talking only to a read-only backend-for-frontend (BFF) over `/api`, backed by Postgres + Qdrant, with FastAPI micro-services for the AI analyst, forecasting, clustering, on-demand data ingestion, document conversion, and a sandboxed Python executor, plus an NVIDIA Triton Inference Server hosting all model inference. It covers World Bank, Yahoo Finance, Binance crypto, FRED US-state and Eurostat EU-regional (NUTS-2) data, plus a **30 000+** article news RAG corpus — **70+** World Bank indicators, **50+** Yahoo Finance tickers, and **150+** prebuilt charts.
 
-The full stack consists of 11 `Docker` containers — `db`, `vector_db`, `downloader_general`, `app`, `agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, `bff`, and `docling` (plus the optional `backup` service described below). The project follows a strict micro-service design, with each container responsible for one capability:
+## Architecture
 
-* `db` — relational database (`PostgreSQL`) for tabular data from `World Bank Data API` and `Yahoo Finance`.
-* `vector_db` — vector database (`Qdrant`) for news article embeddings sourced from the `Webz.io` open dataset.
-* `downloader_general` — one-shot job that fetches the initial dataset (World Bank, Yahoo Finance, news) into the databases.
-* `app` — the `Streamlit` dashboard itself (this is what the user opens in the browser).
+The stack is a set of `Docker` containers following a strict micro-service design, each container responsible for one capability. The dashboard is at **`http://localhost:3002`**.
+
+**Application services**
+
+* `frontend` — the React (TypeScript + Vite) single-page dashboard, served by nginx (this is what the user opens in the browser). It talks only to the BFF via nginx's `/api` reverse-proxy.
+* `bff` — read-only `FastAPI` backend-for-frontend and the frontend's **only** backend: typed ORM reads of the macro data, Qdrant news search, and proxies to the forecaster / clustering / agent services. Also hosts the **multimodal chat endpoint** — attach text/image/audio/document files to a chat message and it normalizes them (transcribes audio via Whisper, converts documents via `docling`, forwards images to the vision model) before streaming to the agent.
 * `agent` — `FastAPI` backend hosting the multi-agent AI analyst (LangGraph supervisor + specialised workers).
-* `forecaster` — `FastAPI` micro-service for time-series forecasting (`pmdarima`, `prophet`, `chronos`).
-* `clustering` — `FastAPI` micro-service for unsupervised clustering (KMeans, DBSCAN).
-* `downloader_extra` — `FastAPI` micro-service that downloads additional World Bank indicators on demand.
-* `python_sandbox` — `FastAPI` sandbox that executes LLM-generated code in an isolated environment.
-* `bff` — read-only `FastAPI` backend-for-frontend: typed JSON reads of the macro data, Qdrant news search, and proxies to the forecaster / clustering / agent services (for a future JS frontend; the Streamlit app does not use it yet). Also hosts the **multimodal chat endpoint** — attach text/image/audio/document files to a chat message and it normalizes them (transcribes audio via Whisper, converts documents via `docling`, forwards images to the vision model) before streaming to the agent.
-* `docling` — `FastAPI` micro-service that converts uploaded documents (`.pdf` / `.docx` / `.pptx` / `.xlsx`) to Markdown for the multimodal chat. PDFs use docling's VLM pipeline, offloading inference to the `granite-docling` model hosted on the `triton` container (vLLM backend behind Triton's OpenAI-compatible frontend).
+* `forecaster` — `FastAPI` adapter that forwards time-series forecasting requests (ARIMA family, Prophet, Chronos, moving-average, XGBoost) to `triton` over gRPC.
+* `clustering` — `FastAPI` adapter that forwards unsupervised clustering requests (KMeans, DBSCAN, …) to `triton` over gRPC.
+* `downloader_extra` — `FastAPI` micro-service that ingests additional data on demand from five sources (World Bank indicator, Yahoo ticker, Binance pair, FRED state indicator, Eurostat NUTS-2 dataset), called by the agent.
+* `python_sandbox` — `FastAPI` sandbox that executes LLM-generated Plotly/Polars code in an isolated environment.
+* `docling` — `FastAPI` micro-service that converts uploaded documents (`.pdf` / `.docx` / `.pptx` / `.xlsx`) to Markdown for the multimodal chat. PDFs use docling's VLM pipeline, offloading inference to the `granite-docling` model hosted on `triton`.
+* `triton` — NVIDIA Triton Inference Server: hosts every forecasting + clustering model plus the `granite_docling` VLM (vLLM backend behind Triton's OpenAI-compatible frontend). Internal-only ports.
+
+**Data services**
+
+* `db` — relational database (`PostgreSQL 18`) for tabular data: World Bank, Yahoo Finance, Binance crypto, FRED US-state, and Eurostat EU-NUTS2.
+* `vector_db` — vector database (`Qdrant`) for news + curated-news + World Bank document embeddings.
+* `downloader_general` — fetches the initial dataset into both databases, then stays running as an incremental update scheduler that keeps each source fresh.
+
+**Observability & operations**
+
+* Langfuse (`langfuse_web` + `langfuse_worker` + backing ClickHouse / Redis / MinIO) — self-hosted LLM tracing for the AI analyst; UI at `http://localhost:3000`.
+* Grafana + Prometheus + OpenTelemetry (`grafana`, `prometheus`, `otel-collector`, `blackbox_exporter`) — external container/service resource + health monitoring; Grafana at `http://localhost:3001`, Prometheus at `http://localhost:9092`.
+* `backup` — optional scheduled cloud backups of Postgres + Qdrant via `rclone` (off by default).
 
 ## Quick start
 
-Prerequisites: Docker (with the Compose plugin). An NVIDIA GPU is optional, though it significantly improves the forecaster's performance.
+Prerequisites: Docker (with the Compose plugin) and a working **NVIDIA GPU + the NVIDIA Container Toolkit** — the `triton` service reserves the GPU for all model inference.
 
 ```bash
 # 1. Clone repo
@@ -47,20 +64,17 @@ git clone https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard
 cd Ultimate-Macroeconomics-Dashboard/
 
 # 2. Create the `.env` file (fill in your secrets)
-cp _container_data/.env.example _container_data/.env
-$EDITOR _container_data/.env
+cp .env.example .env
+$EDITOR .env
 
 # 3. Set the shared.openai_* keys in `_container_data/config.yaml`
 $EDITOR _container_data/config.yaml
 
-# 4. If no CUDA-capable GPU is available, remove the `deploy` block under `forecaster:` in docker-compose.yaml
-$EDITOR docker-compose.yaml
-
-# 5. Build and run
+# 4. Build and run
 docker compose up --build
 ```
 
-On first boot, the stack downloads the datasets and inserts them into both databases (relational and vector). How long this takes depends heavily on your network speed, but it usually takes around 30 minutes. The dashboard is not available while the data is downloading; once the download completes, it becomes available at <http://localhost:8501>.
+On first boot, the stack downloads the datasets and inserts them into both databases (relational and vector). How long this takes depends heavily on your network speed, but it usually takes 1–2 hours. The dashboard is not available while the data is downloading; once the download completes, it becomes available at <http://localhost:3002>.
 
 ### Required `.env` variables
 
@@ -68,13 +82,16 @@ On first boot, the stack downloads the datasets and inserts them into both datab
 | -------------------------- | ---------------------------------------------------------------------- |
 | `POSTGRES_USER`            | Postgres superuser created natively by the `postgres:18` image on first boot. |
 | `POSTGRES_PASSWORD`        | Password for the superuser.                                            |
-| `POSTGRES_DB`              | Default database created on first boot (typically `postgres`).         |
-| `POSTGRES_LLM_USER`        | Read-only role used by the AI analyst and the dashboard's bulk reads to query the database. |
+| `POSTGRES_DB`              | Default database created on first boot.                                |
+| `POSTGRES_LLM_USER`        | Read-only role used by the AI analyst and the BFF to query the database. |
 | `POSTGRES_LLM_PASSWORD`    | Password for the read-only role (rotatable; takes effect on next boot). |
 | `QDRANT__SERVICE__API_KEY` | Bearer token protecting the Qdrant HTTP API.                           |
-| `OPENAI_API_KEY`           | API key for the LLM/embedding provider in `config.yaml`.               |
+| `OPENAI_API_KEY`           | API key for the LLM provider in `config.yaml`; also used for embeddings and Whisper audio transcription. |
+| `FRED_API_KEY`             | API key for FRED (GeoFRED) US-state indicator ingestion.               |
+| `LANGFUSE_*`               | Langfuse project keys (`PUBLIC`/`SECRET`), first-boot login (`INIT_USER_*`), and self-host infra secrets (`ENCRYPTION_KEY`, `SALT`, `NEXTAUTH_SECRET`, and the backing-store passwords). |
+| `GRAFANA_ADMIN_PASSWORD`   | Password for the Grafana `admin` login.                                |
 
-> Never commit `_container_data/.env`
+> Never commit `.env`
 
 ### Required `config.yaml` keys
 
@@ -84,31 +101,19 @@ Set these under `shared:` to point at your LLM provider (any OpenAI-compatible A
 shared:
   openai_base_url: https://api.openai.com/v1
   openai_llm_model: gpt-5.4
+  openai_llm_model_fast: gpt-5.4-mini
   openai_embedding_model: openai/text-embedding-3-small
 ```
 
-Everything else has working defaults. See [`_container_data/config.yaml`](_container_data/config.yaml) for the full schema.
+Audio transcription for the multimodal chat is configured under `whisper:` (defaults to the same OpenAI-compatible endpoint). Everything else has working defaults. See [`_container_data/config.yaml`](_container_data/config.yaml) for the full schema.
 
 ## LLM requirements
 
 The agent needs a model with reasoning, tool/function calling, vision, and ≥256k context. Any recent flagship from OpenAI, Google, Anthropic, Qwen, or DeepSeek works. Local models served via [vLLM](https://github.com/vllm-project/vllm) on a powerful GPU also work.
 
-## Illustrations
-
-|                               |                                  |
-| ----------------------------- | -------------------------------- |
-| ![](app/assets/structure.png) | ![](app/assets/ai_structure.png) |
-| ![](app/assets/1.png)         | ![](app/assets/2.png)            |
-| ![](app/assets/3.png)         | ![](app/assets/4.png)            |
-| ![](app/assets/5.png)         | ![](app/assets/6.png)            |
-| ![](app/assets/7.png)         | ![](app/assets/8.png)            |
-| ![](app/assets/9.png)         | ![](app/assets/10.png)            |
-| ![](app/assets/11.png)         | ![](app/assets/12.png)            |
-| ![](app/assets/13.png)         | ![](app/assets/14.png)            |
-
 ## Custom theming
 
-The active colour palette is controlled by `_container_data/themes.yaml`. The bundled themes (`dark`, `dark-blue`, `light-green`) drive both the Plotly chart template and the Streamlit page colours. To change the palette, set the `active` key:
+The active colour palette is controlled by `_container_data/ui_themes.yaml`, served to the frontend by the BFF. The bundled themes (`dark`, `dark-blue`, `light-green`) each define a token tree that the frontend injects as CSS variables and registers as an Apache ECharts theme. To change the palette, set the `active` key (or add a theme that covers every token — no rebuild needed):
 
 ```yaml
 active: dark-blue
@@ -119,16 +124,6 @@ themes:
     ...
   light-green:
     ...
-```
-
-Streamlit also reads its theme from `app/.streamlit/config.toml`. If you want to customise the dashboard chrome directly, edit it there:
-
-```toml
-[theme]
-primaryColor = "#10c8f1"
-backgroundColor = "#000000"
-secondaryBackgroundColor = "#073642"
-textColor = "#ffffff"
 ```
 
 ## Adding extra indicators
@@ -154,7 +149,7 @@ To add more World Bank indicators to the dashboard, append them to `_container_d
 }
 ```
 
-`downloader_general` will pick the new entries up on the next clean boot. Already-running stacks can fetch new indicators on demand via the AI analyst (which delegates to `downloader_extra`).
+`downloader_general` will pick the new entries up on the next clean boot. Already-running stacks can fetch new data on demand via the AI analyst (which delegates to `downloader_extra`) — this covers World Bank indicators, Yahoo tickers, Binance pairs, FRED state indicators, and Eurostat NUTS-2 datasets.
 
 ## Cloud backups
 
@@ -213,10 +208,10 @@ Postgres restore is automated (`pg_restore --clean --if-exists`); a full Qdrant 
 Container and service health is monitored **externally** by a fully open-source **Grafana + Prometheus + OpenTelemetry** stack — deliberately separate from the dashboard so it keeps reporting even when the app is down. Every container is treated as an external service: both its resources and its health are tracked from the outside, with no per-service instrumentation. Open **Grafana at `http://localhost:3001`** (log in as `admin` with `GRAFANA_ADMIN_PASSWORD` from your `.env`). It gives you, out of the box:
 
 - **Per-container CPU / RAM / disk / network** for every container in the stack, plus host-level metrics — collected by an **OpenTelemetry Collector** (`docker_stats` + `hostmetrics` receivers reading the Docker socket + host `/proc`/`/sys`), with history, not just a live snapshot.
-- **Per-service health checks** — a **blackbox exporter** runs HTTP probes against each service's health endpoint (`agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, `bff`, `docling`, `app`, `triton`, `vector_db`, `langfuse_web`) and TCP probes for the databases (Postgres + the Langfuse backing stores).
+- **Per-service health checks** — a **blackbox exporter** runs HTTP probes against each service's health endpoint (`agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, `bff`, `docling`, `frontend`, `triton`, `vector_db`, `langfuse_web`) and TCP probes for the databases (Postgres + the Langfuse backing stores).
 - Three provisioned dashboards — **Containers**, **Host**, and **Service health** — backed by **Prometheus** (`http://localhost:9092`), which also scrapes Triton's native inference/GPU metrics.
 
-To add or change a health probe, edit the target list in `_container_data/prometheus/prometheus.yml` (the `blackbox-http` / `blackbox-tcp` jobs) and restart the `prometheus` service. The stack runs fully independently of the app services (no `depends_on` either way), so a monitor outage can never affect the stack. Set `GRAFANA_ADMIN_PASSWORD` in `_container_data/.env` before first boot (see `.env.example`).
+To add or change a health probe, edit the target list in `_container_data/prometheus/prometheus.yml` (the `blackbox-http` / `blackbox-tcp` jobs) and restart the `prometheus` service. The stack runs fully independently of the app services (no `depends_on` either way), so a monitor outage can never affect the stack. Set `GRAFANA_ADMIN_PASSWORD` in `.env` before first boot (see `.env.example`).
 
 ## Disclaimer
 

@@ -67,9 +67,9 @@ class FredDownloader(BaseFredDownloader):
         self.sql_uri: Optional[str] = None
         self.fred_api_key: str = ""
 
-        self.states_table_name = "states"
-        self.indicators_table_name = "state_indicators"
-        self.values_table_name = "state_indicator_values"
+        self.states_table_name = "fred_states"
+        self.indicators_table_name = "fred_state_indicators"
+        self.values_table_name = "fred_state_indicator_values"
 
         self.database_schema = database_schema or {}
 

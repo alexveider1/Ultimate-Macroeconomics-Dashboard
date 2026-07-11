@@ -56,7 +56,7 @@ scrape_configs:
           - http://python_sandbox:8004/health
           - http://bff:8005/health
           - http://docling:8006/health
-          - http://app:8501/_stcore/health
+          - http://frontend:80/
           - http://triton:8000/v2/health/ready
           - http://vector_db:6333/readyz
           - http://langfuse_web:3000/api/public/health
@@ -82,7 +82,6 @@ scrape_configs:
     static_configs:
       - targets:
           - db:5432
-          - langfuse_postgres:5432
           - langfuse_redis:6379
           - langfuse_clickhouse:8123
           - langfuse_minio:9000

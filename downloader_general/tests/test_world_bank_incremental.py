@@ -19,7 +19,7 @@ from src.extractors.world_bank_download import WorldBankDownloader
 def _make_downloader() -> WorldBankDownloader:
     dl = WorldBankDownloader.__new__(WorldBankDownloader)
     dl.sql_uri = "postgresql://x"  # non-None so _require_sql_uri() passes
-    dl.indicators_table_name = "indicators"
+    dl.indicators_table_name = "world_bank_indicators"
     dl.download_max_retries = 1
     dl.download_retry_delay_seconds = 0
     return dl

@@ -24,6 +24,8 @@ def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"labels": [0, 1, 0]})
     if path == "/models":
         return httpx.Response(200, json={"models": ["gpt-5.4", "gpt-5.4-mini", ""]})
+    if path == "/methods":
+        return httpx.Response(200, json={"methods": ["kmeans", "dbscan"]})
     if path == "/plots/interpret":
         return httpx.Response(200, json={"description": "a line goes up", "mode": "creative"})
     if path == "/chat/stream":
@@ -50,6 +52,16 @@ def proxy_client() -> Iterator[TestClient]:
 
     with TestClient(app) as test_client:
         yield test_client
+
+
+def test_forecast_models_proxied(proxy_client: TestClient) -> None:
+    body = proxy_client.get("/forecast/models").json()
+    assert body["models"]  # forwarded verbatim from the forecaster's /models
+
+
+def test_cluster_methods_proxied(proxy_client: TestClient) -> None:
+    body = proxy_client.get("/cluster/methods").json()
+    assert body["methods"] == ["kmeans", "dbscan"]
 
 
 def test_resolve_base_url_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:

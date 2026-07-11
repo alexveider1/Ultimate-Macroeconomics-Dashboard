@@ -319,10 +319,11 @@ async def _get_embedding(text_input: str) -> List[float]:
     return response.data[0].embedding
 
 
-# Curated sources ingested by ``downloader_general`` under their own per-topic
-# collection names (they don't follow the ``{topic}_{sentiment}`` convention), so
-# a topic/sentiment filter would otherwise skip them. They are always searched.
-ALWAYS_SEARCH_COLLECTION_PREFIXES = ("actually_relevant_", "world_bank_")
+# Curated sources ingested by ``downloader_general`` each into a single
+# source-named collection (``actually_relevant`` / ``world_bank``); they don't
+# follow the ``{topic}_{sentiment}`` convention, so a topic/sentiment filter would
+# otherwise skip them. They are always searched (matched via ``str.startswith``).
+ALWAYS_SEARCH_COLLECTION_PREFIXES = ("actually_relevant", "world_bank")
 
 
 def _sync_qdrant_search(

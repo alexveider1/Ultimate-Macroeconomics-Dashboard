@@ -60,11 +60,11 @@ class WorldBankDownloader(BaseWorldBankDownloader):
         self.download_config = _download_config(download_config_path)
         self.sql_uri: Optional[str] = None
 
-        self.database_table_name = "databases"
-        self.database_indicators_table_name = "database_indicators"
-        self.metadata_table_name = "metadata"
-        self.indicators_table_name = "indicators"
-        self.countries_table_name = "countries"
+        self.database_table_name = "world_bank_databases"
+        self.database_indicators_table_name = "world_bank_database_indicators"
+        self.metadata_table_name = "world_bank_metadata"
+        self.indicators_table_name = "world_bank_indicators"
+        self.countries_table_name = "world_bank_countries"
 
         self.database_schema = database_schema or {}
 

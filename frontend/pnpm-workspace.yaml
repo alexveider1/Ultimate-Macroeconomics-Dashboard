@@ -1,0 +1,8 @@
+# pnpm 11 gates package build scripts. Each dependency that ships a build script
+# must be explicitly allowed (true) or declined (false).
+#  - esbuild ships its platform binary via a postinstall step — required for Vite.
+#  - es5-ext (pulled in transitively by plotly.js) only prints a funding notice —
+#    declined so it doesn't run, without blocking installs.
+allowBuilds:
+  esbuild: true
+  es5-ext: false

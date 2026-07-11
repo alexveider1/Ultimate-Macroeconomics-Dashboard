@@ -8,7 +8,7 @@ the dashboard reads, so ``Base.metadata.create_all`` is a no-op against the live
 tables (and creates them for an isolated test database).
 
 The BFF never writes, so these carry only the columns the read endpoints
-project; the World Bank ``countries`` catalogue uses dotted source column names
+project; the World Bank ``world_bank_countries`` catalogue uses dotted source column names
 (``region.value`` etc.), mapped here to snake-case attributes.
 """
 
@@ -34,9 +34,9 @@ class Base(DeclarativeBase):
 # World Bank
 # --------------------------------------------------------------------------- #
 class Country(Base):
-    """One World Bank economy (``countries``); populated from db=2 (WDI)."""
+    """One World Bank economy (``world_bank_countries``); populated from db=2 (WDI)."""
 
-    __tablename__ = "countries"
+    __tablename__ = "world_bank_countries"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
     value: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -53,9 +53,9 @@ class Country(Base):
 
 
 class DatabaseIndicator(Base):
-    """Human-readable indicator title per WB database (``database_indicators``)."""
+    """Human-readable indicator title per WB database (``world_bank_database_indicators``)."""
 
-    __tablename__ = "database_indicators"
+    __tablename__ = "world_bank_database_indicators"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -63,9 +63,9 @@ class DatabaseIndicator(Base):
 
 
 class MetadataRow(Base):
-    """Rich descriptive metadata for one WB indicator series (``metadata``)."""
+    """Rich descriptive metadata for one WB indicator series (``world_bank_metadata``)."""
 
-    __tablename__ = "metadata"
+    __tablename__ = "world_bank_metadata"
 
     indicator_id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
     db_id: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
@@ -78,9 +78,9 @@ class MetadataRow(Base):
 
 
 class MacroIndicator(Base):
-    """One ``(economy, year, indicator_id, db_id)`` World Bank cell (``indicators``)."""
+    """One ``(economy, year, indicator_id, db_id)`` World Bank cell (``world_bank_indicators``)."""
 
-    __tablename__ = "indicators"
+    __tablename__ = "world_bank_indicators"
 
     economy: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
     year: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
@@ -169,9 +169,9 @@ class BinanceHistoricalPrice(Base):
 # FRED US-state
 # --------------------------------------------------------------------------- #
 class State(Base):
-    """One U.S. state / DC row (``states``)."""
+    """One U.S. state / DC row (``fred_states``)."""
 
-    __tablename__ = "states"
+    __tablename__ = "fred_states"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -181,9 +181,9 @@ class State(Base):
 
 
 class StateIndicator(Base):
-    """Description row for one FRED state-indicator concept (``state_indicators``)."""
+    """Description row for one FRED state-indicator concept (``fred_state_indicators``)."""
 
-    __tablename__ = "state_indicators"
+    __tablename__ = "fred_state_indicators"
 
     indicator_id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -200,12 +200,12 @@ class StateIndicator(Base):
 
 
 class StateIndicatorValue(Base):
-    """One ``(state, year, indicator_id)`` FRED observation (``state_indicator_values``)."""
+    """One ``(state, year, indicator_id)`` FRED observation (``fred_state_indicator_values``)."""
 
-    __tablename__ = "state_indicator_values"
+    __tablename__ = "fred_state_indicator_values"
 
     state: Mapped[str] = mapped_column(
-        String, ForeignKey("states.id"), primary_key=True, nullable=False
+        String, ForeignKey("fred_states.id"), primary_key=True, nullable=False
     )
     year: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
     value: Mapped[float | None] = mapped_column(Float, nullable=True)

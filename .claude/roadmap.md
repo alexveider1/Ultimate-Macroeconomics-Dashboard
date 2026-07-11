@@ -4,6 +4,13 @@
 > [`../TODO.md`](../TODO.md); this file keeps the rationale, phase sequencing, and per-phase
 > touchpoints. Kept under `.claude/` so it stays available to Claude Code without loading into
 > every session's base context.
+>
+> **Post-roadmap housekeeping (storage consolidation, 2026-07):** merged Langfuse's Postgres
+> into the main `db` (a `langfuse` role + database are created by `_container_data/db/init/`, no
+> dedicated `langfuse_postgres` container), collapsed the curated Qdrant RAG sources to one
+> collection each (`actually_relevant`, `world_bank`; Webhose keeps its `_webhose` suffix), and
+> added source prefixes to the World Bank + FRED Postgres tables (`world_bank_*` / `fred_*`).
+> Takes effect on a clean volume wipe + re-ingest. Details in `CLAUDE.md` + `TODO.md`.
 
 ---
 
@@ -19,8 +26,8 @@
 
 | Topic | Decision |
 | ----- | -------- |
-| Frontend framework | **React + Next.js + Apache ECharts** |
-| Frontend cutover | **Strangler, built LAST** — run Next.js alongside Streamlit, migrate page-by-page, retire Streamlit last; the whole frontend phase is sequenced after all backend/data/ops/ML work so it is built once against a final backend |
+| Frontend framework | **React + Apache ECharts** — *(shipped as plain Vite + React 18 + TypeScript, not Next.js: a read-only BFF-backed dashboard gets no SSR/RSC payoff)* |
+| Frontend cutover | **Built LAST** — sequenced after all backend/data/ops/ML work so it is built once against a final backend. *(Shipped as a standalone cutover, not strangler: the React SPA was built to parity as its own `frontend` container, then Streamlit was removed in one step — no reverse proxy fronting two live frontends.)* |
 | Data/API layer | **New Python FastAPI BFF** ("backend-for-frontend") reusing the existing SQLAlchemy `Mapped` models; all reads wrapped in ORM. Built **early but additive** — Streamlit is *not* rewired to it and keeps `connectorx` until retired |
 | Config management | **`pydantic-settings`** — one shared typed `Settings` model loads `config.yaml` + `.env` + env (precedence `env > .env > yaml`), validated at boot; replaces the ~10× duplicated `yaml.safe_load + load_dotenv` boilerplate. Hydra/Dynaconf rejected (overkill / less type-safe) |
 | Secrets | **`SecretStr` + Docker Compose `secrets:`** — pydantic-settings `SecretStr` (typed, masked in logs) for every secret; Compose `secrets:` file-mounts (`/run/secrets/...`) for the crown jewels (DB password, `OPENAI_API_KEY`). No new infra; same workstream as config |
@@ -32,7 +39,7 @@
 | Dev workflow | **Tests + coverage gates + agent eval harness** — built *first* as the correctness safety net |
 | Backups | **Nightly `pg_dump` + Qdrant snapshots** pushed to an `rclone` remote, with retention + restore script |
 
-> **Status (v0.14):** Phase 1 *config* + *secrets* and Phase 2b *agent two-model routing* are implemented — pragmatically. Because each service is its own container with its own `pyproject.toml` (no shared package), config/secrets use **per-service** Pydantic `config.py` + `pydantic-settings` `settings.py` rather than one shared `Settings`, and least privilege is enforced by **per-service `environment:` scoping in `docker-compose.yaml`** (each container gets only the secrets it uses) instead of Docker `secrets:` file-mounts. `SecretStr` log-masking and a BFF-wide shared model remain open follow-ups. From **Phase 3**, the Yahoo Finance universe (#5), Binance crypto (#6 — ingestion + a Crypto dashboard page), FRED US-state indicators (#3 — ingestion + a "Regional Statistics" dashboard page), and the WB→httpx swap (#9) have shipped; on-demand ingestion (`downloader_extra` + the agent's `downloader_agent`) is now **multi-source** (WB indicator / Yahoo ticker / Binance pair / FRED state indicator / Eurostat NUTS-2 dataset). Eurostat (#4 — ingestion + a second "Regional Statistics" page) has now shipped too. News-RAG expansion (#7) has shipped — GDELT was dropped (no full article text) and superseded by two new Qdrant sources, **Actually Relevant** (curated-news API) and **World Bank documents** (WDS `txturl` → chunked). **Phase 2 (BFF)** has now shipped too — a read-only `bff` service (port 8005) with ORM read routers + Qdrant news search + forecaster/clustering/agent proxies (the shared `packages/db_models/` package is the one deferred carve-out; see Phase 2 below). Phase 4's **backups** half shipped (the `backup` service). **Phase 5 (GPU/Triton) has now shipped** — a new `triton` service (NVIDIA Triton Inference Server) hosts **all** forecasting + clustering inference as python-backend models; the CPU-only carve-out was resolved by keeping the classical models (ARIMA family, Prophet, moving-average) on Triton's python CPU backend while Chronos + XGBoost run on CUDA and clustering/dim-reduction use RAPIDS cuML (`forecaster`/`clustering` are now GPU-free adapters forwarding over gRPC; GPU is required on `triton`). Phase 4's **observability** half plus Phase 6 (frontend) remain open.
+> **Status (v0.14):** Phase 1 *config* + *secrets* and Phase 2b *agent two-model routing* are implemented — pragmatically. Because each service is its own container with its own `pyproject.toml` (no shared package), config/secrets use **per-service** Pydantic `config.py` + `pydantic-settings` `settings.py` rather than one shared `Settings`, and least privilege is enforced by **per-service `environment:` scoping in `docker-compose.yaml`** (each container gets only the secrets it uses) instead of Docker `secrets:` file-mounts. `SecretStr` log-masking and a BFF-wide shared model remain open follow-ups. From **Phase 3**, the Yahoo Finance universe (#5), Binance crypto (#6 — ingestion + a Crypto dashboard page), FRED US-state indicators (#3 — ingestion + a "Regional Statistics" dashboard page), and the WB→httpx swap (#9) have shipped; on-demand ingestion (`downloader_extra` + the agent's `downloader_agent`) is now **multi-source** (WB indicator / Yahoo ticker / Binance pair / FRED state indicator / Eurostat NUTS-2 dataset). Eurostat (#4 — ingestion + a second "Regional Statistics" page) has now shipped too. News-RAG expansion (#7) has shipped — GDELT was dropped (no full article text) and superseded by two new Qdrant sources, **Actually Relevant** (curated-news API) and **World Bank documents** (WDS `txturl` → chunked). **Phase 2 (BFF)** has now shipped too — a read-only `bff` service (port 8005) with ORM read routers + Qdrant news search + forecaster/clustering/agent proxies (the shared `packages/db_models/` package is the one deferred carve-out; see Phase 2 below). Phase 4's **backups** half shipped (the `backup` service). **Phase 5 (GPU/Triton) has now shipped** — a new `triton` service (NVIDIA Triton Inference Server) hosts **all** forecasting + clustering inference as python-backend models; the CPU-only carve-out was resolved by keeping the classical models (ARIMA family, Prophet, moving-average) on Triton's python CPU backend while Chronos + XGBoost run on CUDA and clustering/dim-reduction use RAPIDS cuML (`forecaster`/`clustering` are now GPU-free adapters forwarding over gRPC; GPU is required on `triton`). Phase 4's **observability** half has now shipped too — an external Grafana + Prometheus + OpenTelemetry monitoring stack plus a self-hosted Langfuse tracing stack (LLM observability). **Phase 6 (frontend) has now shipped** — the Streamlit `app` was replaced by a standalone React (Vite + TS) + ECharts SPA (`frontend`, host `:3002`) consuming only the BFF, with fully config-driven theming (`ui_themes.yaml`); the Streamlit `app` service + `app/` tree (incl. its `connectorx` read path) were removed at cutover. With this the roadmap's original items are all delivered.
 
 ---
 
@@ -49,7 +56,7 @@ Sequencing principle (decided): **build the safety net and foundations before th
 | **3** | Data expansion: Yahoo, FRED, Eurostat, crypto, GDELT | #5, #3, #4, #6, #7 | 2 (ingestion + BFF) |
 | **4** | Ops: Prometheus/Loki/Tempo/Grafana monitoring + rclone backups | #11, #8 | 1 (instrumentation), 2 |
 | **5** | GPU/ML consolidation: RAPIDS + NVIDIA Triton | #12 | 0, 2 |
-| **6** | Next.js + ECharts frontend (strangler) + dynamic theming — **LAST** | #1 (frontend) | 2, 3 |
+| **6** | React (Vite) + ECharts frontend (standalone cutover) + config-driven theming — **LAST** ✅ *shipped* | #1 (frontend) | 2, 3 |
 
 Phases 2b, 3, and 4 can proceed in parallel with each other (backend/ops only). The frontend (Phase 6) is gated on the BFF (Phase 2) and the new data sources/pages (Phase 3) being stable, so it is built once against the final surface.
 
@@ -178,19 +185,28 @@ All sources **extend the existing downloaders**: new modules under `downloader_g
 
 ---
 
-## Phase 6 — Next.js + ECharts frontend *(was #1 frontend)* — **LAST**
+## Phase 6 — React (Vite) + ECharts frontend *(was #1 frontend)* — **SHIPPED**
 
-**Goal:** replace the Streamlit `app` with a modern, responsive Next.js frontend, **preserving the existing page structure**, with **runtime dynamic theming** (re-enabling what v0.6 removed). Built last so it targets the final BFF surface (all Phase 2–3 endpoints) in one pass.
+**Goal:** replace the Streamlit `app` with a modern, responsive frontend, **preserving the existing page structure**, with **fully config-driven theming** (re-enabling what v0.6 removed). Built last so it targets the final BFF surface (all Phase 2–3 endpoints) in one pass.
 
-**Approach**
-- **New `frontend` service** (Next.js, port `3000`) consuming the Phase-2 BFF. Charts via Apache ECharts (`echarts-for-react` or native). SSR/RSC for fast first paint.
-- **Strangler cutover** — a reverse proxy (nginx or Next rewrites) routes already-migrated routes to Next.js and the rest to the still-running Streamlit `app`. Migrate page-by-page in the existing order (`01_basic_indicators` → … → `15_news`, plus the Phase-3 pages), retiring each Streamlit page as its Next.js equivalent reaches parity. Streamlit is deleted only when the last page is ported — at which point Streamlit's `connectorx` read path retires too.
-- **Dynamic theming** — expose the `themes.yaml` palette via a BFF `/theme` endpoint; map semantic tokens (`positive`, `negative`, `sector_*`, `diverging_*`, `sequential_*`, `selected_marker`, …) to CSS variables + a registered ECharts theme. Add a runtime theme switcher. Port the `KeyError`-on-missing-token strictness so custom themes still fail loud.
-- **Componentise the config-driven pages** — reproduce `render_page_from_config` as a generic React `<IndicatorPage>` driven by the same config served from the BFF.
+**Decisions changed at build time (vs. the locked plan above):**
+- **Plain Vite + React 18 + TypeScript, not Next.js.** A read-only BFF-backed dashboard gets no SSR/RSC payoff, so the extra Next.js surface (server runtime, RSC, its build model) was pure cost. Stack: React Router 6 + TanStack Query 5 + Zustand 5 + Tailwind + shadcn-style components; served in prod by **nginx** (static assets + `/api/*` reverse-proxy to the BFF, so the browser is always same-origin — no CORS).
+- **Standalone cutover, not strangler.** No reverse proxy fronting two live frontends: the React SPA was built to parity as its own container (`frontend`, host `:3002`) alongside the still-running Streamlit `app`, then Streamlit was removed in one step once parity was confirmed. Delivered phased **M0→M3** rather than page-by-page-behind-a-proxy.
 
-**Touchpoints:** new `frontend/`, reverse-proxy config, `docker-compose.yaml` (+ Node service), BFF `/theme` + config endpoints.
-**New deps:** Node toolchain in a new Dockerfile; `next`, `react`, `echarts`, `echarts-for-react`.
-**Risks:** dual-maintenance window (two frontends live); choropleth/wordcloud/embedding-map parity (the News page's projection panels and the Plotly maps are the hardest to port). Tackle simple indicator pages first, complex viz pages last.
+**What shipped**
+- **New `frontend` service** (Vite + React + TS, nginx, host `:3002`) consuming only the BFF. Every read is a TanStack Query hook (`src/api/hooks.ts`) over `src/api/http.ts` (base `/api`); the agent chat streams via `fetch`+`ReadableStream` (`src/api/sse.ts`).
+- **Config-driven theming** — new **`_container_data/ui_themes.yaml`** (fresh frontend-native token schema, *not* the Plotly-shaped `themes.yaml`, which is now orphaned) served by BFF `GET /config/theme|themes`. `src/theme/ThemeProvider.tsx` injects every token as a CSS variable **and** registers an ECharts theme, blocking render until applied; `src/theme/tokens.ts:assertValidTheme` ports the old `get_color` `KeyError` strictness (fails loud on a missing token). Chart builders in `src/charts/*` are pure functions taking theme tokens — never a hard-coded hex. Swap `active:` (or add a covering theme) with no rebuild.
+- **All in-scope pages ported** (excluded: `17_token_usage` → Langfuse; monitoring → Grafana/Prometheus): the 10 config-driven dashboard pages + custom-plot builder on a shared `<GraphBox>` (world choropleth + trend/distribution + log toggle + year slider + metadata + **forecasting** + **LLM plot-description**); FRED + Eurostat regional pages (shared `<RegionalExplorer>`); Yahoo + Crypto; News (browse + wordcloud + semantic search + embedding map); AI chat (SSE, steps breadcrumb, Plotly + table artifacts); clustering sandbox.
+- **Charts: Apache ECharts** everywhere (`src/components/charts/EChart.tsx`), with `echarts-gl` (lazy, 3D cluster scatter) + `echarts-wordcloud`. Registered maps via `echarts.registerMap` (world `ADM0_A3`, US states `postal` + AK/HI insets, NUTS-2 `NUTS_ID`). **Agent chat plot artifacts stay Plotly** JSON (from the `plotly_agent`) — rendered by a lazily-loaded `react-plotly.js` on the chat page only.
+- **New BFF endpoints** (all additive, read-only): `GET /config/theme|themes|dashboard`, `GET /geo/world|nuts2|us-states`, `GET /forecast/models`, `GET /cluster/methods`, and the M3 **`POST /news/collections/{c}/projection`** (scrolls a collection's vectors, forwards them to the clustering service for dim-reduction + clustering, returns 2D/3D coords + cluster labels + optional cosine-distance distribution — the ~1536-dim vectors never reach the browser).
+- **New assets:** `_configs/us_states.geojson` (ECharts USA w/ AK/HI insets, `postal` prop) + `_configs/world_countries.geojson` (Natural Earth 110m, `ADM0_A3`); the bundled `nuts_level2_2021.geojson` served for the NUTS choropleth.
+
+**Cutover (done):** the Streamlit `app` service + the entire `app/` tree (incl. `app/core/postgres_client.py`'s `connectorx` read path) were removed; `docker-compose.yaml`, `config.yaml`, and `_container_data/prometheus/prometheus.yml` updated (the blackbox health probe now hits `frontend:80/` instead of the Streamlit `/_stcore/health`). React SPA is the sole dashboard frontend.
+
+**Testing:** Vitest unit tests (chart builders + theme validator + `clusterMatrix`); Playwright e2e are self-contained via `page.route` on `url.pathname.startsWith("/api/")` + real bundled geojson. Known limitation: Radix popovers mis-position under **headless** Chromium (a Floating UI quirk; fine in real browsers), so popover-gated flows are covered by unit tests, not e2e.
+
+**Touchpoints:** new `frontend/`, `nginx.conf`, `docker-compose.yaml` (+ Node/nginx service, − `app`), `config.yaml` (frontend port + BFF `ui_themes`/dashboard/geojson mounts), BFF config/geo/projection/forecast-models/cluster-methods endpoints.
+**Deps added:** Node/pnpm toolchain; `react`, `react-router-dom`, `@tanstack/react-query`, `zustand`, `echarts`, `echarts-gl`, `echarts-wordcloud`, `react-plotly.js`, Tailwind + Radix.
 
 ---
 

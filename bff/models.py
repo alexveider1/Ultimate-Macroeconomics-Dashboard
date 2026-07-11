@@ -8,7 +8,7 @@ models allow extra keys and their responses are passed through untyped.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -245,6 +245,46 @@ class NewsSearchResponse(BaseModel):
     message: str | None = None
 
 
+class EmbeddingProjectionRequest(BaseModel):
+    """Body for ``POST /news/collections/{c}/projection`` — server-side embedding map.
+
+    The BFF scrolls the collection's vectors, forwards them to the clustering
+    service for dim-reduction (so the ~1536-dim vectors never reach the browser),
+    and returns 2D/3D coords + cluster labels. When ``query_id`` is set it also
+    returns cosine distances from that article to every other in the sample.
+    """
+
+    method: str = "kmeans"
+    reduction_method: str = "tsne"
+    output_dim: Literal[2, 3] = 2
+    k: int = Field(default=4, ge=2, le=12)
+    max_points: int = Field(default=300, ge=4, le=1000)
+    query_id: str | None = None
+
+
+class EmbeddingProjectionPoint(BaseModel):
+    """One projected article: 2D/3D coords + its cluster label."""
+
+    id: str
+    title: str
+    cluster: str
+    x: float
+    y: float
+    z: float | None = None
+
+
+class EmbeddingProjectionResponse(BaseModel):
+    """Projected points (+ optional distance distribution from the query article)."""
+
+    points: list[EmbeddingProjectionPoint]
+    output_dim: int
+    mode: str
+    distances: list[float] | None = None
+    query_id: str | None = None
+    query_title: str | None = None
+    message: str | None = None
+
+
 # --------------------------------------------------------------------------- #
 # Proxy request bodies (forwarded to the existing services)
 # --------------------------------------------------------------------------- #
@@ -313,3 +353,27 @@ class AgentModelsOut(BaseModel):
     """The list of LLM model ids the agent currently knows about."""
 
     models: list[str]
+
+
+# --------------------------------------------------------------------------- #
+# Frontend config (theme palettes)
+# --------------------------------------------------------------------------- #
+
+
+class ActiveThemeOut(BaseModel):
+    """The active theme: its name + the raw token tree (passed through untyped).
+
+    The token structure is validated strictly on the frontend (fail-loud on a
+    missing token), so the BFF stays agnostic to palette changes — adding a token
+    needs no BFF edit.
+    """
+
+    name: str
+    theme: dict[str, Any]
+
+
+class ThemesConfigOut(BaseModel):
+    """Every defined theme keyed by name, plus which one is active (for the switcher)."""
+
+    active: str
+    themes: dict[str, Any]

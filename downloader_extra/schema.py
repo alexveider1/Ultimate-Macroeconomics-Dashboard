@@ -4,10 +4,10 @@ The service re-fetches a single unit of data on demand from one of five
 sources and writes it into the same Postgres tables that ``downloader_general``
 populates on first boot:
 
-* ``worldbank`` — one indicator → ``indicators`` (:class:`MacroIndicator`).
+* ``worldbank`` — one indicator → ``world_bank_indicators`` (:class:`MacroIndicator`).
 * ``yahoo`` — one ticker → ``yahoo_metadata`` + ``yahoo_historical_prices``.
 * ``binance`` — one spot pair → ``binance_metadata`` + ``binance_historical_prices``.
-* ``fred`` — one US-state indicator → ``state_indicators`` + ``state_indicator_values``.
+* ``fred`` — one US-state indicator → ``fred_state_indicators`` + ``fred_state_indicator_values``.
 * ``eurostat`` — one NUTS-2 dataset → ``eurostat_indicators`` + ``eurostat_indicator_values``.
 
 The ORM models mirror ``_container_data/database_schema.yaml`` column-for-column
@@ -30,11 +30,11 @@ class Base(DeclarativeBase):
 class MacroIndicator(Base):
     """One ``(economy, year, indicator_id, db_id)`` cell from the World Bank.
 
-    Mirrors the ``indicators`` table that ``downloader_general`` populates
+    Mirrors the ``world_bank_indicators`` table that ``downloader_general`` populates
     on first boot; this service re-fetches single indicators on demand.
     """
 
-    __tablename__ = "indicators"
+    __tablename__ = "world_bank_indicators"
 
     economy: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
     year: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
@@ -118,9 +118,9 @@ class BinanceHistoricalPrice(Base):
 
 
 class State(Base):
-    """One U.S. state / DC row (``states``); mirrors the FRED states catalogue."""
+    """One U.S. state / DC row (``fred_states``); mirrors the FRED states catalogue."""
 
-    __tablename__ = "states"
+    __tablename__ = "fred_states"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -130,9 +130,9 @@ class State(Base):
 
 
 class StateIndicator(Base):
-    """Description row for one FRED state-indicator concept (``state_indicators``)."""
+    """Description row for one FRED state-indicator concept (``fred_state_indicators``)."""
 
-    __tablename__ = "state_indicators"
+    __tablename__ = "fred_state_indicators"
 
     indicator_id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -149,12 +149,12 @@ class StateIndicator(Base):
 
 
 class StateIndicatorValue(Base):
-    """One ``(state, year, indicator_id)`` FRED observation (``state_indicator_values``)."""
+    """One ``(state, year, indicator_id)`` FRED observation (``fred_state_indicator_values``)."""
 
-    __tablename__ = "state_indicator_values"
+    __tablename__ = "fred_state_indicator_values"
 
     state: Mapped[str] = mapped_column(
-        String, ForeignKey("states.id"), primary_key=True, nullable=False
+        String, ForeignKey("fred_states.id"), primary_key=True, nullable=False
     )
     year: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
     value: Mapped[float | None] = mapped_column(Float, nullable=True)

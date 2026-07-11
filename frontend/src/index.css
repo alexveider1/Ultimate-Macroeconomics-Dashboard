@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * BOOTSTRAP-ONLY colour values.
+ *
+ * These neutral placeholders exist solely to render the pre-theme loading
+ * spinner without a flash of unstyled content. They are OVERWRITTEN at runtime
+ * by `ThemeProvider`, which injects every token from the BFF-served theme
+ * config (`/config/theme`). No real palette is baked into the build — a theme
+ * swap only rewrites these CSS variables, never any source file.
+ */
+:root {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --radius: 0.5rem;
+
+  /* Chrome (shadcn convention: "H S% L%" consumed via hsl(var(--…))). */
+  --background: 222 14% 8%;
+  --foreground: 210 20% 98%;
+  --card: 222 14% 11%;
+  --card-foreground: 210 20% 98%;
+  --popover: 222 14% 11%;
+  --popover-foreground: 210 20% 98%;
+  --primary: 190 89% 50%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 222 12% 16%;
+  --secondary-foreground: 210 20% 98%;
+  --muted: 222 12% 16%;
+  --muted-foreground: 215 16% 65%;
+  --accent: 222 12% 20%;
+  --accent-foreground: 210 20% 98%;
+  --border: 222 12% 20%;
+  --input: 222 12% 20%;
+  --ring: 190 89% 50%;
+
+  /* Chart / domain semantic tokens (raw hex). */
+  --positive: #22c55e;
+  --negative: #ef4444;
+  --reference-line: #94a3b8;
+  --selected-marker: #fde047;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  margin: 0;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

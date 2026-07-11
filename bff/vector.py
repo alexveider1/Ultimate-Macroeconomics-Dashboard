@@ -3,14 +3,16 @@
 Async, mirroring the agent's RAG worker (``agent/agent/tools.py``): a query is
 embedded with the shared OpenAI-compatible embedding model, then every relevant
 collection is searched and the hits are merged and re-ranked by score. The
-curated per-topic sources (``actually_relevant_*`` / ``world_bank_*``) don't
-follow the ``{topic}_{sentiment}`` naming, so they are always folded in.
+curated sources (each a single source-named collection, ``actually_relevant`` /
+``world_bank``) don't follow the ``{topic}_{sentiment}`` naming, so they are
+always folded in.
 
 Every operation degrades to an empty result on failure, so a frontend renders an
 informative empty state instead of a 500 when Qdrant is unavailable.
 """
 
 import logging
+import math
 from typing import Any
 
 from models import NewsArticle, NewsSearchHit
@@ -20,10 +22,11 @@ import tracing
 
 logger = logging.getLogger(__name__)
 
-# Curated sources ingested under their own per-topic collection names (they don't
-# follow the ``{topic}_{sentiment}`` convention) — always searched regardless of
-# the topic/sentiment filter, exactly like the agent's RAG worker.
-ALWAYS_SEARCH_COLLECTION_PREFIXES = ("actually_relevant_", "world_bank_")
+# Curated sources ingested each into a single source-named collection
+# (``actually_relevant`` / ``world_bank``); they don't follow the
+# ``{topic}_{sentiment}`` convention — always searched regardless of the
+# topic/sentiment filter (matched via ``str.startswith``), like the agent's worker.
+ALWAYS_SEARCH_COLLECTION_PREFIXES = ("actually_relevant", "world_bank")
 
 # Source suffix the Webhose news writer appends to every collection name
 # (``downloader_general/src/extractors/github_download.py:NEWS_SOURCE_SUFFIX``);
@@ -186,3 +189,71 @@ async def search_news(
 
     hits.sort(key=lambda hit: hit.score, reverse=True)
     return hits[:top_k], None
+
+
+def _extract_vector(raw: Any) -> list[float] | None:
+    """Coerce a stored point vector (plain list or named-vector dict) to a float list."""
+    if isinstance(raw, list) and raw and isinstance(raw[0], (int, float)):
+        return [float(x) for x in raw]
+    if isinstance(raw, dict):
+        for value in raw.values():
+            if isinstance(value, list) and value and isinstance(value[0], (int, float)):
+                return [float(x) for x in value]
+    return None
+
+
+async def load_collection_vectors(
+    qdrant: AsyncQdrantClient, collection: str, max_points: int
+) -> tuple[list[str], list[str], list[list[float]]]:
+    """Scroll up to ``max_points`` points **with vectors**, returning ids/titles/vectors."""
+    try:
+        records, _ = await qdrant.scroll(
+            collection_name=collection,
+            limit=max_points,
+            with_payload=True,
+            with_vectors=True,
+        )
+    except Exception as exc:
+        logger.warning("Qdrant vector scroll failed for '%s': %s", collection, exc)
+        return [], [], []
+
+    ids: list[str] = []
+    titles: list[str] = []
+    vectors: list[list[float]] = []
+    for record in records:
+        vec = _extract_vector(getattr(record, "vector", None))
+        if not vec:
+            continue
+        article = (record.payload or {}).get("article", {}) or {}
+        ids.append(str(record.id))
+        titles.append(str(article.get("title") or record.id))
+        vectors.append(vec)
+    return ids, titles, vectors
+
+
+async def get_point_vector(
+    qdrant: AsyncQdrantClient, collection: str, point_id: str
+) -> list[float] | None:
+    """Retrieve one point's vector (for a query article outside the sampled page)."""
+    try:
+        records = await qdrant.retrieve(
+            collection_name=collection, ids=[point_id], with_vectors=True
+        )
+    except Exception as exc:
+        logger.warning("Qdrant retrieve failed for '%s/%s': %s", collection, point_id, exc)
+        return None
+    if not records:
+        return None
+    return _extract_vector(getattr(records[0], "vector", None))
+
+
+def cosine_distances(query: list[float], others: list[list[float]]) -> list[float]:
+    """Cosine distance (``1 − cos``, clamped to ``[0, 2]``) from ``query`` to each other vector."""
+    q_norm = math.sqrt(sum(x * x for x in query)) or 1e-12
+    normalized_query = [x / q_norm for x in query]
+    distances: list[float] = []
+    for vec in others:
+        v_norm = math.sqrt(sum(x * x for x in vec)) or 1e-12
+        sim = sum(a * (b / v_norm) for a, b in zip(normalized_query, vec))
+        distances.append(max(0.0, min(2.0, 1.0 - sim)))
+    return distances

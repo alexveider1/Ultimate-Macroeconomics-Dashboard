@@ -19,7 +19,19 @@ from db import build_engine, build_sql_uri
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
-from routers import agent, cluster, crypto, eurostat, forecast, fred, news, worldbank, yahoo
+from routers import (
+    agent,
+    cluster,
+    config as config_router,
+    crypto,
+    eurostat,
+    forecast,
+    fred,
+    geo,
+    news,
+    worldbank,
+    yahoo,
+)
 from schema import Base
 from settings import get_settings
 from sqlalchemy.orm import sessionmaker
@@ -123,7 +135,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (worldbank, yahoo, crypto, fred, eurostat, news, forecast, cluster, agent):
+for module in (
+    worldbank,
+    yahoo,
+    crypto,
+    fred,
+    eurostat,
+    news,
+    forecast,
+    cluster,
+    agent,
+    config_router,
+    geo,
+):
     app.include_router(module.router)
 
 

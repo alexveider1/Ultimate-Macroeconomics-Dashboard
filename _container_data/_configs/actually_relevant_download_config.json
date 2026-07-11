@@ -4,23 +4,23 @@
   "topics": [
     {
       "slug": "human-development",
-      "collection": "actually_relevant_human_development"
+      "collection": "actually_relevant"
     },
     {
       "slug": "planet-climate",
-      "collection": "actually_relevant_planet_climate"
+      "collection": "actually_relevant"
     },
     {
       "slug": "existential-threats",
-      "collection": "actually_relevant_existential_threats"
+      "collection": "actually_relevant"
     },
     {
       "slug": "science-technology",
-      "collection": "actually_relevant_science_technology"
+      "collection": "actually_relevant"
     },
     {
       "slug": "general-news",
-      "collection": "actually_relevant_general_news"
+      "collection": "actually_relevant"
     }
   ]
 }

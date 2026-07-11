@@ -10,10 +10,18 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      # Consumed only by the /docker-entrypoint-initdb.d bootstrap (below) to create
+      # the `langfuse` role + database on first volume init — the self-hosted
+      # Langfuse stack now shares this Postgres instead of its own container.
+      LANGFUSE_POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD}
     ports:
       - 5432:5432
     volumes:
       - postgres_data:/var/lib/postgresql
+      # One-time (fresh-volume) bootstrap: create the langfuse role + database so
+      # Langfuse can share this server. Postgres runs these before opening the
+      # network port, so the DB exists before langfuse_web connects.
+      - ./_container_data/db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
       interval: 5s
@@ -289,6 +297,8 @@ services:
         condition: service_healthy
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/ui_themes.yaml:/app/ui_themes.yaml:ro
+      - ./_container_data/_configs:/app/_configs:ro
       - ./_container_data/bff:/app/_container_data
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8005/health', timeout=3).status == 200 else 1)" ]
@@ -341,49 +351,27 @@ services:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/backup:/app/_container_data
 
-  app:
+  # --- Frontend (React + Vite SPA served by nginx) ---------------------------
+  # TypeScript React SPA consuming the read-only BFF via nginx's /api reverse
+  # proxy (same-origin, no CORS). Sole dashboard frontend (replaced the Streamlit
+  # `app` at the Phase-6 cutover). Host 3002 (3000=langfuse_web, 3001=grafana).
+  frontend:
     build:
-      context: app
+      context: frontend
       dockerfile: Dockerfile
-    container_name: app
+    container_name: frontend
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_LLM_USER: ${POSTGRES_LLM_USER}
-      POSTGRES_LLM_PASSWORD: ${POSTGRES_LLM_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
     ports:
-      - 8501:8501
+      - 3002:80
     depends_on:
-      db:
+      bff:
         condition: service_healthy
-      vector_db:
-        condition: service_healthy
-      agent:
-        condition: service_healthy
-      forecaster:
-        condition: service_healthy
-      clustering:
-        condition: service_healthy
-      python_sandbox:
-        condition: service_healthy
-      downloader_general:
-        condition: service_healthy
-      downloader_extra:
-        condition: service_healthy
-    volumes:
-      - ./_container_data/config.yaml:/app/config.yaml:ro
-      - ./_container_data/themes.yaml:/app/themes.yaml
-      - ./_container_data/_configs:/app/_configs
-      - ./_container_data/app:/app/_container_data
     healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=3).status == 200 else 1)" ]
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/" ]
       interval: 30s
       timeout: 5s
-      retries: 10
-      start_period: 30s
+      retries: 5
+      start_period: 10s
 
   # --- Langfuse (LLM tracing / observability, self-hosted) -------------------
   # Independent observability stack. Core services (agent / downloader_general /
@@ -397,7 +385,7 @@ services:
     container_name: langfuse_worker
     restart: unless-stopped
     depends_on: &langfuse-depends-on
-      langfuse_postgres:
+      db:
         condition: service_healthy
       langfuse_clickhouse:
         condition: service_healthy
@@ -406,7 +394,7 @@ services:
       langfuse_minio:
         condition: service_healthy
     environment: &langfuse-common-env
-      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD}@langfuse_postgres:5432/langfuse
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD}@db:5432/langfuse
       SALT: ${LANGFUSE_SALT}
       ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
       TELEMETRY_ENABLED: "true"
@@ -466,23 +454,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 120s
-
-  langfuse_postgres:
-    image: postgres:17
-    container_name: langfuse_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: langfuse
-      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD}
-      POSTGRES_DB: langfuse
-    volumes:
-      - langfuse_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U langfuse -d langfuse" ]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
 
   langfuse_clickhouse:
     image: clickhouse/clickhouse-server:24.3
@@ -648,7 +619,6 @@ volumes:
   postgres_data:
   qdrant_data:
   triton_hf_cache:
-  langfuse_postgres_data:
   langfuse_clickhouse_data:
   langfuse_clickhouse_logs:
   langfuse_redis_data:

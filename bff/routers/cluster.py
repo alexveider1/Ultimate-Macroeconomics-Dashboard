@@ -20,3 +20,10 @@ async def cluster(payload: ClusterRequest, request: Request) -> dict[str, Any]:
         payload.model_dump(),
         timeout=120.0,
     )
+
+
+@router.get("/cluster/methods")
+async def cluster_methods(request: Request) -> dict[str, Any]:
+    """Proxy the clustering service's method list (drives the sandbox UI)."""
+    url = f"{request.app.state.clustering_url}/methods"
+    return await clients.get_json(request.app.state.http_client, "clustering", url, timeout=30.0)

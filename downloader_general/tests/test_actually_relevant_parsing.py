@@ -74,9 +74,12 @@ def test_build_entry_has_news_payload_shape() -> None:
         "id": "abc-123",
         "emotionTag": "frustrating",
     }
-    entry = build_entry(story, "actually_relevant_planet_climate", "Planet & Climate")
+    entry = build_entry(story, "actually_relevant", "Planet & Climate")
 
+    # The macro topic is kept in the payload `topic`; the collection is the
+    # single source-named `actually_relevant` (its `archive_name`).
     assert entry["topic"] == "Planet & Climate"
+    assert entry["archive_name"] == "actually_relevant"
     assert entry["sentiment"] == "neutral"
     assert entry["date"] == "2026-07-04"
     assert entry["source"] == "actually_relevant"
@@ -90,11 +93,12 @@ def test_build_entry_has_news_payload_shape() -> None:
     assert "sum" in article["text"]
 
 
-def test_build_metadata_buckets_stories_by_macro_parent() -> None:
+def test_build_metadata_consolidates_into_single_collection() -> None:
     downloader = ActuallyRelevantDownloader.__new__(ActuallyRelevantDownloader)
+    # Every macro topic points at the single consolidated collection.
     downloader.collection_by_macro = {
-        "existential-threats": "actually_relevant_existential_threats",
-        "planet-climate": "actually_relevant_planet_climate",
+        "existential-threats": "actually_relevant",
+        "planet-climate": "actually_relevant",
     }
     macro_map = build_macro_map(SAMPLE_ISSUES)
     stories = [
@@ -109,8 +113,10 @@ def test_build_metadata_buckets_stories_by_macro_parent() -> None:
 
     parsed = downloader._build_metadata(stories, macro_map)
 
-    # Child slug bucketed into the macro-parent collection.
-    assert len(parsed["actually_relevant_existential_threats"]) == 1
-    assert len(parsed["actually_relevant_planet_climate"]) == 1
-    # Every configured collection is present (unmapped story skipped, not errored).
-    assert set(parsed.keys()) == set(downloader.collection_by_macro.values())
+    # All macro topics collapse into the single actually_relevant collection...
+    assert set(parsed.keys()) == {"actually_relevant"}
+    # ...both mapped stories land there (the unmapped one is skipped, not errored).
+    assert len(parsed["actually_relevant"]) == 2
+    # The macro topic is preserved per-point in the payload `topic` field.
+    topics = {entry["topic"] for entry in parsed["actually_relevant"]}
+    assert topics == {"Existential Threats", "Planet & Climate"}

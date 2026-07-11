@@ -25,9 +25,9 @@ def test_make_collection_name_matches_writer_normalization() -> None:
 def test_resolve_target_collections_normalizes_raw_topic_label() -> None:
     # A caller passing the human topic label ("Politics") must still resolve to the
     # stored lowercase collection — this is the regression the bare f-string missed.
-    cols = ["politics_positive_webhose", "politics_negative_webhose", "world_bank_growth"]
+    cols = ["politics_positive_webhose", "politics_negative_webhose", "world_bank"]
     result = _resolve(cols, "Politics", "positive")
-    assert result == ["politics_positive_webhose", "world_bank_growth"]
+    assert result == ["politics_positive_webhose", "world_bank"]
 
 
 def test_article_from_payload_flattens_nested_shape() -> None:
@@ -69,36 +69,36 @@ def test_resolve_target_collections_topic_and_sentiment() -> None:
         "economy_positive_webhose",
         "economy_negative_webhose",
         "trade_positive_webhose",
-        "actually_relevant_economy",
+        "actually_relevant",
     ]
     result = _resolve(cols, "economy", "positive")
     # Exact match + always-on curated source folded in.
-    assert result == ["economy_positive_webhose", "actually_relevant_economy"]
+    assert result == ["economy_positive_webhose", "actually_relevant"]
 
 
 def test_resolve_target_collections_sentiment_only() -> None:
-    cols = ["economy_positive_webhose", "economy_negative_webhose", "world_bank_growth"]
+    cols = ["economy_positive_webhose", "economy_negative_webhose", "world_bank"]
     result = _resolve(cols, None, "positive")
     # Only the matching-sentiment webhose collection + the always-on curated source.
-    assert result == ["economy_positive_webhose", "world_bank_growth"]
+    assert result == ["economy_positive_webhose", "world_bank"]
 
 
 def test_resolve_target_collections_topic_only() -> None:
-    cols = ["economy_positive_webhose", "economy_negative_webhose", "world_bank_growth"]
+    cols = ["economy_positive_webhose", "economy_negative_webhose", "world_bank"]
     result = _resolve(cols, "economy", None)
     assert "economy_positive_webhose" in result
     assert "economy_negative_webhose" in result
-    assert "world_bank_growth" in result  # always-on curated prefix.
+    assert "world_bank" in result  # always-on curated prefix.
 
 
 def test_resolve_target_collections_no_filter_includes_all() -> None:
-    cols = ["economy_positive", "world_bank_growth"]
+    cols = ["economy_positive", "world_bank"]
     result = _resolve(cols, None, None)
     assert set(result) == set(cols)
 
 
 def test_resolve_target_collections_dedupes() -> None:
-    cols = ["world_bank_growth"]
-    # world_bank_growth would match "no filter" AND the always-on prefix.
+    cols = ["world_bank"]
+    # world_bank would match "no filter" AND the always-on prefix.
     result = _resolve(cols, None, None)
-    assert result == ["world_bank_growth"]
+    assert result == ["world_bank"]

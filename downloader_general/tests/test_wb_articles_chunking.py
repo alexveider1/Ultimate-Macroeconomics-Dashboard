@@ -8,7 +8,11 @@ documents extractor only builds one entry per document.
 from __future__ import annotations
 
 from src.core.qdrant_uploader import chunk_entries, chunk_text, clean_text
-from src.extractors.world_bank_articles_download import build_doc_entry, dedup_with_text
+from src.extractors.world_bank_articles_download import (
+    WorldBankArticlesDownloader,
+    build_doc_entry,
+    dedup_with_text,
+)
 
 
 class FakeEncoding:
@@ -99,9 +103,12 @@ def test_build_doc_entry_payload_shape() -> None:
         "pdfurl": "https://documents.worldbank.org/9.pdf",
         "lang": "English",
     }
-    entry = build_doc_entry(doc, "full document body", "inflation", "world_bank_inflation")
+    entry = build_doc_entry(doc, "full document body", "inflation", "world_bank")
 
+    # The query term is kept in the payload `topic`; the collection is the single
+    # source-named `world_bank` (its `archive_name`).
     assert entry["topic"] == "inflation"
+    assert entry["archive_name"] == "world_bank"
     assert entry["sentiment"] == "neutral"
     assert entry["date"] == "2020-01-15"
     assert entry["source"] == "world_bank"
@@ -126,3 +133,37 @@ def test_clean_text_drops_form_feeds_and_collapses_blank_lines() -> None:
     assert "\n\n\n" not in cleaned
     assert cleaned.startswith("line1")
     assert cleaned.endswith("line3")
+
+
+def test_run_accumulates_and_dedups_across_queries(monkeypatch) -> None:
+    """Every query now targets the single ``world_bank`` collection: entries from
+    all queries accumulate (never overwrite), and a document returned by more than
+    one query is embedded only once."""
+    dl = WorldBankArticlesDownloader.__new__(WorldBankArticlesDownloader)
+    dl.queries = [
+        {"query": "inflation", "collection": "world_bank"},
+        {"query": "growth", "collection": "world_bank"},
+    ]
+    dl.inter_query_pause_seconds = 0
+    dl._client = None
+
+    # Query 1 returns D1, D2; query 2 returns D2 (already seen) + D3.
+    records_by_query = {
+        "inflation": [{"id": "D1", "txturl": "u1"}, {"id": "D2", "txturl": "u2"}],
+        "growth": [{"id": "D2", "txturl": "u2"}, {"id": "D3", "txturl": "u3"}],
+    }
+    monkeypatch.setattr(dl, "_search_query", lambda query: records_by_query[query])
+    # One entry per doc, tagged by id so we can see which survived deduplication.
+    monkeypatch.setattr(
+        dl,
+        "_build_entries_for_docs",
+        lambda docs, query, collection: [{"doc_id": d["id"]} for d in docs],
+    )
+    captured: dict[str, list[dict]] = {}
+    monkeypatch.setattr(dl, "upload_collections", captured.update)
+
+    dl.run()
+
+    # Single consolidated collection; D2 embedded once (dedup across queries).
+    assert set(captured.keys()) == {"world_bank"}
+    assert [e["doc_id"] for e in captured["world_bank"]] == ["D1", "D2", "D3"]

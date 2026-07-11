@@ -533,7 +533,10 @@ class SQLAgent:
                     info = err if err else f"{s['result'].get('row_count', 0)} rows"
                     step_lines.append(f"  Step {i + 1}: {s['query'][:120]} -> {info}")
                     query_lower = s["query"].lower()
-                    if "database_indicators" in query_lower and s["result"].get("row_count", 0) > 0:
+                    if (
+                        "world_bank_database_indicators" in query_lower
+                        and s["result"].get("row_count", 0) > 0
+                    ):
                         indicator_match_step = s
                 steps_summary = "\n".join(step_lines)
 

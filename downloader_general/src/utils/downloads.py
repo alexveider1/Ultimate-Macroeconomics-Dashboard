@@ -149,24 +149,30 @@ def _call_with_retries(
         try:
             return request_callable()
         except Exception as exc:
+            # Log a concise one-line message (exception type + message) rather than
+            # a full traceback: these are expected transient upstream failures
+            # (Cloudflare 403s, rate-limit 400s, timeouts) that the backoff retries,
+            # and a stack trace per attempt floods the container logs unreadably.
             if attempt == max_retries:
-                logger.exception(
-                    "Operation '%s' failed after %d attempt(s), giving up",
+                logger.error(
+                    "Operation '%s' failed after %d attempt(s), giving up: %s: %s",
                     operation_name,
                     attempt + 1,
+                    type(exc).__name__,
+                    exc,
                 )
                 return None
             delay = wb_client.compute_backoff_delay(
                 retry_delay_seconds, attempt, max_delay=max_delay
             )
             logger.warning(
-                "Retry %d/%d for operation '%s' failed: %s; retrying in %.1fs",
+                "Retry %d/%d for operation '%s' failed: %s: %s; retrying in %.1fs",
                 attempt + 1,
                 max_retries,
                 operation_name,
+                type(exc).__name__,
                 exc,
                 delay,
-                exc_info=True,
             )
             sleep(delay)
             attempt += 1

@@ -53,8 +53,6 @@ qdrant:
   port: 6333
 downloader_general:
   repo_url: https://github.com/Webhose/free-news-datasets.git
-app:
-  port: 8501
 agent:
   port: 8000
 forecaster:
@@ -83,9 +81,15 @@ downloader_extra:
 python_sandbox:
   port: 8004
 bff:
-  # Read-only backend-for-frontend. Additive: the Streamlit app still reads
-  # Postgres directly via connectorx until the Phase-6 frontend cutover.
+  # Read-only backend-for-frontend: the sole data origin for the React frontend
+  # (typed ORM reads + Qdrant news + forecaster/clustering/agent proxies).
   port: 8005
+frontend:
+  # React + Vite SPA (TypeScript, ECharts) served by nginx, which reverse-proxies
+  # /api to the bff. Consumes only the BFF. Nothing in Python reads this block —
+  # it documents the host port (duplicated in docker-compose.yaml, not auto-synced).
+  # Host 3002 (3000=langfuse_web, 3001=grafana). Sole dashboard frontend.
+  port: 3002
 docling:
   # Document→Markdown conversion service. PDFs run through docling's VLM pipeline
   # pointed at the Triton-hosted granite-docling model (triton.openai_port above);

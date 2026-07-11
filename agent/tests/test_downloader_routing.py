@@ -79,5 +79,5 @@ def test_detect_suppressed_when_metadata_found() -> None:
 
 
 def test_detect_none_for_worldbank() -> None:
-    steps = [_step("SELECT id FROM database_indicators WHERE database_id = 2", 0)]
+    steps = [_step("SELECT id FROM world_bank_database_indicators WHERE database_id = 2", 0)]
     assert _detect_market_needs_download(steps) is None

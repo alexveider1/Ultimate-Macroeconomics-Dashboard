@@ -3,7 +3,10 @@
 Runs once per clean boot via :meth:`WorldBankArticlesDownloader.run`. For each
 configured query-topic it fetches the top-N matching documents from the WDS API,
 pulls each document's plain text from its ``txturl`` (no docling — see
-:mod:`src.utils.wds_client`), and builds one entry per document. The overlapping
+:mod:`src.utils.wds_client`), and builds one entry per document. All queries
+write into the single ``world_bank`` collection (deduplicated by document id
+across queries); each query term is kept in the point payload ``topic`` field
+rather than the collection name. The overlapping
 token-window chunking + embedding + upload all live in the shared
 :class:`~src.core.qdrant_uploader.QdrantEmbeddingUploaderMixin` (same path every
 news source uses), so a long document is split into multiple Qdrant points
@@ -277,21 +280,26 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
 
     def run(self) -> None:
         parsed: dict[str, list[dict[str, Any]]] = {}
+        # Every query now targets the same consolidated collection, so entries
+        # accumulate (never overwrite) and a document returned by more than one
+        # query is embedded only once.
+        seen_doc_ids: set[str] = set()
         for index, item in enumerate(
             log_progress(self.queries, label="World Bank query-topics", total=len(self.queries))
         ):
             self._pace_between_queries(index)
             query = item["query"]
             collection = item["collection"]
+            parsed.setdefault(collection, [])
             records = self._search_query(query)
             if not records:
                 logger.warning("No WDS documents for query %r", query)
-                parsed[collection] = []
                 continue
 
-            docs = dedup_with_text(records)
+            docs = [d for d in dedup_with_text(records) if str(d.get("id")) not in seen_doc_ids]
+            seen_doc_ids.update(str(d.get("id")) for d in docs)
             entries = self._build_entries_for_docs(docs, query, collection)
-            parsed[collection] = entries
+            parsed[collection].extend(entries)
             logger.info("World Bank %s: %d docs -> %d entries", collection, len(docs), len(entries))
 
         self.upload_collections(parsed)
@@ -307,6 +315,11 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
         document into its Qdrant points.
         """
         parsed: dict[str, list[dict[str, Any]]] = {}
+        # Existing doc ids are fetched once per collection (every query now shares
+        # the same consolidated collection); seen_doc_ids additionally dedups a
+        # document returned by more than one query within this single run.
+        existing_by_collection: dict[str, set[str]] = {}
+        seen_doc_ids: set[str] = set()
         for index, item in enumerate(
             log_progress(
                 self.queries, label="World Bank query-topics (update)", total=len(self.queries)
@@ -315,17 +328,26 @@ class WorldBankArticlesDownloader(QdrantEmbeddingUploaderMixin, BaseWorldBankArt
             self._pace_between_queries(index)
             query = item["query"]
             collection = item["collection"]
+            parsed.setdefault(collection, [])
+            if collection not in existing_by_collection:
+                existing_by_collection[collection] = self._existing_payload_values(
+                    collection, "article.doc_id"
+                )
+            existing_doc_ids = existing_by_collection[collection]
             records = self._search_query(query)
             if not records:
                 logger.warning("No WDS documents for query %r", query)
-                parsed[collection] = []
                 continue
 
-            docs = dedup_with_text(records)
-            existing_doc_ids = self._existing_payload_values(collection, "article.doc_id")
-            new_docs = [doc for doc in docs if str(doc.get("id")) not in existing_doc_ids]
+            new_docs = [
+                doc
+                for doc in dedup_with_text(records)
+                if str(doc.get("id")) not in existing_doc_ids
+                and str(doc.get("id")) not in seen_doc_ids
+            ]
+            seen_doc_ids.update(str(doc.get("id")) for doc in new_docs)
             entries = self._build_entries_for_docs(new_docs, query, collection)
-            parsed[collection] = entries
+            parsed[collection].extend(entries)
             logger.info(
                 "World Bank %s incremental: %d new docs -> %d entries",
                 collection,

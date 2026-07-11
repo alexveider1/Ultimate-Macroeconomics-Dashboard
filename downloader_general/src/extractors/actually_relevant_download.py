@@ -3,9 +3,11 @@
 Runs once per clean boot via :meth:`ActuallyRelevantDownloader.run`. The API
 serves *curated analysis* (not full source bodies), so each Qdrant point embeds a
 composed document built from the story's analysis fields (see
-:func:`compose_story_text`). Stories are bucketed into one collection per macro
-topic (``actually_relevant_<macro>``) by mapping each story's granular
-``issue.slug`` up to its macro parent via the ``/api/issues`` taxonomy.
+:func:`compose_story_text`). Every story is embedded into the single
+``actually_relevant`` collection; its macro topic (derived by mapping the
+story's granular ``issue.slug`` up to its macro parent via the ``/api/issues``
+taxonomy) is kept in the point payload ``topic`` field rather than the
+collection name.
 
 Embedding + upload reuse :class:`~src.core.qdrant_uploader.QdrantEmbeddingUploaderMixin`;
 the payload shape matches the news pipeline so the app + agent read it unchanged.

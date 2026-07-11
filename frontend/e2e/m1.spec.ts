@@ -1,5 +1,13 @@
 import { expect, test } from "@playwright/test";
 
+import { registerApiMocks } from "./mocks";
+
+// Self-contained: the dashboard reads (`/config/dashboard`, `/worldbank/*`,
+// `/geo/world`, `/forecast/models`) are all mocked, so no BFF is required.
+test.beforeEach(async ({ page }) => {
+  await registerApiMocks(page);
+});
+
 test.describe("M1 config-driven dashboards", () => {
   test("dashboard page renders GraphBox cards with real charts", async ({ page }) => {
     await page.goto("/dashboard/economy-structure");

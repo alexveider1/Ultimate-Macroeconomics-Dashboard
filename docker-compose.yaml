@@ -75,6 +75,10 @@ services:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/database_schema.yaml:/app/database_schema.yaml:ro
       - ./_container_data/_configs:/app/_configs
+      # Only the marker + logs persist here. The multi-GB Webhose news clone/unzip
+      # is intentionally NOT under this mount — it goes to the container-local,
+      # ephemeral /app/news (see main.py) and each .zip is deleted right after
+      # extraction, so the raw news .zip/.json files never land on the host.
       - ./_container_data/downloader_general:/app/_container_data
     # Healthy once the one-shot initial ingest has written its marker. Dependents
     # wait on `service_healthy` (not `service_completed_successfully`) because the

@@ -250,7 +250,12 @@ def main() -> None:
     and stays alive.
     """
     container_data_dir = Path("_container_data")
-    news_output_dir = container_data_dir / "news"
+    # The news pipeline clones + unzips a multi-GB Webhose repo. Keep that scratch
+    # space OFF the bind-mounted `_container_data` dir: it lives in an ephemeral,
+    # container-local path that never touches the host volume and is discarded
+    # with the container. Per-archive zip deletion + cleanup_downloaded_files keep
+    # it small even mid-run; only the marker/logs need to persist on the mount.
+    news_output_dir = Path("/app/news")
     marker_path = Path(os.getenv("DOWNLOADER_ONCE_MARKER", str(DEFAULT_DOWNLOAD_MARKER)))
 
     container_data_dir.mkdir(parents=True, exist_ok=True)

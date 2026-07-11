@@ -1,5 +1,13 @@
 import { expect, test } from "@playwright/test";
 
+import { registerApiMocks } from "./mocks";
+
+// Self-contained: every `/api/**` call (theme config, world-bank reads, …) is
+// mocked, so the shell/nav/theme flow runs without a BFF.
+test.beforeEach(async ({ page }) => {
+  await registerApiMocks(page);
+});
+
 test.describe("M0 skeleton", () => {
   test("renders shell + nav and loads the theme from config", async ({ page }) => {
     await page.goto("/");

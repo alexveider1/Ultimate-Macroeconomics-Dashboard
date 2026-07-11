@@ -331,6 +331,14 @@ class NewsDownloader(BaseNewsDownloader):
                 )
             shutil.rmtree(nested_extract_dir, onexc=_remove_readonly)
 
+        # The archive is fully unpacked now — drop the .zip immediately so peak
+        # disk stays low (we never hold every archive's zip *and* its unzipped
+        # JSONs at once). The final cleanup removes the extracted dirs afterward.
+        try:
+            zip_path.unlink()
+        except OSError:
+            logger.warning("Could not remove news archive after extraction: %s", zip_path)
+
         entries: list[dict] = []
         for article_file_path in sorted(extract_dir.rglob("*.json")):
             try:

@@ -45,6 +45,11 @@ def test_process_archive_extracts_english_articles(tmp_path: Path) -> None:
     assert entries[0]["sentiment"] == "positive"
     assert entries[0]["article"]["text"] == "Macro story"
 
+    # The .zip is deleted right after extraction so peak disk stays low and the
+    # raw archives never linger; the extracted JSONs remain for embedding.
+    assert not archive.exists()
+    assert (tmp_path / base_name).is_dir()
+
 
 def test_process_archive_skips_non_zip(tmp_path: Path) -> None:
     file_path = tmp_path / "not_an_archive.txt"

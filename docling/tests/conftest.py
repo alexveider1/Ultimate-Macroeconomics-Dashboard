@@ -1,9 +1,9 @@
 """Test fixtures: ensure a stub config.yaml exists before ``main`` is imported.
 
 ``main.py`` reads ``config.yaml`` at module import time (for the docling port +
-the Triton VLM endpoint), so the test process must have one in cwd. Triton is
-never contacted — building the converter only constructs option objects, and the
-convert tests inject a fake converter onto ``app.state``.
+the cloud VLM endpoint), so the test process must have one in cwd. The cloud VLM
+is never contacted — building the converter only constructs option objects, and
+the convert tests inject a fake converter onto ``app.state``.
 """
 
 from __future__ import annotations
@@ -14,10 +14,9 @@ _STUB = """\
 docling:
   port: 8006
   convert_timeout_seconds: 120
-triton:
-  host: triton
-  openai_port: 9000
-  vlm_model: granite_docling
+  vlm:
+    base_url: https://vlm.example/v1
+    model: granite_docling
 """
 
 

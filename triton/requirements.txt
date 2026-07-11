@@ -6,7 +6,7 @@
 # resolve against whatever the GPU stack pins (freeze after a known-good build).
 
 # --- RAPIDS GPU stack (KMeans/DBSCAN/PCA/t-SNE/UMAP); pins numpy/pandas ---
-# cu13 wheels to match the CUDA 13 base image (tritonserver:25.10-vllm-python-py3).
+# cu13 wheels to match the CUDA 13 base image (tritonserver:25.10-py3).
 --extra-index-url https://pypi.nvidia.com
 cuml-cu13==25.10.*
 cudf-cu13==25.10.*

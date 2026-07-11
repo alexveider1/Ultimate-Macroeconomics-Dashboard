@@ -3,7 +3,7 @@
 Importing ``main`` imports the real docling API surface (via ``converter``), so
 these tests double as a guard that the pinned docling version's imports resolve
 and ``build_converter`` runs offline. The actual conversion is stubbed with a
-fake converter on ``app.state`` — no Triton, no network, no GPU.
+fake converter on ``app.state`` — no cloud VLM, no network, no GPU.
 """
 
 from __future__ import annotations

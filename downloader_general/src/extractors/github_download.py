@@ -237,7 +237,7 @@ class NewsDownloader(BaseNewsDownloader):
         A ``_webhose`` source suffix is appended so this source's collections carry
         a source marker like the curated ones do with their prefixes
         (``actually_relevant_*`` / ``world_bank_*``). Readers that reconstruct the
-        name (``agent/agent/tools.py``, ``bff/vector.py``) append the same suffix.
+        name (``agent/agent/tools.py``, the Streamlit news page) append the same suffix.
         """
         topic_normalized = topic.strip().lower()
         base = f"{topic_normalized}_{sentiment}".replace(" ", "_").replace(",", " ").lower()

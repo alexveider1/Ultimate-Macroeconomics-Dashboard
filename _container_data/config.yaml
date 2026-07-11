@@ -39,8 +39,6 @@ services:
     host_sync_dir: _container_data/python_sandbox
   clustering:
     host_sync_dir: _container_data/clustering
-  bff:
-    host_sync_dir: _container_data/bff
   docling:
     host_sync_dir: _container_data/docling
   backup:
@@ -72,36 +70,35 @@ triton:
   http_port: 8000
   grpc_port: 8001
   metrics_port: 8002
-  # OpenAI-compatible frontend (vLLM backend) hosting the docling VLM. Internal
-  # to the compose network; the docling service reaches it at triton:9000.
-  openai_port: 9000
-  vlm_model: granite_docling # Triton model name = the OpenAI `model` field docling sends
 downloader_extra:
   port: 8003
 python_sandbox:
   port: 8004
-bff:
-  # Read-only backend-for-frontend: the sole data origin for the React frontend
-  # (typed ORM reads + Qdrant news + forecaster/clustering/agent proxies).
-  port: 8005
-frontend:
-  # React + Vite SPA (TypeScript, ECharts) served by nginx, which reverse-proxies
-  # /api to the bff. Consumes only the BFF. Nothing in Python reads this block —
-  # it documents the host port (duplicated in docker-compose.yaml, not auto-synced).
-  # Host 3002 (3000=langfuse_web, 3001=grafana). Sole dashboard frontend.
-  port: 3002
+app:
+  # Streamlit dashboard — the sole frontend. Talks directly to the backend
+  # services (no BFF). Host 8501 (3000=langfuse_web, 3001=grafana). Duplicated
+  # in docker-compose.yaml (not auto-synced).
+  port: 8501
 docling:
-  # Document→Markdown conversion service. PDFs run through docling's VLM pipeline
-  # pointed at the Triton-hosted granite-docling model (triton.openai_port above);
-  # docx/pptx/xlsx use docling's native backends. Called by the BFF multimodal
-  # chat endpoint.
+  # Document→Markdown conversion service for the Streamlit chat's file uploads.
+  # PDFs run through docling's VLM pipeline pointed at a CLOUD OpenAI-compatible
+  # OCR endpoint (the `vlm:` block below); docx/pptx/xlsx use docling's native
+  # backends (no VLM). Called by the Streamlit chat (multimodal file input).
   port: 8006
   convert_timeout_seconds: 120
+  vlm:
+    # Cloud OCR/VLM endpoint (OpenAI-compatible /v1) that converts PDF pages to
+    # Markdown — same pattern as the agent LLM (shared.*) and voice input
+    # (whisper.*): the API key is the shared OPENAI_API_KEY (in .env); only these
+    # non-secret knobs live here. Point base_url at any OpenAI-compatible vision
+    # endpoint hosting granite-docling (or a compatible OCR model).
+    base_url: https://your-cloud-vllm-host/v1
+    model: ibm-granite/granite-docling-258M
 whisper:
-  # OpenAI-compatible audio-transcription endpoint used by the BFF multimodal
-  # chat endpoint. The API key is the shared OPENAI_API_KEY (in .env); only these
-  # non-secret knobs live here. Point base_url at any OpenAI-compatible /audio
-  # endpoint (self-hosted or hosted).
+  # OpenAI-compatible audio-transcription endpoint used by the Streamlit chat's
+  # voice / audio input. The API key is the shared OPENAI_API_KEY (in .env); only
+  # these non-secret knobs live here. Point base_url at any OpenAI-compatible
+  # /audio endpoint (self-hosted or hosted).
   enabled: true
   base_url: https://api.openai.com/v1
   model: whisper-1
@@ -121,7 +118,7 @@ langfuse:
   # worker, tool, LLM + embedding call with tokens, latency and cost. The keys
   # live in .env (LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY); only these
   # non-secret knobs live here. When disabled — or when the keys are missing —
-  # the SDK integration in agent / downloader_general / bff degrades to a no-op.
+  # the SDK integration in agent / downloader_general degrades to a no-op.
   enabled: true # master switch read by every Python service that emits traces
   host: http://langfuse_web:3000 # in-network URL the SDK POSTs traces to (UI is published on :3000)
   environment: dev # tag applied to every trace (dev / staging / production)

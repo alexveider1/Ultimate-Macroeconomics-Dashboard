@@ -343,7 +343,7 @@ class ChatRequest(BaseModel):
             "(``data:image/<fmt>;base64,...``). Injected into the user message as "
             "OpenAI vision content-parts so the (vision-capable) supervisor can see "
             "them. Non-image modalities (audio, documents) are folded into "
-            "``user_message`` as text upstream at the BFF."
+            "``user_message`` as text upstream by the caller (the Streamlit chat)."
         ),
     )
 

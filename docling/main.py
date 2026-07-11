@@ -6,10 +6,10 @@ Contract:
   - ``GET /formats`` — the supported upload extensions.
   - ``GET /health`` — ``{"status": "ok"}`` for the Compose healthcheck.
 
-PDF conversion offloads its VLM inference to the Triton-hosted granite-docling
-model over Triton's OpenAI-compatible endpoint; Office formats are parsed
-locally by docling's native backends. This service holds no secrets — the Triton
-endpoint is keyless on the internal Compose network.
+PDF conversion offloads its OCR/VLM inference to a cloud OpenAI-compatible
+endpoint (``docling.vlm`` in ``config.yaml``); Office formats are parsed locally
+by docling's native backends. The only secret is the shared ``OPENAI_API_KEY``
+used to authenticate that endpoint (see ``settings``).
 """
 
 from contextlib import asynccontextmanager
@@ -23,31 +23,34 @@ from converter import SUPPORTED_FORMATS, build_converter, resolve_vlm_url
 from docling.datamodel.base_models import DocumentStream
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(os.environ.get("DOCLING_CONFIG_PATH", "config.yaml"))
 CONFIG = load_config(CONFIG_PATH)
 DOCLING_CONFIG = CONFIG.docling
-TRITON_CONFIG = CONFIG.triton
+VLM_CONFIG = DOCLING_CONFIG.vlm
+SETTINGS = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Build the shared docling converter once on startup."""
-    url = resolve_vlm_url(TRITON_CONFIG.host, TRITON_CONFIG.openai_port)
-    logger.info("Docling service targeting Triton VLM '%s' at %s", TRITON_CONFIG.vlm_model, url)
+    url = resolve_vlm_url(VLM_CONFIG.base_url)
+    logger.info("Docling service targeting cloud VLM '%s' at %s", VLM_CONFIG.model, url)
     app.state.converter = build_converter(
         url=url,
-        model=TRITON_CONFIG.vlm_model,
+        model=VLM_CONFIG.model,
         timeout=DOCLING_CONFIG.convert_timeout_seconds,
+        api_key=SETTINGS.openai_api_key,
     )
     yield
 
 
 app = FastAPI(
     title="Docling Conversion API",
-    description="Converts PDF/DOCX/PPTX/XLSX uploads to Markdown (PDF via Triton VLM).",
+    description="Converts PDF/DOCX/PPTX/XLSX uploads to Markdown (PDF via a cloud VLM).",
     lifespan=lifespan,
 )
 

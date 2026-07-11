@@ -2,10 +2,10 @@
 
 Isolated from ``main.py`` so the (version-sensitive) docling API surface lives in
 one place. Pinned to ``docling==2.110.0``: PDFs run through the ``VlmPipeline``
-pointed at the Triton-hosted granite-docling VLM over its OpenAI-compatible
-endpoint (``enable_remote_services=True`` — no local model weights, no GPU in this
-container); Office formats (docx/pptx/xlsx) use docling's native backends and need
-no VLM. If the docling API changes on upgrade, this is the single file to adjust.
+pointed at a cloud OpenAI-compatible OCR/VLM endpoint (``enable_remote_services=
+True`` — no local model weights, no GPU in this container); Office formats
+(docx/pptx/xlsx) use docling's native backends and need no VLM. If the docling
+API changes on upgrade, this is the single file to adjust.
 """
 
 from __future__ import annotations
@@ -18,9 +18,9 @@ from docling.datamodel.vlm_engine_options import ApiVlmEngineOptions, VlmEngineT
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.pipeline.vlm_pipeline import VlmPipeline
 
-# Extension -> docling InputFormat for the four document types the BFF routes
+# Extension -> docling InputFormat for the four document types the chat routes
 # here. Images are handled directly by the vision model (not docling); text
-# files are decoded at the BFF. Everything else is rejected with a 415.
+# files are decoded upstream. Everything else is rejected with a 415.
 SUPPORTED_FORMATS: dict[str, InputFormat] = {
     ".pdf": InputFormat.PDF,
     ".docx": InputFormat.DOCX,
@@ -29,27 +29,35 @@ SUPPORTED_FORMATS: dict[str, InputFormat] = {
 }
 
 
-def resolve_vlm_url(host: str, openai_port: int) -> str:
-    """Return the Triton OpenAI chat-completions endpoint (env override wins)."""
-    override = os.environ.get("DOCLING_VLM_URL") or os.environ.get("TRITON_OPENAI_URL")
+def resolve_vlm_url(base_url: str) -> str:
+    """Return the OpenAI-compatible chat-completions endpoint (env override wins).
+
+    ``base_url`` is the ``…/v1`` base from ``config.yaml``; the chat-completions
+    path is appended. ``DOCLING_VLM_URL`` overrides the whole URL.
+    """
+    override = os.environ.get("DOCLING_VLM_URL")
     if override:
         return override
-    return f"http://{host}:{openai_port}/v1/chat/completions"
+    return f"{base_url.rstrip('/')}/chat/completions"
 
 
-def build_converter(url: str, model: str, timeout: int) -> DocumentConverter:
+def build_converter(url: str, model: str, timeout: int, api_key: str = "") -> DocumentConverter:
     """Build the shared converter: remote VLM for PDF, native backends elsewhere.
 
     Args:
-        url: Triton OpenAI-compatible chat-completions endpoint.
-        model: OpenAI ``model`` field = the Triton model name (``granite_docling``).
+        url: Cloud OpenAI-compatible chat-completions endpoint.
+        model: OpenAI ``model`` field the endpoint expects (served OCR model id).
         timeout: Per-request VLM call timeout in seconds.
+        api_key: Bearer token for the endpoint (the shared ``OPENAI_API_KEY``);
+            when empty, no ``Authorization`` header is sent (keyless endpoints).
     """
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     vlm_options = VlmConvertOptions.from_preset(
         "granite_docling",
         engine_options=ApiVlmEngineOptions(
             runtime_type=VlmEngineType.API,
             url=url,
+            headers=headers,
             params={
                 "model": model,
                 "temperature": 0.0,

@@ -1,7 +1,7 @@
 [project]
 name = "umd-docling"
 version = "0.1.0"
-description = "FastAPI service converting document uploads to Markdown via docling (PDF over the Triton-hosted VLM)."
+description = "FastAPI service converting document uploads to Markdown via docling (PDF over a cloud OpenAI-compatible VLM)."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "docling==2.110.0",
@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn==0.42.0",
     "python-multipart==0.0.20",
     "pydantic==2.12.5",
+    "pydantic-settings==2.14.2",
     "pyyaml==6.0.3",
 ]
 

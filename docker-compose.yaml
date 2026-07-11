@@ -152,17 +152,17 @@ services:
       # Persist the Hugging Face weight cache so Chronos isn't re-downloaded on
       # every container restart.
       - triton_hf_cache:/root/.cache/huggingface
-    # Ports (HTTP 8000 / gRPC 8001 / metrics 8002 + OpenAI 9000) stay internal to
-    # the compose network — the adapters reach Triton over gRPC, and the docling
-    # service reaches the OpenAI frontend at triton:9000, both by container name.
+    # Ports (HTTP 8000 / gRPC 8001 / metrics 8002) stay internal to the compose
+    # network — the forecaster/clustering adapters reach Triton over gRPC by
+    # container name; nothing is published to the host.
     healthcheck:
       test: [ "CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/v2/health/ready', timeout=3).status == 200 else 1)" ]
       interval: 30s
       timeout: 5s
       retries: 30
-      # First boot pip-loads RAPIDS/torch, downloads Chronos + granite-docling
-      # weights, and inits every model (incl. the vLLM engine) — allow a long
-      # ramp before marking healthy.
+      # First boot pip-loads RAPIDS/torch, downloads the Chronos weights, and
+      # inits every forecasting/clustering model — allow a long ramp before
+      # marking healthy.
       start_period: 900s
 
   forecaster:
@@ -274,57 +274,20 @@ services:
       retries: 10
       start_period: 20s
 
-  bff:
-    build:
-      context: bff
-      dockerfile: Dockerfile
-    container_name: bff
-    restart: unless-stopped
-    # Read-only backend-for-frontend: the read-only LLM Postgres role (never the
-    # superuser) + Qdrant key + OpenAI key (news-query embeddings only).
-    environment:
-      POSTGRES_LLM_USER: ${POSTGRES_LLM_USER}
-      POSTGRES_LLM_PASSWORD: ${POSTGRES_LLM_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
-    ports:
-      - 8005:8005
-    depends_on:
-      db:
-        condition: service_healthy
-      vector_db:
-        condition: service_healthy
-      downloader_general:
-        condition: service_healthy
-    volumes:
-      - ./_container_data/config.yaml:/app/config.yaml:ro
-      - ./_container_data/ui_themes.yaml:/app/ui_themes.yaml:ro
-      - ./_container_data/_configs:/app/_configs:ro
-      - ./_container_data/bff:/app/_container_data
-    healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8005/health', timeout=3).status == 200 else 1)" ]
-      interval: 30s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-
   docling:
     build:
       context: docling
       dockerfile: Dockerfile
     container_name: docling
     restart: unless-stopped
-    # Converts document uploads to Markdown for the BFF multimodal chat. Holds no
-    # secrets — PDF VLM inference is offloaded to the keyless internal Triton
-    # OpenAI endpoint (triton:9000); Office formats parse locally.
+    # Converts document uploads to Markdown for the Streamlit chat. PDF OCR/VLM
+    # inference is offloaded to a CLOUD OpenAI-compatible endpoint (config
+    # docling.vlm), authenticated with the shared OPENAI_API_KEY; Office formats
+    # (docx/pptx/xlsx) parse locally with no VLM.
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     ports:
       - 8006:8006
-    depends_on:
-      triton:
-        condition: service_healthy
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/docling:/app/_container_data
@@ -355,31 +318,62 @@ services:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/backup:/app/_container_data
 
-  # --- Frontend (React + Vite SPA served by nginx) ---------------------------
-  # TypeScript React SPA consuming the read-only BFF via nginx's /api reverse
-  # proxy (same-origin, no CORS). Sole dashboard frontend (replaced the Streamlit
-  # `app` at the Phase-6 cutover). Host 3002 (3000=langfuse_web, 3001=grafana).
-  frontend:
+  # --- Streamlit dashboard (sole frontend) -----------------------------------
+  # Multi-page Streamlit app that talks DIRECTLY to the backend services (no
+  # BFF): the read-only LLM Postgres role for page reads, Qdrant for the news /
+  # RAG pages, the OpenAI key for the chat's voice transcription, and the agent /
+  # forecaster / clustering / python_sandbox / downloader_extra HTTP APIs. Host
+  # 8501 (3000=langfuse_web, 3001=grafana).
+  app:
     build:
-      context: frontend
+      context: app
       dockerfile: Dockerfile
-    container_name: frontend
+    container_name: app
     restart: unless-stopped
+    environment:
+      POSTGRES_LLM_USER: ${POSTGRES_LLM_USER}
+      POSTGRES_LLM_PASSWORD: ${POSTGRES_LLM_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+      # Whisper voice transcription (chat multimodal input); base_url/model live
+      # in config.yaml `whisper:`. Same shared key as the agent LLM.
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     ports:
-      - 3002:80
+      - 8501:8501
     depends_on:
-      bff:
+      db:
         condition: service_healthy
+      vector_db:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+      forecaster:
+        condition: service_healthy
+      clustering:
+        condition: service_healthy
+      python_sandbox:
+        condition: service_healthy
+      downloader_general:
+        condition: service_healthy
+      downloader_extra:
+        condition: service_healthy
+      docling:
+        condition: service_healthy
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/themes.yaml:/app/themes.yaml
+      - ./_container_data/_configs:/app/_configs
+      - ./_container_data/app:/app/_container_data
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/" ]
+      test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=3).status == 200 else 1)" ]
       interval: 30s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 30s
 
   # --- Langfuse (LLM tracing / observability, self-hosted) -------------------
-  # Independent observability stack. Core services (agent / downloader_general /
-  # bff) emit traces to langfuse_web but intentionally do NOT depend_on it, so a
+  # Independent observability stack. Core services (agent / downloader_general)
+  # emit traces to langfuse_web but intentionally do NOT depend_on it, so a
   # Langfuse outage never blocks the app — the SDK degrades to a no-op. Image
   # tags mirror Langfuse's official self-host compose (the server is the `:3`
   # line, versioned separately from the v4 Python SDK). Only langfuse_web is

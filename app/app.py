@@ -1,0 +1,135 @@
+"""Streamlit entry point: page config, navigation, and one-time bootstrap.
+
+Streamlit re-executes this module from top to bottom on every interaction,
+so all expensive work lives behind ``st.cache_*`` decorators in
+``core/``. This file only sets the page config, registers the Plotly
+template, initialises ``st.session_state``, defines the multi-page nav,
+and shows the data disclaimer dialog on first visit.
+"""
+
+import streamlit as st
+
+from core.theming import register_plotly_template
+
+st.set_page_config(
+    page_title="Ultimate Macroeconomics Dashboard",
+    page_icon="🌍",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.logo("assets/logo.png")
+
+register_plotly_template()
+
+
+def init_global_state():
+    """Initialise the cross-page session-state entries the first time the app loads.
+
+    Streamlit clears ``session_state`` only on browser disconnect, so this
+    runs once per user session. Holds the chat history.
+    """
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+
+def setup_routing():
+    """Declare every ``st.Page`` and group them into the sidebar navigation.
+
+    Page-file order (``01_…`` through ``20_…``) drives the in-group order
+    while the dict keys define the section labels in the sidebar.
+
+    Returns:
+        The configured ``st.navigation`` object ready to ``.run()``.
+    """
+    p_basic_indicators = st.Page(
+        "pages/01_basic_indicators.py", title="General Economics Indicators", icon="📈"
+    )
+    p_economy_structure = st.Page(
+        "pages/02_economy_structure.py", title="Economy Structure", icon="📈"
+    )
+    p_finance_monetary = st.Page(
+        "pages/03_finance_monetary.py", title="Finance and Monetary", icon="📈"
+    )
+    p_trade = st.Page("pages/04_trade.py", title="Trade and External sector", icon="📈")
+    p_demography = st.Page("pages/05_demography.py", title="Demography", icon="📈")
+    p_governance = st.Page(
+        "pages/06_governance_institutions.py", title="Governance and Institutions", icon="📈"
+    )
+    p_tech_innovations = st.Page(
+        "pages/07_tech_innovation.py", title="Technology and Innovations", icon="📈"
+    )
+    p_health_wellbeing = st.Page(
+        "pages/08_health_wellbeing.py", title="Health and wellbeing", icon="📈"
+    )
+    p_education_human_capital = st.Page(
+        "pages/09_education_human_capital.py",
+        title="Education and Human Capital",
+        icon="📈",
+    )
+    p_environment = st.Page(
+        "pages/10_environment.py", title="Environment and Sustainability", icon="📈"
+    )
+    p_agent = st.Page("pages/11_ai_agent_chat.py", title="AI Analyst", icon="🤖")
+    p_custom_plot = st.Page(
+        "pages/12_custom_plot_builder.py", title="Custom Plot Constructor", icon="📊"
+    )
+    p_cluster = st.Page("pages/13_clustering_sandbox.py", title="Clustering Sandbox", icon="🔍")
+    p_yahoo_finance = st.Page("pages/14_yahoo_finance.py", title="Yahoo Finance", icon="💹")
+    p_news = st.Page("pages/15_news.py", title="News Explorer", icon="📰")
+    p_crypto = st.Page("pages/16_crypto.py", title="Crypto", icon="💰")
+    p_fred_regional = st.Page("pages/19_fred_regional.py", title="United States (FRED)", icon="🇺🇸")
+    p_eurostat_regional = st.Page(
+        "pages/20_eurostat_regional.py", title="European Union (Eurostat)", icon="🇪🇺"
+    )
+    pg = st.navigation(
+        {
+            "Dashboard": [
+                p_basic_indicators,
+                p_economy_structure,
+                p_finance_monetary,
+                p_trade,
+                p_demography,
+                p_governance,
+                p_tech_innovations,
+                p_health_wellbeing,
+                p_education_human_capital,
+                p_environment,
+            ],
+            "Other data": [p_yahoo_finance, p_crypto, p_news],
+            "Regional Statistics": [p_fred_regional, p_eurostat_regional],
+            "Constructors": [p_custom_plot, p_cluster],
+            "AI": [p_agent],
+        }
+    )
+
+    return pg
+
+
+def _show_data_disclaimer():
+    """Show the data-disclaimer dialog once per session and remember acceptance."""
+    if st.session_state.get("disclaimer_accepted"):
+        return
+
+    @st.dialog("Data Disclaimer", width="large")
+    def _disclaimer_dialog():
+        """Render the disclaimer dialog body; flip the session flag on accept."""
+        st.warning(
+            "**Important:** The developer of this dashboard is not responsible for "
+            "the accuracy, completeness, or quality of the data and news displayed. "
+            "All information is sourced from third-party providers and is presented "
+            "as-is. It is the user's responsibility to evaluate whether any given "
+            "source or data point is reliable before making decisions based on it."
+        )
+        if st.button("I understand", type="primary", width="stretch"):
+            st.session_state.disclaimer_accepted = True
+            st.rerun()
+
+    _disclaimer_dialog()
+
+
+init_global_state()
+_show_data_disclaimer()
+
+pg = setup_routing()
+pg.run()

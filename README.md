@@ -5,7 +5,6 @@ Technical stack (not exhaustive):
 ![Visual Studio Code](https://img.shields.io/badge/Visual%20Studio%20Code-0078d7.svg?style=for-the-badge&logo=visual-studio-code&logoColor=white)
 ![Google Gemini](https://img.shields.io/badge/google%20gemini-8E75B2?style=for-the-badge&logo=google%20gemini&logoColor=white)
 ![Claude](https://img.shields.io/badge/Claude-D97757?style=for-the-badge&logo=claude&logoColor=white)
-![GitHub Copilot](https://img.shields.io/badge/github_copilot-8957E5?style=for-the-badge&logo=github-copilot&logoColor=white)
 ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
 ![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white)
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
@@ -21,7 +20,18 @@ Technical stack (not exhaustive):
 ![Plotly](https://img.shields.io/badge/Plotly-%233F4F75.svg?style=for-the-badge&logo=plotly&logoColor=white)
 ![DuckDuckGo](https://img.shields.io/badge/duckduckgo-de5833?style=for-the-badge&logo=duckduckgo&logoColor=white)
 
-[`Ultimate Macroeconomics Dashboard`](https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard) is an AI-powered macroeconomic analytics tool: a **multi-page Streamlit dashboard** talking directly to Postgres + Qdrant and to FastAPI micro-services for the AI analyst, forecasting, clustering, on-demand data ingestion, document conversion, and a sandboxed Python executor, plus an NVIDIA Triton Inference Server hosting all model inference. It covers World Bank, Yahoo Finance, Binance crypto, FRED US-state and Eurostat EU-regional (NUTS-2) data, plus a **30 000+** article news RAG corpus — **70+** World Bank indicators, **50+** Yahoo Finance tickers, and **150+** prebuilt charts.
+[`Ultimate Macroeconomics Dashboard`](https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard) is an AI-powered macroeconomic analytics tool: a **multi-page Streamlit dashboard** talking directly to Postgres + Qdrant and to FastAPI micro-services for the AI analyst, forecasting, clustering, on-demand data ingestion, document conversion, and a sandboxed Python executor, plus an NVIDIA Triton Inference Server hosting all model inference. It covers World Bank, Yahoo Finance, Binance crypto, FRED US-state and Eurostat EU-regional (NUTS-2) data, plus a **30 000+** article news RAG corpus — **70+** World Bank indicators, **90+** Yahoo Finance tickers, and **150+** prebuilt charts.
+
+## Images
+
+|                          |                          |
+|--------------------------|--------------------------|
+|  ![](app/assets/01.png)  |  ![](app/assets/02.png)  |
+|  ![](app/assets/03.png)  |  ![](app/assets/04.png)  |
+|  ![](app/assets/05.png)  |  ![](app/assets/06.png)  |
+|  ![](app/assets/07.png)  |  ![](app/assets/08.png)  |
+|  ![](app/assets/09.png)  |  ![](app/assets/10.png)  |
+|  ![](app/assets/11.png)  |  ![](app/assets/12.png)  |
 
 ## Architecture
 
@@ -95,7 +105,7 @@ Set these under `shared:` to point at your LLM provider (any OpenAI-compatible A
 
 ```yaml
 shared:
-  openai_base_url: https://api.openai.com/v1
+  openai_base_url: https://openrouter.ai/api/v1
   openai_llm_model: gpt-5.4
   openai_llm_model_fast: gpt-5.4-mini
   openai_embedding_model: openai/text-embedding-3-small
@@ -113,9 +123,7 @@ The active colour palette is controlled by `_container_data/themes.yaml`, read d
 
 ```yaml
 active: dark
-themes:
-  dark:
-    ...
+...
 ```
 
 ## Adding extra indicators
@@ -199,9 +207,9 @@ Postgres restore is automated (`pg_restore --clean --if-exists`); a full Qdrant 
 
 Container and service health is monitored **externally** by a fully open-source **Grafana + Prometheus + OpenTelemetry** stack — deliberately separate from the dashboard so it keeps reporting even when the app is down. Every container is treated as an external service: both its resources and its health are tracked from the outside, with no per-service instrumentation. Open **Grafana at `http://localhost:3001`** (log in as `admin` with `GRAFANA_ADMIN_PASSWORD` from your `.env`). It gives you, out of the box:
 
-- **Per-container CPU / RAM / disk / network** for every container in the stack, plus host-level metrics — collected by an **OpenTelemetry Collector** (`docker_stats` + `hostmetrics` receivers reading the Docker socket + host `/proc`/`/sys`), with history, not just a live snapshot.
-- **Per-service health checks** — a **blackbox exporter** runs HTTP probes against each service's health endpoint (`agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, `docling`, `app`, `triton`, `vector_db`, `langfuse_web`) and TCP probes for the databases (Postgres + the Langfuse backing stores).
-- Three provisioned dashboards — **Containers**, **Host**, and **Service health** — backed by **Prometheus** (`http://localhost:9092`), which also scrapes Triton's native inference/GPU metrics.
+* **Per-container CPU / RAM / disk / network** for every container in the stack, plus host-level metrics — collected by an **OpenTelemetry Collector** (`docker_stats` + `hostmetrics` receivers reading the Docker socket + host `/proc`/`/sys`), with history, not just a live snapshot.
+* **Per-service health checks** — a **blackbox exporter** runs HTTP probes against each service's health endpoint (`agent`, `forecaster`, `clustering`, `downloader_extra`, `python_sandbox`, `docling`, `app`, `triton`, `vector_db`, `langfuse_web`) and TCP probes for the databases (Postgres + the Langfuse backing stores).
+* Three provisioned dashboards — **Containers**, **Host**, and **Service health** — backed by **Prometheus** (`http://localhost:9092`), which also scrapes Triton's native inference/GPU metrics.
 
 To add or change a health probe, edit the target list in `_container_data/prometheus/prometheus.yml` (the `blackbox-http` / `blackbox-tcp` jobs) and restart the `prometheus` service. The stack runs fully independently of the app services (no `depends_on` either way), so a monitor outage can never affect the stack. Set `GRAFANA_ADMIN_PASSWORD` in `.env` before first boot (see `.env.example`).
 

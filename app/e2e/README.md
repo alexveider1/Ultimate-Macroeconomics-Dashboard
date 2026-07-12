@@ -1,7 +1,21 @@
 # app e2e (Playwright)
 
-Node-based Playwright end-to-end tests for the Streamlit dashboard. Scaffolded
-ahead of the frontend switch — specs under `tests/` are placeholders for now.
+Node-based Playwright end-to-end tests for the Streamlit dashboard (`app`).
+They drive the real UI against a running stack (live Postgres/Qdrant data).
+
+## Specs (`tests/`)
+
+- `helpers.ts` — shared setup: dismiss the disclaimer modal, wait for Streamlit
+  to boot, the page ↔ heading table, and the no-traceback assertion.
+- `smoke.spec.ts` — the app shell boots, the disclaimer gate works, every
+  sidebar group is listed.
+- `navigation.spec.ts` — walks all 18 sidebar pages on one session and asserts
+  each renders its heading with no Python traceback (the main regression net).
+- `dashboard.spec.ts` — a World Bank page: charts render, the cross-page country
+  selector persists, and the per-graph settings popover opens.
+- `data-pages.spec.ts` — Yahoo / Crypto / FRED / Eurostat each draw a chart.
+- `ai-constructors.spec.ts` — the AI chat's multimodal inputs, the custom-plot
+  and clustering constructors, and the news explorer render and are driveable.
 
 ## Setup
 

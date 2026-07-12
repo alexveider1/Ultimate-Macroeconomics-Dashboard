@@ -20,7 +20,7 @@
 
 ## Long-term
 
-* **Triton follow-ups:** freeze `triton/requirements.txt` to the exact known-good resolution after the first successful GPU build (RAPIDS pins numpy/pandas — currently light on pins); consider Triton **explicit model-control** so disabled families (`*_AVAILABLE: false`) aren't loaded at all; optionally revisit a true ONNX/TensorRT Chronos export.
+* **Triton follow-ups:** freeze `triton/requirements.txt` to the exact known-good resolution after the first successful GPU build (RAPIDS pins numpy/pandas — currently light on pins). A pinned/frozen numpy would also let the Dockerfile drop its post-install `numpy-*.dist-info` cleanup workaround (the base image's apt-installed numpy 1.26.4 has no `METADATA`, so pip can't remove it when RAPIDS upgrades numpy, and the leftover metadata-less dir crashes transformers' import guard). Also consider Triton **explicit model-control** so disabled families (`*_AVAILABLE: false`) aren't loaded at all; optionally revisit a true ONNX/TensorRT Chronos export.
 * **Voice output:** the Streamlit chat already accepts file + voice **input** (documents via `docling`, audio via Whisper, images as vision parts — `app/core/multimodal.py`). Still to do: **voice output** — synthesize the agent's answer to speech (TTS) for a hands-free reply.
 * Interactive graph networks visualizing connections between countries in the global economy; dedicated graph-based analysis pages.
 * Option for RAG over a graph-based knowledge database.

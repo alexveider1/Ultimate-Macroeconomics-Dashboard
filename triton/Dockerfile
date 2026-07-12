@@ -25,6 +25,18 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade --ignore-installed pip \
     && pip install -r /tmp/requirements.txt
 
+# The base image ships numpy 1.26.4 without a RECORD/METADATA file (apt-style
+# install), so pip cannot uninstall it when RAPIDS upgrades numpy — the stale,
+# metadata-less `numpy-1.26.4.dist-info` is left behind and shadows the real
+# one, making `importlib.metadata.version("numpy")` return None. That breaks
+# transformers' import-time version guard (`numpy>=1.17`, need=1.17 found=None),
+# which crashes the Chronos model's `initialize()` and takes the whole server
+# down (Triton exits when any model fails to load). Drop any numpy dist-info
+# that lacks a METADATA file so a single, resolvable version remains.
+RUN for d in /usr/local/lib/python3.12/dist-packages/numpy-*.dist-info; do \
+        [ -f "$d/METADATA" ] || rm -rf "$d"; \
+    done
+
 # Shared inference code, importable by every model.py through PYTHONPATH.
 COPY common/ /opt/umd/
 

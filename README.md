@@ -65,8 +65,8 @@ The stack is a set of `Docker` containers following a strict micro-service desig
 Prerequisites: Docker (with the Compose plugin) and a working **NVIDIA GPU + the NVIDIA Container Toolkit** — the `triton` service reserves the GPU for all model inference.
 
 ```bash
-# 1. Clone repo
-git clone https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard
+# 1. Clone repo (pin a released version with --branch, e.g. v0.15)
+git clone --branch v0.15 https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard
 cd Ultimate-Macroeconomics-Dashboard/
 
 # 2. Create the `.env` file (fill in your secrets)

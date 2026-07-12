@@ -1,0 +1,98 @@
+# Prometheus scrape config for the monitoring stack. Bind-mounted read-only to
+# /etc/prometheus/prometheus.yml.
+#
+# Scrapes:
+#   * otel-collector:8889  — per-container + host resource metrics (docker_stats
+#                            + hostmetrics, re-exported in Prometheus format)
+#   * blackbox_exporter    — HTTP + TCP health probes of every service (the
+#                            replacement for Netdata's go.d httpcheck/portcheck)
+#   * triton:8002/metrics  — Triton's native inference metrics (free — already
+#                            Prometheus-format, previously unscraped)
+#   * itself + the collector's + blackbox's own /metrics
+#
+# To add/remove a health probe, edit the target list in the blackbox-http /
+# blackbox-tcp jobs below and restart prometheus.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # --- Container + host resource metrics (OpenTelemetry Collector) -----------
+  - job_name: otel-collector
+    static_configs:
+      - targets: ['otel-collector:8889']
+
+  # --- Monitoring stack self-health ------------------------------------------
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: blackbox
+    static_configs:
+      - targets: ['blackbox_exporter:9115']
+
+  # --- Triton native inference metrics ---------------------------------------
+  - job_name: triton
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['triton:8002']
+
+  # --- Per-service HTTP health probes (via blackbox_exporter) -----------------
+  # Mirrors the old Netdata httpcheck jobs. Each target is a full health URL;
+  # blackbox_exporter does the request and reports probe_success / duration /
+  # http_status_code. downloader_general + backup have no HTTP endpoint, so
+  # (as under Netdata) they are covered by container resource metrics only.
+  - job_name: blackbox-http
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://agent:8000/health
+          - http://forecaster:8001/health
+          - http://clustering:8002/health
+          - http://downloader_extra:8003/health
+          - http://python_sandbox:8004/health
+          - http://docling:8006/health
+          - http://app:8501/_stcore/health
+          - http://triton:8000/v2/health/ready
+          - http://vector_db:6333/readyz
+          - http://langfuse_web:3000/api/public/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox_exporter:9115
+      # Friendly `service` label = the hostname from the URL (e.g. vector_db).
+      - source_labels: [__param_target]
+        regex: https?://([^:/]+).*
+        target_label: service
+        replacement: $1
+
+  # --- Per-service TCP health probes (via blackbox_exporter) ------------------
+  # Mirrors the old Netdata portcheck jobs — services with no HTTP surface.
+  - job_name: blackbox-tcp
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+          - db:5432
+          - langfuse_redis:6379
+          - langfuse_clickhouse:8123
+          - langfuse_minio:9000
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox_exporter:9115
+      # Friendly `service` label = the host part of host:port.
+      - source_labels: [__param_target]
+        regex: ([^:]+):.*
+        target_label: service
+        replacement: $1

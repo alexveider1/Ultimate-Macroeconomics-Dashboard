@@ -27,28 +27,16 @@ def init_global_state():
     """Initialise the cross-page session-state entries the first time the app loads.
 
     Streamlit clears ``session_state`` only on browser disconnect, so this
-    runs once per user session. Holds the chat history and the per-service
-    health flags consumed by the Monitoring page.
+    runs once per user session. Holds the chat history.
     """
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
-
-    if "api_health" not in st.session_state:
-        st.session_state.api_health = {
-            "db": True,
-            "vector_db": True,
-            "agent": True,
-            "clustering": True,
-            "python_sandbox": True,
-            "forecaster": True,
-            "downloader_extra": True,
-        }
 
 
 def setup_routing():
     """Declare every ``st.Page`` and group them into the sidebar navigation.
 
-    Page-file order (``01_…`` through ``18_…``) drives the in-group order
+    Page-file order (``01_…`` through ``20_…``) drives the in-group order
     while the dict keys define the section labels in the sidebar.
 
     Returns:
@@ -83,15 +71,14 @@ def setup_routing():
         "pages/10_environment.py", title="Environment and Sustainability", icon="📈"
     )
     p_agent = st.Page("pages/11_ai_agent_chat.py", title="AI Analyst", icon="🤖")
-    p_custom_plot = st.Page(
-        "pages/12_custom_plot_builder.py", title="Custom Plot Constructor", icon="📊"
-    )
     p_cluster = st.Page("pages/13_clustering_sandbox.py", title="Clustering Sandbox", icon="🔍")
     p_yahoo_finance = st.Page("pages/14_yahoo_finance.py", title="Yahoo Finance", icon="💹")
     p_news = st.Page("pages/15_news.py", title="News Explorer", icon="📰")
-    p_token_usage = st.Page("pages/17_token_usage.py", title="Token Usage", icon="🪙")
-    p_monitoring = st.Page("pages/18_monitoring.py", title="Monitoring", icon="🛰️")
-
+    p_crypto = st.Page("pages/16_crypto.py", title="Crypto", icon="💰")
+    p_fred_regional = st.Page("pages/19_fred_regional.py", title="United States (FRED)", icon="🇺🇸")
+    p_eurostat_regional = st.Page(
+        "pages/20_eurostat_regional.py", title="European Union (Eurostat)", icon="🇪🇺"
+    )
     pg = st.navigation(
         {
             "Dashboard": [
@@ -106,10 +93,9 @@ def setup_routing():
                 p_education_human_capital,
                 p_environment,
             ],
-            "Other data": [p_yahoo_finance, p_news],
-            "Constructors": [p_custom_plot, p_cluster],
+            "Other data": [p_yahoo_finance, p_crypto, p_news, p_cluster],
+            "Regional Statistics": [p_fred_regional, p_eurostat_regional],
             "AI": [p_agent],
-            "Settings": [p_token_usage, p_monitoring],
         }
     )
 

@@ -4,6 +4,79 @@ All notable changes to **Ultimate Macroeconomics Dashboard** are documented in t
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.15]
+
+Simplified the sidebar navigation: dropped the **Constructors** section, removed the custom plot constructor entirely, and folded the clustering sandbox into **Other data**.
+
+### Removed
+
+- **Custom Plot Constructor page** (`app/pages/12_custom_plot_builder.py`). It only re-rendered an arbitrary World Bank indicator as a single `GraphBox` — the same two-panel map + trend/distribution card the ten themed Dashboard pages already provide — so it added navigation surface without new capability. No shared helper became dead code: `render_country_selector` / `GraphBox` are still used by the Dashboard pages (via `page_utils.render_page_from_config`), and `load_dashboard_config` is still used by the clustering page (its docstring updated accordingly).
+- **"Constructors" navigation group.** With the custom-plot page gone and clustering relocated, the group is empty and has been deleted from the `st.navigation` shell in `app/app.py` (and from the `smoke.spec.ts` group-list assertion).
+
+### Changed
+
+- **Clustering Sandbox moved to the "Other data" section** (`app/app.py`), alongside Yahoo Finance / Crypto / News Explorer. The page (`13_clustering_sandbox.py`) is otherwise unchanged; only its nav group moved.
+- **e2e updates.** The `ai-constructors.spec.ts` spec was renamed to `interactive.spec.ts` (the "constructors" framing no longer applies) with the custom-plot test dropped and the clustering test kept; `helpers.ts` `PAGES` drops the custom-plot entry and regroups clustering under "Other data". The navigation sweep now walks **17** sidebar pages (was 18).
+
+## [v0.14]
+
+Extended on-demand ingestion beyond the World Bank: the agent can now download a single Yahoo Finance ticker or Binance crypto pair that isn't yet in the database, the same way it already pulls missing WB indicators.
+
+### Added
+
+- **`downloader_extra` is now multi-source.** Its single `POST /ingest` endpoint dispatches on a new `source` field (`worldbank` / `yahoo` / `binance`); the old WB-only body (`{indicator_id, db_id}`) still works because `source` defaults to `worldbank`. Two new per-source clients sit beside `client_wb.py`: `client_yahoo.py` (`fetch_and_store_yahoo`, reusing the single-ticker `yfinance` metadata+history logic from `downloader_general`) and `client_binance.py` + a trimmed `binance_client.py` transport copy (validates the full pair symbol via `/api/v3/exchangeInfo?symbol=`, pulls the 24h ticker + full daily klines). Each path short-circuits on `already_downloaded`, else delete-then-inserts the fresh rows with the metadata row written first to satisfy the FK. New ORM models (`YahooMetadata`/`YahooHistoricalPrice`, `BinanceMetadata`/`BinanceHistoricalPrice`) mirror `database_schema.yaml`; an on-demand Binance metadata row leaves `rank` NULL (no batch-wide ranking). Adds `yfinance==1.2.0`. Covered by offline `test_binance_client.py` / `test_ingest_request.py` plus testcontainer `test_market_orm_roundtrip.py` / `test_store_integration.py`.
+- **Agent: on-demand Yahoo + Binance downloads (no master catalogue).** The `downloader_agent` worker is now source-aware — it extracts a unified `DownloadPlan` (`source` + the relevant id) and POSTs the unified `/ingest` body via the generalised `tools.ingest_data`. Unlike World Bank (which has the `database_indicators` master table), Yahoo/Binance have no catalogue, so the worker infers the ticker / full USDT pair symbol from world knowledge (Apple→`AAPL`, Solana→`SOLUSDT`) and `downloader_extra` validates it against the live API. `sql_agent` gained Binance querying (Plan C: `binance_metadata` + `binance_historical_prices`) and a new `NEEDS_DOWNLOAD (source=yahoo|binance)` signal when a `*_metadata` lookup comes back empty (suppressed when metadata exists but a price filter is just empty). Supervisor + sql_agent prompts updated to route untracked tickers/coins to `downloader_agent` instead of FINISH-ing with "not tracked". New `agent/tests/test_downloader_routing.py` covers the two pure routing helpers (`DownloaderAgent._build_payload`, `_detect_market_needs_download`).
+
+### Changed
+
+- **`DownloadIndicatorPlan` → `DownloadPlan`** (agent schemas): WB-only `{indicator_id, db_id}` replaced by a source-tagged model with optional `indicator_id`/`db_id`/`ticker`/`symbol`. **`tools.download_indicator` → `tools.ingest_data(payload)`** (posts the unified body; timeout raised 120s→300s for full-history pulls).
+
+## [v0.13]
+
+Added end-to-end **cryptocurrency** coverage: Binance ingestion in `downloader_general` plus a new Crypto dashboard page.
+
+### Added
+
+- **Binance crypto ingestion in `downloader_general`.** A new async `httpx` client (`src/utils/binance_client.py`) and extractor (`src/extractors/binance_download.py`, `BinanceDownloader` + `BaseBinanceDownloader` ABC) hit only the documented public spot endpoints (`/api/v3/exchangeInfo`, `/api/v3/ticker/24hr`, `/api/v3/klines`) — no API key. They select the top-30 USDT spot pairs ranked by trailing-24h quote volume (dropping stablecoins via `exclude_base_assets` and leveraged UP/DOWN/BULL/BEAR tokens in code), write ranked master data to a new **`binance_metadata`** table, and page each pair's full daily candle history into **`binance_historical_prices`** (PK `[date, symbol]`, FK → `binance_metadata.symbol`) concurrently under an `asyncio.Semaphore`. Both tables are declared in `database_schema.yaml` (so the agent's SQL worker sees them); the master-data "description" is synthesized from documented fields since the REST API exposes no prose. Wired into `main.py` after the Yahoo step, marker-gated like the other one-shot sources, and tunable via the new `_configs/binance_download_config.json` (`base_url`, `quote_asset`, `top_n`, `kline_interval`, `max_parallel_symbols`, `exclude_base_assets`). Reuses the existing `wb_client.call_with_retries` retry helper and `schema.py` write/bootstrap utilities. Covered by offline `tests/test_binance_client.py` (mocked `httpx` transport).
+- **Crypto dashboard page (`app/pages/16_crypto.py`, "Crypto" under "Other data").** Mirrors the Yahoo page: a market-overview table, a top-coin price-dynamics line chart on a log axis (so coins at very different price levels stay comparable), a Bitcoin candlestick, and an all-coin daily-return correlation heatmap. Reads via two new error-resilient `core/postgres_client.py` helpers (`get_all_binance_historical_prices`, `get_all_binance_metadata`, returning an empty frame when the tables predate this release).
+- **Generic `build_candlestick_plot` / `build_correlation_heatmap` in `core/plotting.py`**, lifted from the Yahoo-page builders so the Crypto page reuses them (the Yahoo page keeps its own `build_yahoo_*` variants).
+
+## [v0.12]
+
+Dropped the `wbgapi` dependency in favour of a hand-rolled async `httpx` World Bank client, and broadened the Yahoo Finance company universe.
+
+### Changed
+
+- **World Bank ingestion now uses a plain async `httpx` client instead of `wbgapi`.** New `downloader_general/src/utils/wb_client.py` pages the documented `https://api.worldbank.org/v2/...` REST endpoints directly — `/source` (databases), `/country` (countries), `/indicator?source={db}` (per-source indicator catalogue), `/country/all/indicator/{id}?source={db}` (observations), and the advanced `/sources/{db}/series/{id}/metadata` (rich series metadata) with a `/indicator/{id}` fallback. The extractor (`world_bank_download.py`) was rewritten async: per-indicator metadata+data fetches run concurrently under an `asyncio.Semaphore(max_parallel_indicators)` (replacing the old `ThreadPoolExecutor`), and blocking Postgres writes are offloaded with `asyncio.to_thread`. Output schema is **identical** — aggregate economies (`region.id == "NA"`) dropped (old `skipAggs=True` parity), null observations kept, country/metadata column shapes unchanged.
+- **`downloader_extra` (on-demand ingestion) likewise dropped `wbgapi`.** It ships a trimmed copy of the client (`downloader_extra/wb_client.py`, data-fetch only); `fetch_and_store_indicator` is now `async` and awaited directly from `POST /ingest`, fetching over async `httpx` and offloading the DB write to a worker thread (instead of running the whole sync path in a threadpool).
+- **`wbgapi` (and its now-orphaned `tabulate`) removed** from both services' `pyproject.toml` + `uv.lock`.
+- **`tqdm` dropped as a declared dependency; ingestion progress now goes through the logs.** `downloader_general`'s progress bars are replaced by a logging-based `log_progress` helper (and a log-emitting `CloneProgress`) in `src/utils/downloads.py`, so progress is visible in `docker compose logs` instead of a terminal bar that doesn't render there; the bespoke `_TqdmHandler` in `main.py` is gone (plain `StreamHandler`). The explicit `tqdm==4.67.3` pin was removed from `downloader_general` / `agent` / `forecaster` `pyproject.toml` + `uv.lock` (it had no code use in `agent` / `forecaster`); it now resolves only as a transitive dep of `openai` / `transformers` / `prophet` / `cmdstanpy` / `huggingface-hub`.
+
+### Added
+
+- **34 more companies in `yahoo_download_config.json`** (50 → 84) — broader sector and geography coverage: more US tech/financials/healthcare/consumer (NFLX, ADBE, CRM, CSCO, INTC, QCOM, IBM, WFC, MS, GS, BLK, PFE, MRK, DIS, CMCSA, NKE, SBUX) plus international names across Europe/Asia/energy (SAP, SONY, BABA, NESN.SW, UL, MC.PA, HSBC, AZN, NVS, SHEL, BP, TTE, VOW3.DE, 1211.HK, RELIANCE.NS, AIR.PA). All tickers verified live against Yahoo Finance.
+- **`tests/test_wb_client.py`** in both `downloader_general` and `downloader_extra` — offline unit tests (faked HTTP via `httpx.MockTransport`) covering pagination, aggregate skipping, null retention, metadata parsing + XML/fallback handling, and the retry wrapper.
+
+## [v0.11]
+
+Typed configuration and least-privilege secrets across every service, plus a two-model agent for cheaper, faster inference.
+
+### Added
+
+- **Typed config per service.** Each service now parses the slice of `config.yaml` it reads through a Pydantic model in its own `config.py` (`load_config(path)` → validated object, attribute access). Replaces the ~10× duplicated `yaml.safe_load(...) + .get("x", {}).get("y")` boilerplate (and the bespoke `_require()` nested-key walker in `downloader_general`); a malformed config now fails at startup with a precise `ValidationError`.
+- **Typed secrets per service (`pydantic-settings`).** Services that use secrets gained a `settings.py` `BaseSettings` model declaring only the variables they read; the Qdrant key's three legacy env-var names collapse into one `AliasChoices` field. Config/settings validation tests added for every service.
+- **`shared.openai_llm_model_fast`** config key naming the agent's fast model (falls back to `openai_llm_model` when unset).
+
+### Changed
+
+- **The agent runs two models.** `MacroAgentGraph` now builds a strong `ChatOpenAI` (`openai_llm_model`) for the reasoning-heavy roles — supervisor (planning + the final answer), `sql_agent`, `plotly_agent`, `chat_agent` — and a fast `ChatOpenAI` (`openai_llm_model_fast`) for the cheap `GuardrailAgent` screen and the lightweight `table_agent` / `rag_agent` / `web_search` / `downloader_agent`. Lower latency and cost on the cheap steps, quality preserved where it matters. `UsageTracker` is a graph-level callback, so per-call token accounting spans both models and labels each call with the model that served it. Vision (`/plots/interpret`) stays on the strong model.
+- **Least-privilege secret injection.** `docker-compose.yaml` no longer mounts the whole `_container_data/.env` into every container via `env_file`. Each service gets a per-service `environment:` block injecting only the secrets it uses via `${VAR}` interpolation: `clustering` / `forecaster` / `python_sandbox` get none, `agent` gets the read-only LLM role (not the superuser password), `app` gets both Postgres roles + the Qdrant key (no `OPENAI_API_KEY`); `db` / `vector_db` / `downloader_extra` get only their own. A gitignored root `.env` symlink → `_container_data/.env` keeps `docker compose up` working unchanged (or run `docker compose --env-file _container_data/.env up`).
+- **Dropped dead `load_dotenv` / `python-dotenv`** from `clustering`, `forecaster`, and `python_sandbox` (they read no secrets); added `pydantic` to `app` / `python_sandbox` and `pydantic-settings` to `app` / `agent` / `downloader_extra` / `downloader_general`.
+
+### Operator notes
+
+- After pulling, create the gitignored root `.env` symlink once — `ln -sfn _container_data/.env .env` — then `docker compose up --build` as before. Set `shared.openai_llm_model_fast` in `config.yaml` to a fast model available on your endpoint (ships as a `gpt-5.4-mini` placeholder; remove the key to fall back to the strong model).
+
 ## [v0.10]
 
 Forecasting expansion (four new models + per-model hyperparameter inputs), forecast-chart polish (dashed history→forecast connector + optional point markers), tighter and cheaper LLM plot descriptions, two embedding-visualisation panels on the News page that ride on the existing clustering service, a `selected_marker` semantic theme token, and a `POSTGRES_DB`-resolution fix that finally lets the env var pick the database name everywhere instead of only at first volume init.

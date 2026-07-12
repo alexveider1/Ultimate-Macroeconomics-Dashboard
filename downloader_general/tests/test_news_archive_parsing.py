@@ -39,11 +39,16 @@ def test_process_archive_extracts_english_articles(tmp_path: Path) -> None:
     result = downloader._process_archive(archive, allowed_topics=["economy"])
     assert result is not None
     collection_name, entries = result
-    assert collection_name == "economy_positive"
+    assert collection_name == "economy_positive_webhose"
     assert len(entries) == 1
     assert entries[0]["topic"] == "economy"
     assert entries[0]["sentiment"] == "positive"
     assert entries[0]["article"]["text"] == "Macro story"
+
+    # The .zip is deleted right after extraction so peak disk stays low and the
+    # raw archives never linger; the extracted JSONs remain for embedding.
+    assert not archive.exists()
+    assert (tmp_path / base_name).is_dir()
 
 
 def test_process_archive_skips_non_zip(tmp_path: Path) -> None:

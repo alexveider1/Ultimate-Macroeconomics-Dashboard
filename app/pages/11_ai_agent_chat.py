@@ -5,10 +5,16 @@ lives in ``st.session_state[CHAT_STATE_KEY]``. The page wraps the SSE
 stream from :func:`core.api_client.agent_chat_stream` and pretty-prints
 each event kind (``step`` / ``token`` / ``final`` / ``error``), then
 renders any returned artifacts (plot JSON, tabular data) inline.
+
+Supports multimodal input: file attachments (documents, images, text, audio)
+via the chat box plus a voice recorder. Non-text inputs are normalized to text /
+images by :mod:`core.multimodal` (docling for documents, Whisper for audio,
+base64 data URIs for images) before the turn is streamed to the agent.
 """
 
 import hashlib
 import re
+import uuid
 
 import plotly.io as pio
 import polars as pl
@@ -16,11 +22,13 @@ import streamlit as st
 
 from core.api_client import agent_chat_stream
 from core.app_logging import log_page_render
+from core.multimodal import augment_message, process_uploads, supported_upload_extensions
 from core.plotting import apply_plotly_theme
-from core.token_usage import record_usage
-from core.token_usage_store import record_persistent
 
 CHAT_STATE_KEY = "agent_chat_messages"
+SESSION_ID_KEY = "agent_chat_session_id"
+VOICE_INPUT_KEY = "agent_chat_voice_input"
+VOICE_CONSUMED_KEY = "agent_chat_voice_consumed_hash"
 TABLE_PREVIEW_LIMIT = 100
 
 STEP_DISPLAY_NAMES = {
@@ -52,9 +60,11 @@ def _normalize_math_delimiters(text: str) -> str:
 
 
 def _ensure_chat_state() -> None:
-    """Create the empty chat history list on first render."""
+    """Create the empty chat history list + a session id on first render."""
     if CHAT_STATE_KEY not in st.session_state:
         st.session_state[CHAT_STATE_KEY] = []
+    if SESSION_ID_KEY not in st.session_state:
+        st.session_state[SESSION_ID_KEY] = uuid.uuid4().hex
 
 
 def _as_artifacts(value: object) -> dict:
@@ -197,6 +207,9 @@ def _render_messages() -> None:
                 st.markdown(_normalize_math_delimiters(content))
             else:
                 st.markdown(content)
+                attachments = message.get("attachments")
+                if attachments:
+                    st.caption("📎 " + ", ".join(str(name) for name in attachments))
             artifacts = _as_artifacts(message.get("artifacts"))
             if role == "assistant":
                 _render_assistant_artifacts(
@@ -226,26 +239,87 @@ def _dedupe_step(steps: list[str], node: str) -> None:
     steps.append(node)
 
 
-def _handle_chat() -> None:
-    """Read one user prompt, stream the agent response, append to history.
+def _collect_voice_attachment() -> tuple[str, str | None, bytes] | None:
+    """Return the recorded-voice attachment when it's new (not already consumed).
 
-    Handles the SSE event types (``step`` / ``token`` / ``final`` /
-    ``error``), persists token usage to both the in-session aggregator
-    and the Postgres table, and renders any artifacts emitted in the
-    ``final`` event.
+    The ``st.audio_input`` widget keeps its last recording in session state, so a
+    content hash is tracked to avoid re-transcribing the same clip on a later
+    text-only turn.
     """
-    prompt = st.chat_input("Ask the AI analyst...")
-    if not prompt:
+    audio = st.session_state.get(VOICE_INPUT_KEY)
+    if audio is None:
+        return None
+    try:
+        audio_bytes = audio.getvalue()
+    except Exception:  # noqa: BLE001 - a malformed widget value shouldn't crash the page
+        return None
+    if not audio_bytes:
+        return None
+    audio_hash = hashlib.sha256(audio_bytes).hexdigest()
+    if audio_hash == st.session_state.get(VOICE_CONSUMED_KEY):
+        return None
+    st.session_state[VOICE_CONSUMED_KEY] = audio_hash
+    name = getattr(audio, "name", None) or "voice_message.wav"
+    content_type = getattr(audio, "type", None) or "audio/wav"
+    return (name, content_type, audio_bytes)
+
+
+def _handle_chat() -> None:
+    """Read one user turn (text + attachments + voice) and stream the response.
+
+    File attachments and a recorded voice clip are normalized to text / images by
+    :mod:`core.multimodal` before streaming. Handles the SSE event types
+    (``step`` / ``token`` / ``final`` / ``error``) and renders any artifacts on
+    the ``final`` event. Token/cost accounting lives in Langfuse, so the ``usage``
+    block on the ``final`` event is ignored here.
+    """
+    submission = st.chat_input(
+        "Ask the AI analyst...",
+        accept_file="multiple",
+        file_type=supported_upload_extensions(),
+    )
+    if not submission:
         return
 
-    st.session_state[CHAT_STATE_KEY].append({"role": "user", "content": prompt})
+    # With accept_file set, chat_input yields an object carrying .text + .files;
+    # fall back to a bare string if a Streamlit build returns one.
+    prompt_text = str(getattr(submission, "text", submission) or "").strip()
+    uploaded_files = list(getattr(submission, "files", []) or [])
+
+    attachments: list[tuple[str, str | None, bytes]] = [
+        (uploaded.name, uploaded.type, uploaded.getvalue()) for uploaded in uploaded_files
+    ]
+    voice = _collect_voice_attachment()
+    if voice is not None:
+        attachments.append(voice)
+
+    if not prompt_text and not attachments:
+        return
+
+    attachment_names = [name for name, _, _ in attachments]
+
+    images: list[str] = []
+    if attachments:
+        with st.spinner("Processing attachments…"):
+            processed = process_uploads(attachments)
+        images = processed.images
+        agent_message = augment_message(prompt_text, processed.text_blocks)
+    else:
+        agent_message = prompt_text
+
+    display_text = prompt_text or "_(sent attachments)_"
+    st.session_state[CHAT_STATE_KEY].append(
+        {"role": "user", "content": display_text, "attachments": attachment_names}
+    )
     with st.chat_message("user"):
-        st.markdown(prompt)
+        st.markdown(display_text)
+        if attachment_names:
+            st.caption("📎 " + ", ".join(attachment_names))
 
     with st.chat_message("assistant"):
         message_key = (
             f"pending_{len(st.session_state[CHAT_STATE_KEY])}_"
-            f"{hashlib.sha256(prompt.encode('utf-8')).hexdigest()[:12]}"
+            f"{hashlib.sha256(agent_message.encode('utf-8')).hexdigest()[:12]}"
         )
 
         log_placeholder = st.empty()
@@ -259,8 +333,10 @@ def _handle_chat() -> None:
 
         try:
             for event in agent_chat_stream(
-                user_message=prompt,
+                user_message=agent_message,
                 chat_history=_trim_history_for_api(),
+                session_id=st.session_state.get(SESSION_ID_KEY),
+                images=images or None,
             ):
                 event_type = event.get("type", "")
                 if event_type == "step":
@@ -276,9 +352,6 @@ def _handle_chat() -> None:
                 elif event_type == "final":
                     final_answer = str(event.get("answer", "")) or "".join(answer_buffer)
                     artifacts = _as_artifacts(event.get("artifacts"))
-                    usage_payload = event.get("usage")
-                    record_usage(usage_payload)
-                    record_persistent("chat", usage_payload)
                     break
                 elif event_type == "error":
                     error_text = str(event.get("answer", "Agent error."))
@@ -320,14 +393,22 @@ def render_page() -> None:
     """Page entry-point: title, prior messages, then the chat input handler."""
     log_page_render("AI Analyst")
     st.title("AI Analyst")
-    st.caption("Chat interface backed by the agent server in task-mode by default.")
+    st.caption(
+        "Chat with the AI analyst. Attach documents, images, or text files via "
+        "the ＋ in the chat box, or record a voice message below."
+    )
 
     _ensure_chat_state()
 
-    _, right_col = st.columns([0.7, 0.3])
+    left_col, right_col = st.columns([0.7, 0.3])
+    with left_col:
+        st.audio_input("🎤 Voice message (optional)", key=VOICE_INPUT_KEY)
     with right_col:
         if st.button("Clear chat", width="stretch"):
             st.session_state[CHAT_STATE_KEY] = []
+            # New conversation → new Langfuse session id.
+            st.session_state[SESSION_ID_KEY] = uuid.uuid4().hex
+            st.session_state.pop(VOICE_CONSUMED_KEY, None)
             st.rerun()
 
     _render_messages()

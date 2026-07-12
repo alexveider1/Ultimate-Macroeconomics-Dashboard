@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+from schema import MacroIndicator
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
-
-from schema import MacroIndicator
 
 
 def test_insert_select_delete_roundtrip(session: Session) -> None:
@@ -19,7 +18,9 @@ def test_insert_select_delete_roundtrip(session: Session) -> None:
 
     usa_rows = (
         session.execute(
-            select(MacroIndicator).where(MacroIndicator.economy == "USA").order_by(MacroIndicator.year)
+            select(MacroIndicator)
+            .where(MacroIndicator.economy == "USA")
+            .order_by(MacroIndicator.year)
         )
         .scalars()
         .all()
@@ -49,7 +50,9 @@ def test_distinct_indicator_ids(session: Session) -> None:
     session.commit()
 
     distinct_ids = (
-        session.execute(select(MacroIndicator.indicator_id).distinct().order_by(MacroIndicator.indicator_id))
+        session.execute(
+            select(MacroIndicator.indicator_id).distinct().order_by(MacroIndicator.indicator_id)
+        )
         .scalars()
         .all()
     )

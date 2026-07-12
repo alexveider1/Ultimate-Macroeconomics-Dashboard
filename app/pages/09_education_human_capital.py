@@ -89,9 +89,7 @@ def _render_literacy_vs_researchers_overview() -> None:
     )
 
     selected_countries = {
-        str(code).strip().upper()
-        for code in get_shared_selected_countries()
-        if str(code).strip()
+        str(code).strip().upper() for code in get_shared_selected_countries() if str(code).strip()
     }
     joined_df = joined_df.with_columns(
         pl.when(pl.col("economy").is_in(list(selected_countries)))
@@ -209,9 +207,7 @@ def _render_enrollment_ladder_deep_dive() -> None:
     )
 
     selected_iso_codes = [
-        str(c).strip().upper()
-        for c in get_shared_selected_countries()
-        if str(c).strip()
+        str(c).strip().upper() for c in get_shared_selected_countries() if str(c).strip()
     ]
 
     if selected_iso_codes:

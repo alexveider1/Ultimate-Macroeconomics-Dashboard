@@ -1,0 +1,129 @@
+{
+  // ---------------------------------------------------------------------------
+  // Project VS Code settings.
+  //
+  // Folder-based monorepo: each service (agent/, app/, clustering/, ...) has its
+  // OWN .venv and there is NO root .venv. Select the interpreter per service you
+  // are working in via "Python: Select Interpreter" -> <service>/.venv. ruff and
+  // ty resolve the single-source-of-truth root ruff.toml / ty.toml by walking up.
+  //
+  // NOTE: `.vscode/` is currently gitignored, so this file is local-only unless
+  // that ignore rule is relaxed.
+  // ---------------------------------------------------------------------------
+  // --- Formatting / editor -------------------------------------------------
+  "editor.formatOnSave": true,
+  "editor.rulers": [
+    100
+  ], // matches ruff.toml line-length = 100
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  // --- Ruff (Astral) -------------------------------------------------------
+  "ruff.nativeServer": "on",
+  "ruff.importStrategy": "fromEnvironment",
+  "ruff.configurationPreference": "filesystemFirst", // use the root ruff.toml
+  "ruff.organizeImports": true,
+  "ruff.fixAll": true,
+  "ruff.lint.preview": true,
+  "ruff.format.preview": true,
+  "ruff.logLevel": "warn",
+  // --- ty (Astral) — Python type checker; Pylance is disabled --------------
+  "python.languageServer": "None",
+  "ty.importStrategy": "fromEnvironment",
+  "ty.diagnosticMode": "workspace",
+  "ty.disableLanguageServices": false,
+  // --- Per-language formatters ---------------------------------------------
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    }
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "DavidAnson.vscode-markdownlint",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.markdownlint": "explicit"
+    }
+  },
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[yaml]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  // Formatters for the future Next.js frontend (Phase 6):
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "eslint.run": "onType",
+  // --- markdownlint (config lives in .markdownlint.jsonc) ------------------
+  "markdownlint.run": "onType",
+  // --- Testing (pytest) ----------------------------------------------------
+  // Single-root discovery: pytest runs under ONE selected interpreter, so the
+  // Test Explorer surfaces the tests of the service whose .venv is currently
+  // selected (other services' tests need their own deps to import). Switch the
+  // interpreter to see another service's tests. `--no-cov` keeps pytest-cov from
+  // breaking test debugging (coverage is still on for `uv run pytest` on the CLI).
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.autoTestDiscoverOnSaveEnabled": true,
+  "python.testing.pytestArgs": [
+    "--no-cov",
+    "./agent",
+    "./app",
+    "./clustering",
+    "./downloader_general",
+    "./downloader_extra",
+    "./forecaster",
+    "./python_sandbox"
+  ],
+  // --- Explorer / search hygiene ------------------------------------------
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.egg-info": true,
+    "**/.ruff_cache": true,
+    "**/.pytest_cache": true,
+    "**/.ty_cache": true
+  },
+  "search.exclude": {
+    "**/.venv": true,
+    "**/uv.lock": true
+  },
+  // --- SQLTools: connections to the running Postgres container -------------
+  // Passwords are prompted, not stored. Values default to _container_data/.env.
+  "sqltools.connections": [
+    {
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 5432,
+      "askForPassword": true,
+      "name": "macro",
+      "driver": "PostgreSQL",
+      "database": "macro",
+      "username": "main"
+    },
+    {
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "localhost",
+      "port": 5432,
+      "askForPassword": true,
+      "name": "macro (read-only LLM role)",
+      "driver": "PostgreSQL",
+      "database": "llm",
+      "username": "llm"
+    }
+  ]
+}

@@ -6,39 +6,44 @@ collection uploads to Qdrant remain serial because we ``recreate_collection``
 at the start of each.
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 import json
 import logging
 import os
-import shutil
-import sys
-import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from pathlib import Path
+import shutil
 from time import sleep
 from urllib.parse import urlparse
 from uuid import uuid4
+import warnings
 from zipfile import ZipFile
 
-import httpx
-from dotenv import load_dotenv
 from git import Repo
-from openai import OpenAI
+import httpx
 from qdrant_client import QdrantClient, models
 from tiktoken import encoding_for_model
-from tqdm import tqdm
 
+from src.core import tracing
 from src.core.base_downloaders import BaseNewsDownloader
+from src.core.qdrant_uploader import chunk_entries, ensure_collection, existing_payload_values
+from src.settings import load_settings
 from src.utils.downloads import (
     CloneProgress,
     _call_with_retries,
     _download_config,
     _remove_readonly,
+    log_progress,
 )
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_ARTICLE_LANGUAGES = {"english", "en"}
+
+# Source suffix appended to every Webhose news collection name so the source is
+# identifiable in Qdrant, mirroring the ``actually_relevant_`` / ``world_bank_``
+# prefixes the curated sources use. Readers must append the same suffix.
+NEWS_SOURCE_SUFFIX = "_webhose"
 
 
 class NewsDownloader(BaseNewsDownloader):
@@ -56,6 +61,8 @@ class NewsDownloader(BaseNewsDownloader):
         openai_embedding_model: str = "openai/text-embedding-3-small",
         openai_token_limit: int = 8192,
         openai_model_dimensions: int = 1536,
+        chunk_size_tokens: int = 800,
+        chunk_overlap_tokens: int = 100,
     ) -> None:
         """Capture configuration; OpenAI/Qdrant clients are built lazily.
 
@@ -69,8 +76,11 @@ class NewsDownloader(BaseNewsDownloader):
             config_path: Path to the JSON file listing allowed topics.
             openai_base_url: OpenAI-compatible base URL, or ``None`` for default.
             openai_embedding_model: Embedding model identifier.
-            openai_token_limit: Max tokens per embedding call (input truncated).
+            openai_token_limit: Max tokens per embedding call (safety net only —
+                articles are chunked below this, never truncated).
             openai_model_dimensions: Embedding dimensionality (Qdrant param).
+            chunk_size_tokens: Token-window size each article is split into.
+            chunk_overlap_tokens: Overlap between consecutive chunks.
         """
         self.env_path = Path(env_file)
         self.github_api_url = "https://api.github.com"
@@ -93,6 +103,8 @@ class NewsDownloader(BaseNewsDownloader):
         self.openai_embedding_model = openai_embedding_model
         self.embedding_token_limit = openai_token_limit
         self.openai_model_dimensions = openai_model_dimensions
+        self.chunk_size_tokens = chunk_size_tokens
+        self.chunk_overlap_tokens = chunk_overlap_tokens
         self.embedding_encoding = self._build_embedding_encoding()
         # Concurrent embedding batches per collection. The OpenAI SDK is
         # thread-safe; keep this conservative so we don't blow through the
@@ -100,19 +112,20 @@ class NewsDownloader(BaseNewsDownloader):
         self.max_parallel_embed_batches = 4
 
     def _initialize_connections(self) -> bool:
-        load_dotenv(self.env_path)
-        openai_api_key = os.getenv("OPENAI_API_KEY")
+        secrets = load_settings(self.env_path)
+        openai_api_key = secrets.openai_api_key
         if not openai_api_key:
             logger.error("OPENAI_API_KEY is not set; news embeddings cannot be generated")
             return False
-        self.openai_client = OpenAI(base_url=self.openai_base_url, api_key=openai_api_key)
+        client_cls = tracing.openai_client_class()
+        self.openai_client = client_cls(base_url=self.openai_base_url, api_key=openai_api_key)
         try:
-            qdrant_api_key = os.getenv("QDRANT_API_KEY") or os.getenv("QDRANT__SERVICE__API_KEY")
+            qdrant_api_key = secrets.qdrant_api_key or None
             response = _call_with_retries(
                 operation_name="github_api_probe",
                 request_callable=lambda: httpx.get(self.github_api_url, timeout=30.0),
                 retry_delay_seconds=5.0,
-                max_retries=3,
+                max_retries=5,
             )
             qdrant_host = str(self.qdrant_host).strip()
             parsed_host = urlparse(qdrant_host)
@@ -217,6 +230,63 @@ class NewsDownloader(BaseNewsDownloader):
         self.is_downloaded = clone_result is not None
         return self.is_downloaded
 
+    @staticmethod
+    def _collection_name_for(topic: str, sentiment: str) -> str:
+        """Derive the Qdrant collection name from a topic + sentiment (news convention).
+
+        A ``_webhose`` source suffix is appended so this source's collections carry
+        a source marker like the curated ones do with their prefixes
+        (``actually_relevant_*`` / ``world_bank_*``). Readers that reconstruct the
+        name (``agent/agent/tools.py``, the Streamlit news page) append the same suffix.
+        """
+        topic_normalized = topic.strip().lower()
+        base = f"{topic_normalized}_{sentiment}".replace(" ", "_").replace(",", " ").lower()
+        return f"{base}{NEWS_SOURCE_SUFFIX}"
+
+    def _parse_archive_name(
+        self, archive_path: Path, allowed_topics: list[str]
+    ) -> tuple[str, str] | None:
+        """Return ``(collection_name, archive_base_name)`` for an allowed zip, else ``None``.
+
+        Filename-only (no unzip), so an incremental update can decide whether an
+        archive is already ingested before doing any extraction work.
+        """
+        if archive_path.suffix != ".zip":
+            return None
+        base_name = archive_path.stem
+        parts = base_name.rsplit("_", 2)
+        if len(parts) != 3:
+            return None
+        topic, sentiment, _date_str = parts
+        if topic not in allowed_topics:
+            return None
+        return self._collection_name_for(topic, sentiment), base_name
+
+    def _filter_new_archives(self, archives: list[Path], allowed_topics: list[str]) -> list[Path]:
+        """Drop archives whose ``archive_name`` is already present in its Qdrant collection."""
+        parsed: dict[Path, tuple[str, str]] = {}
+        for archive_path in archives:
+            info = self._parse_archive_name(archive_path, allowed_topics)
+            if info is not None:
+                parsed[archive_path] = info
+
+        existing_by_collection: dict[str, set[str]] = {}
+        for collection, _base in parsed.values():
+            if collection not in existing_by_collection:
+                existing_by_collection[collection] = existing_payload_values(
+                    self.qdrant_client, collection, "archive_name"
+                )
+
+        kept = [
+            archive_path
+            for archive_path, (collection, base_name) in parsed.items()
+            if base_name not in existing_by_collection.get(collection, set())
+        ]
+        skipped = len(parsed) - len(kept)
+        if skipped:
+            logger.info("News incremental: skipping %d archive(s) already in Qdrant", skipped)
+        return kept
+
     def _process_archive(
         self, archive_path: Path, allowed_topics: list[str]
     ) -> tuple[str, list[dict]] | None:
@@ -241,14 +311,11 @@ class NewsDownloader(BaseNewsDownloader):
         if topic not in allowed_topics:
             return None
 
-        topic_normalized = topic.strip().lower()
         parsed_date = datetime.strptime(date_str, "%Y%m%d%H%M%S").date().isoformat()
 
         zip_path = archive_path
         extract_dir = self.save_path / base_name
-        collection_name = (
-            f"{topic_normalized}_{sentiment}".replace(" ", "_").replace(",", " ").lower()
-        )
+        collection_name = self._collection_name_for(topic, sentiment)
 
         extract_dir.mkdir(parents=True, exist_ok=True)
 
@@ -263,6 +330,14 @@ class NewsDownloader(BaseNewsDownloader):
                     str(extract_dir / nested_item.name),
                 )
             shutil.rmtree(nested_extract_dir, onexc=_remove_readonly)
+
+        # The archive is fully unpacked now — drop the .zip immediately so peak
+        # disk stays low (we never hold every archive's zip *and* its unzipped
+        # JSONs at once). The final cleanup removes the extracted dirs afterward.
+        try:
+            zip_path.unlink()
+        except OSError:
+            logger.warning("Could not remove news archive after extraction: %s", zip_path)
 
         entries: list[dict] = []
         for article_file_path in sorted(extract_dir.rglob("*.json")):
@@ -305,7 +380,7 @@ class NewsDownloader(BaseNewsDownloader):
 
         return collection_name, entries
 
-    def parse_repository(self) -> None:
+    def parse_repository(self, incremental: bool = False) -> None:
         metadata: dict[str, list[dict]] = {}
         source_datasets_dir = self.save_path / "News_Datasets"
         allowed_topics = self.download_config
@@ -315,6 +390,10 @@ class NewsDownloader(BaseNewsDownloader):
             for entry in source_datasets_dir.iterdir()
             if entry.name.split("_")[0] in allowed_topics
         ]
+        if incremental:
+            # Skip archives already embedded so an update only unzips + embeds new
+            # stories (dedup by archive_name against the existing Qdrant points).
+            iter_files = self._filter_new_archives(iter_files, allowed_topics)
 
         # Per-archive work is I/O-heavy (zip extraction + lots of small JSON
         # reads); ThreadPoolExecutor gives a big win without needing processes.
@@ -324,12 +403,10 @@ class NewsDownloader(BaseNewsDownloader):
                 executor.submit(self._process_archive, archive_path, allowed_topics): archive_path
                 for archive_path in iter_files
             }
-            for future in tqdm(
+            for future in log_progress(
                 as_completed(futures),
+                label="Unzipping files",
                 total=len(futures),
-                desc="Unzipping files",
-                dynamic_ncols=True,
-                file=sys.stdout,
             ):
                 archive_path = futures[future]
                 try:
@@ -396,7 +473,7 @@ class NewsDownloader(BaseNewsDownloader):
             "get_embeddings",
             lambda: self.get_embeddings(texts_to_embed),
             retry_delay_seconds=3,
-            max_retries=3,
+            max_retries=5,
         )
 
         if not embeddings:
@@ -429,7 +506,56 @@ class NewsDownloader(BaseNewsDownloader):
             for meta, vector in zip(batch_metadata, embeddings)
         ]
 
+    def _embed_and_upsert_collection(
+        self, collection_name: str, metadata_entries: list[dict]
+    ) -> None:
+        """Embed ``metadata_entries`` in concurrent batches and upsert to one collection.
+
+        Shared by :meth:`upload_to_qdrant` (recreate-first) and
+        :meth:`upsert_to_qdrant` (ensure-first) so the batching path is defined once.
+        Each article is first split into overlapping token-window chunks (one
+        Qdrant point per chunk) so long articles are chunked, never truncated.
+        """
+        metadata_entries = chunk_entries(
+            metadata_entries,
+            self.embedding_encoding,
+            self.chunk_size_tokens,
+            self.chunk_overlap_tokens,
+        )
+        batch_starts = list(range(0, len(metadata_entries), self.batch_size))
+        with ThreadPoolExecutor(max_workers=self.max_parallel_embed_batches) as executor:
+            futures = {
+                executor.submit(
+                    self._embed_batch,
+                    collection_name,
+                    batch_start,
+                    metadata_entries[batch_start : batch_start + self.batch_size],
+                ): batch_start
+                for batch_start in batch_starts
+            }
+            for future in log_progress(
+                as_completed(futures),
+                label=f"Embedding and Uploading: {collection_name}",
+                total=len(futures),
+            ):
+                batch_start = futures[future]
+                try:
+                    points = future.result()
+                except Exception:
+                    logger.exception(
+                        "Embedding batch failed (collection=%s, batch_start=%s)",
+                        collection_name,
+                        batch_start,
+                    )
+                    continue
+                if points:
+                    # qdrant_client is thread-safe; upserts can overlap freely.
+                    self.qdrant_client.upsert(collection_name=collection_name, points=points)
+
+        sleep(self.download_retry_delay_seconds)
+
     def upload_to_qdrant(self) -> None:
+        """Recreate each collection then embed + upload its parsed entries (full reload)."""
         for collection_name, metadata_entries in self.parsed_metadata.items():
             self.qdrant_client.recreate_collection(
                 collection_name=collection_name,
@@ -439,42 +565,36 @@ class NewsDownloader(BaseNewsDownloader):
                 ),
                 on_disk_payload=True,
             )
+            self._embed_and_upsert_collection(collection_name, metadata_entries)
 
-            batch_starts = list(range(0, len(metadata_entries), self.batch_size))
-            with ThreadPoolExecutor(max_workers=self.max_parallel_embed_batches) as executor:
-                futures = {
-                    executor.submit(
-                        self._embed_batch,
-                        collection_name,
-                        batch_start,
-                        metadata_entries[batch_start : batch_start + self.batch_size],
-                    ): batch_start
-                    for batch_start in batch_starts
-                }
-                for future in tqdm(
-                    as_completed(futures),
-                    total=len(futures),
-                    desc=f"Embedding and Uploading: {collection_name}",
-                    dynamic_ncols=True,
-                    file=sys.stdout,
-                ):
-                    batch_start = futures[future]
-                    try:
-                        points = future.result()
-                    except Exception:
-                        logger.exception(
-                            "Embedding batch failed (collection=%s, batch_start=%s)",
-                            collection_name,
-                            batch_start,
-                        )
-                        continue
-                    if points:
-                        # qdrant_client is thread-safe; upserts can overlap freely.
-                        self.qdrant_client.upsert(
-                            collection_name=collection_name, points=points
-                        )
+    def upsert_to_qdrant(self) -> None:
+        """Append parsed entries to each collection without dropping it (incremental)."""
+        for collection_name, metadata_entries in self.parsed_metadata.items():
+            if not metadata_entries:
+                continue
+            ensure_collection(self.qdrant_client, collection_name, self.openai_model_dimensions)
+            self._embed_and_upsert_collection(collection_name, metadata_entries)
 
-            sleep(self.download_retry_delay_seconds)
+    def cleanup_downloaded_files(self) -> None:
+        """Delete everything under ``save_path`` (clone + extracted dirs) after upload.
+
+        Called at the end of :meth:`run` and :meth:`update` so the multi-GB news
+        clone/unzip never lingers on the host volume once its articles live in
+        Qdrant. Dedup for future incremental runs uses Qdrant as the source of
+        truth, so no on-disk state needs to survive.
+        """
+        if not self.save_path.exists():
+            return
+        for item_path in self.save_path.iterdir():
+            if item_path.is_dir():
+                shutil.rmtree(item_path, onexc=_remove_readonly)
+            else:
+                try:
+                    item_path.unlink()
+                except PermissionError:
+                    item_path.chmod(0o700)
+                    item_path.unlink()
+        logger.info("News: removed downloaded files under %s after Qdrant upload", self.save_path)
 
     def run(self) -> None:
         if not self.download_repository():
@@ -482,3 +602,20 @@ class NewsDownloader(BaseNewsDownloader):
         self.parse_repository()
         self.clean_repository()
         self.upload_to_qdrant()
+        self.cleanup_downloaded_files()
+
+    def update(self) -> None:
+        """Incrementally ingest only news archives not already embedded, then clean up.
+
+        Re-clones the news repo, parses only the archives whose ``archive_name`` is
+        not yet in its Qdrant collection, upserts those (no ``recreate``), and
+        finally removes the downloaded files (Feature 2).
+        """
+        if not self.download_repository():
+            return
+        self.parse_repository(incremental=True)
+        if self.parsed_metadata:
+            self.upsert_to_qdrant()
+        else:
+            logger.info("News incremental: no new archives to ingest")
+        self.cleanup_downloaded_files()

@@ -9,18 +9,18 @@ OpenAI) are lazily built and cached in the module-level ``_runtime`` dict.
 
 import asyncio
 import base64
+from functools import lru_cache
 import json
 import logging
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List
 
-import httpx
-import yaml
 from ddgs import DDGS
+import httpx
 from openai import AsyncOpenAI
 from qdrant_client import QdrantClient
 from sqlalchemy import create_engine, text
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,14 @@ def _get_qdrant_client() -> QdrantClient:
 
 
 def _get_openai_async_client() -> AsyncOpenAI:
-    """Return the cached async OpenAI client, building it on first use."""
+    """Return the cached async OpenAI client, building it on first use.
+
+    Kept as the plain client on purpose: the Langfuse ``openai`` integration
+    patches the ``openai`` module *globally*, which would double-trace every
+    LangGraph ``ChatOpenAI`` call (already captured by the graph-level Langfuse
+    callback). The RAG query embedding is negligible cost and is covered by the
+    ``rag_agent`` node span in the trace.
+    """
     if _runtime.get("_openai_async_client") is None:
         _runtime["_openai_async_client"] = AsyncOpenAI(
             api_key=_runtime["openai_api_key"],
@@ -281,6 +288,13 @@ def encode_data_for_sandbox(rows: list[dict]) -> str:
     return base64.b64encode(raw.encode()).decode()
 
 
+# Source suffix appended to every Webhose news collection name by the writer
+# (``downloader_general/src/extractors/github_download.py:NEWS_SOURCE_SUFFIX``).
+# Must match byte-for-byte so topic/sentiment filters still resolve to the right
+# collection.
+NEWS_COLLECTION_SUFFIX = "_webhose"
+
+
 def _make_collection_name(topic: str, sentiment: str) -> str:
     """Replicate the Qdrant collection naming used by ``downloader_general``.
 
@@ -289,12 +303,12 @@ def _make_collection_name(topic: str, sentiment: str) -> str:
         sentiment: ``positive`` or ``negative``.
 
     Returns:
-        A Qdrant-safe collection name (lowercased, underscores).
+        A Qdrant-safe collection name (lowercased, underscores, ``_webhose`` suffix).
     """
     topic_normalized = topic.strip().lower()
     name = f"{topic_normalized}_{sentiment}"
     name = name.replace(" ", "_").replace(",", " ").lower()
-    return name
+    return f"{name}{NEWS_COLLECTION_SUFFIX}"
 
 
 async def _get_embedding(text_input: str) -> List[float]:
@@ -303,6 +317,13 @@ async def _get_embedding(text_input: str) -> List[float]:
     model = _runtime["openai_embedding_model"]
     response = await client.embeddings.create(input=[text_input], model=model)
     return response.data[0].embedding
+
+
+# Curated sources ingested by ``downloader_general`` each into a single
+# source-named collection (``actually_relevant`` / ``world_bank``); they don't
+# follow the ``{topic}_{sentiment}`` convention, so a topic/sentiment filter would
+# otherwise skip them. They are always searched (matched via ``str.startswith``).
+ALWAYS_SEARCH_COLLECTION_PREFIXES = ("actually_relevant", "world_bank")
 
 
 def _sync_qdrant_search(
@@ -339,9 +360,16 @@ def _sync_qdrant_search(
             if name in all_collections:
                 target_collections.append(name)
     elif sentiment_filter:
-        target_collections = [c for c in all_collections if c.endswith(f"_{sentiment_filter}")]
+        suffix = f"_{sentiment_filter}{NEWS_COLLECTION_SUFFIX}"
+        target_collections = [c for c in all_collections if c.endswith(suffix)]
     else:
         target_collections = all_collections
+
+    # Always fold in the curated per-topic sources (Actually Relevant, World Bank
+    # documents); irrelevant collections just return low scores and drop out of
+    # the merged top_k ranking below.
+    always_on = [c for c in all_collections if c.startswith(ALWAYS_SEARCH_COLLECTION_PREFIXES)]
+    target_collections = list(dict.fromkeys([*target_collections, *always_on]))
 
     if not target_collections:
         return {"articles": [], "message": "No matching collections found."}
@@ -456,22 +484,26 @@ async def web_search(
     return await asyncio.to_thread(_sync_web_search, queries, max_results_per_query)
 
 
-async def download_indicator(indicator_id: str, db_id: int) -> Dict[str, Any]:
-    """Ask ``downloader_extra`` to ingest one WB indicator into Postgres.
+async def ingest_data(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Ask ``downloader_extra`` to ingest one unit of data into Postgres.
+
+    The unified ``/ingest`` endpoint dispatches on ``payload["source"]``
+    (``worldbank`` / ``yahoo`` / ``binance``); the caller builds the
+    source-specific body (indicator_id+db_id, ticker, or symbol).
 
     Args:
-        indicator_id: World Bank indicator id.
-        db_id: World Bank database id.
+        payload: The ``/ingest`` request body, including a ``source`` key.
 
     Returns:
         ``downloader_extra``'s ingest response, augmented with ``success=True``,
         or ``{"success": False, "error": ...}`` on HTTP failure.
     """
     url = f"{_runtime['downloader_extra_base_url']}/ingest"
-    payload = {"indicator_id": indicator_id, "db_id": db_id}
 
     client = _get_httpx_client()
-    response = await client.post(url, json=payload, timeout=120)
+    # Yahoo/Binance pull full history (paged klines + yfinance), so allow a
+    # generous budget — larger than the old WB-only 120s.
+    response = await client.post(url, json=payload, timeout=300)
     if response.status_code != 200:
         return {
             "success": False,

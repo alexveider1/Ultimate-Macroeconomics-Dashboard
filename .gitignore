@@ -63,6 +63,26 @@ test*/
 /_container_data/downloader_general/news
 /_container_data/downloader_general/.download_completed
 
+# Cloud backups: rclone remote secrets + local staging/restore artifacts
+# (rclone.conf.example IS committed; the real rclone.conf holds credentials)
+/_container_data/backup/rclone.conf
+/_container_data/backup/staging/
+/_container_data/backup/restore/
+*.dump
+*.snapshot
+
+# Per-service local-dev config.yaml stubs. The single source of truth is
+# _container_data/config.yaml, bind-mounted read-only into every container at
+# /app/config.yaml; these tiny per-service copies only let a service boot
+# standalone outside Docker and are auto-created by each service's
+# tests/conftest.py. Kept untracked so they can never drift from the real file.
+# (Root-anchored so _container_data/config.yaml is never matched.)
+/forecaster/config.yaml
+/clustering/config.yaml
+/python_sandbox/config.yaml
+/docling/config.yaml
+/
+
 # Logs
 logs/
 *.log
@@ -74,15 +94,12 @@ logs/
 # ---------------------------------------------------------------------------
 # IDEs / editors
 # ---------------------------------------------------------------------------
-.vscode/
-*.vscode
-.idea/
 *.swp
 *.swo
 *~
 
 # Local Claude Code state
-.claude/
+.claude/settings.local.json
 
 # ---------------------------------------------------------------------------
 # OS

@@ -5,25 +5,25 @@ the full historical OHLCV series for each ticker via ``yfinance``. Per-ticker
 fetches run on a thread pool because each call is independent.
 """
 
-import logging
-import os
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
+import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 import polars as pl
 import yfinance as yf
-from dotenv import load_dotenv
-from tqdm import tqdm
 
 from src.core.base_downloaders import BaseYahooDownloader
+from src.settings import load_settings
 from src.utils.downloads import (
     _call_with_retries,
     _download_config,
     _get_sql_config,
     _test_sql,
+    log_progress,
 )
+from src.utils.incremental import group_max
 from src.utils.schema import (
     bootstrap_schema_group,
     get_table_definition,
@@ -62,7 +62,9 @@ class YahooDownloader(BaseYahooDownloader):
 
         self.successful_connections = False
 
-        self.download_max_retries = 3
+        # Yahoo throttles bursts hard (curl-28 timeouts); exponential backoff
+        # with jitter across 5 attempts spaces retries out so they recover.
+        self.download_max_retries = 5
         self.download_retry_delay_seconds = 5
         # yfinance is per-ticker synchronous; a small pool gives a clear win
         # without overwhelming the Yahoo endpoint.
@@ -97,12 +99,13 @@ class YahooDownloader(BaseYahooDownloader):
         )
 
     def _initialize_connections(self, host: str, port: int, db: str) -> bool:
-        load_dotenv(self.env_path)
-        username = os.getenv("POSTGRES_USER")
-        password = os.getenv("POSTGRES_PASSWORD")
-
+        secrets = load_settings(self.env_path)
         self.sql_uri = _get_sql_config(
-            username=username, password=password, host=host, port=port, db=db
+            username=secrets.postgres_user,
+            password=secrets.postgres_password,
+            host=host,
+            port=port,
+            db=db,
         )
 
         if _sql_test := _test_sql(self.sql_uri):
@@ -219,9 +222,7 @@ class YahooDownloader(BaseYahooDownloader):
 
         normalized_assets = list(self._normalize_assets(category, assets))
         tasks = [
-            (asset.get("id"), asset.get("name"))
-            for asset in normalized_assets
-            if asset.get("id")
+            (asset.get("id"), asset.get("name")) for asset in normalized_assets if asset.get("id")
         ]
         skipped = len(normalized_assets) - len(tasks)
         if skipped:
@@ -232,12 +233,10 @@ class YahooDownloader(BaseYahooDownloader):
                 executor.submit(self._download_asset, ticker_id, asset_name, category): ticker_id
                 for ticker_id, asset_name in tasks
             }
-            for future in tqdm(
+            for future in log_progress(
                 as_completed(futures),
+                label=f"Downloading {category}",
                 total=len(futures),
-                desc=f"Downloading {category}",
-                dynamic_ncols=True,
-                file=sys.stdout,
             ):
                 ticker_id = futures[future]
                 try:
@@ -255,3 +254,77 @@ class YahooDownloader(BaseYahooDownloader):
         bootstrap_schema_group(self.sql_uri, self.database_schema, self.SCHEMA_GROUP)
         for category, assets in self.download_config.items():
             self.download_category(category, assets)
+
+    def _update_ticker(self, ticker: str, category: str, last_date: datetime) -> None:
+        """Append candles strictly after ``last_date`` for one already-stored ticker."""
+        start = (last_date + timedelta(days=1)).date().isoformat()
+        ticker_obj = yf.Ticker(ticker)
+        hist_df_pandas = _call_with_retries(
+            operation_name=f"yfinance.history(ticker={ticker}, start={start})",
+            request_callable=lambda: ticker_obj.history(start=start),
+            max_retries=self.download_max_retries,
+            retry_delay_seconds=self.download_retry_delay_seconds,
+        )
+        if hist_df_pandas is None or hist_df_pandas.empty:
+            return
+
+        hist_df_pandas = hist_df_pandas.reset_index()
+        hist_df_pandas["Date"] = hist_df_pandas["Date"].dt.tz_localize(None)
+        df = (
+            pl.from_pandas(hist_df_pandas)
+            .select(
+                pl.col("Date").alias("date"),
+                pl.col("Open").alias("open"),
+                pl.col("High").alias("high"),
+                pl.col("Low").alias("low"),
+                pl.col("Close").alias("close"),
+                pl.col("Volume").alias("volume"),
+            )
+            .with_columns(
+                pl.lit(ticker).alias("ticker"),
+                pl.lit(category).alias("category"),
+            )
+            .filter(pl.col("date") > pl.lit(last_date))
+        )
+        if df.is_empty():
+            return
+        write_polars_to_table(
+            df,
+            sql_uri=self.sql_uri,
+            table_name=self.historical_data_table_name,
+            table_def=self._table_def(self.historical_data_table_name),
+        )
+        logger.info("Yahoo incremental: appended %d new rows for %s", df.height, ticker)
+
+    def update(self) -> None:
+        """Incrementally refresh every already-stored ticker (append-only).
+
+        Reads each ticker's latest stored date from ``yahoo_historical_prices``
+        and appends only newer candles. Falls back to a full :meth:`run` when the
+        price table doesn't exist yet or is empty (source never ingested).
+        """
+        if self.sql_uri is None:
+            logger.warning("Yahoo update skipped: SQL connection not initialised")
+            return
+        maxima = group_max(
+            self.sql_uri, self.historical_data_table_name, ["ticker", "category"], "date"
+        )
+        if not maxima:
+            logger.info("Yahoo: no existing price history; running full ingest")
+            self.run()
+            return
+
+        work = [(ticker, category, last_date) for (ticker, category), last_date in maxima.items()]
+        with ThreadPoolExecutor(max_workers=self.max_parallel_tickers) as executor:
+            futures = {
+                executor.submit(self._update_ticker, ticker, category, last_date): ticker
+                for ticker, category, last_date in work
+            }
+            for future in log_progress(
+                as_completed(futures), label="Updating Yahoo history", total=len(futures)
+            ):
+                ticker = futures[future]
+                try:
+                    future.result()
+                except Exception:
+                    logger.exception("Yahoo incremental update failed (ticker=%s)", ticker)

@@ -2,13 +2,13 @@ databases:
 
   world_bank:
 
-    countries:
+    world_bank_countries:
       primary_key: [id]
       foreign_keys: []
       columns:
         id:
           type: TEXT
-          description: ISO 3166-1 alpha-3 country code (e.g. "USA", "DEU"). Primary identifier of the country and the join key used by indicators.economy.
+          description: ISO 3166-1 alpha-3 country code (e.g. "USA", "DEU"). Primary identifier of the country and the join key used by world_bank_indicators.economy.
         value:
           type: TEXT
           description: Full English country name as reported by the World Bank (e.g. "United States", "Germany").
@@ -49,13 +49,13 @@ databases:
           type: TEXT
           description: Name of the country's capital city.
 
-    databases:
+    world_bank_databases:
       primary_key: [id]
       foreign_keys: []
       columns:
         id:
           type: INTEGER
-          description: World Bank source/database identifier (e.g. 2 = World Development Indicators, 11 = Africa Development Indicators). This is the canonical join key used by indicators.db_id, metadata.db_id, and database_indicators.database_id.
+          description: World Bank source/database identifier (e.g. 2 = World Development Indicators, 11 = Africa Development Indicators). This is the canonical join key used by world_bank_indicators.db_id, world_bank_metadata.db_id, and world_bank_database_indicators.database_id.
         lastupdated:
           type: TEXT
           description: ISO date (YYYY-MM-DD) on which this source database was last refreshed by the World Bank.
@@ -84,29 +84,29 @@ databases:
           type: TEXT
           description: Number of dimensions/concepts the source uses, returned as a string by the API (e.g. "3").
 
-    database_indicators:
+    world_bank_database_indicators:
       primary_key: [id, database_id]
       foreign_keys:
         - columns: [database_id]
-          references_table: databases
+          references_table: world_bank_databases
           references_columns: [id]
           enforce: true
       columns:
         id:
           type: TEXT
-          description: World Bank indicator identifier (e.g. "NY.GDP.MKTP.CD"). Same value used by indicators.indicator_id and metadata.indicator_id.
+          description: World Bank indicator identifier (e.g. "NY.GDP.MKTP.CD"). Same value used by world_bank_indicators.indicator_id and world_bank_metadata.indicator_id.
         description:
           type: TEXT
           description: Human-readable indicator title (e.g. "GDP (current US$)"). Renamed from the API field "value" by the downloader.
         database_id:
           type: INTEGER
-          description: Source/database id this indicator belongs to. References databases.id.
+          description: Source/database id this indicator belongs to. References world_bank_databases.id.
 
-    metadata:
+    world_bank_metadata:
       primary_key: [indicator_id, db_id]
       foreign_keys:
         - columns: [db_id]
-          references_table: databases
+          references_table: world_bank_databases
           references_columns: [id]
           enforce: true
       columns:
@@ -115,7 +115,7 @@ databases:
           description: World Bank indicator identifier (e.g. "NY.GDP.MKTP.CD"). Together with db_id, identifies a unique indicator series.
         db_id:
           type: INTEGER
-          description: Source/database id the indicator belongs to. References databases.id.
+          description: Source/database id the indicator belongs to. References world_bank_databases.id.
         indicator_name:
           type: TEXT
           description: Full human-readable indicator name (e.g. "GDP (current US$)").
@@ -135,25 +135,25 @@ databases:
           type: TEXT
           description: Long-form description of how the indicator is computed and the conceptual definitions used.
 
-    indicators:
+    world_bank_indicators:
       primary_key: [economy, year, indicator_id, db_id]
       foreign_keys:
         - columns: [db_id]
-          references_table: databases
+          references_table: world_bank_databases
           references_columns: [id]
           enforce: true
         - columns: [economy]
-          references_table: countries
+          references_table: world_bank_countries
           references_columns: [id]
           enforce: false
         - columns: [indicator_id, db_id]
-          references_table: metadata
+          references_table: world_bank_metadata
           references_columns: [indicator_id, db_id]
           enforce: false
       columns:
         economy:
           type: TEXT
-          description: ISO 3166-1 alpha-3 country code (e.g. "USA"). References countries.id (FK declared but not enforced because some sources may include economies not present in the countries table, which is populated only from db=2).
+          description: ISO 3166-1 alpha-3 country code (e.g. "USA"). References world_bank_countries.id (FK declared but not enforced because some sources may include economies not present in the countries table, which is populated only from db=2).
         year:
           type: INTEGER
           description: Calendar year of the observation.
@@ -162,10 +162,10 @@ databases:
           description: Numeric value of the indicator for the given economy and year. Nullable when the World Bank reports the cell as missing.
         indicator_id:
           type: TEXT
-          description: World Bank indicator identifier (e.g. "NY.GDP.MKTP.CD"). Together with db_id, identifies a unique indicator series. References metadata.indicator_id (FK declared but not enforced because downloader_extra ingests indicators on demand without re-writing metadata).
+          description: World Bank indicator identifier (e.g. "NY.GDP.MKTP.CD"). Together with db_id, identifies a unique indicator series. References world_bank_metadata.indicator_id (FK declared but not enforced because downloader_extra ingests indicators on demand without re-writing metadata).
         db_id:
           type: INTEGER
-          description: Source/database id the indicator belongs to. References databases.id.
+          description: Source/database id the indicator belongs to. References world_bank_databases.id.
 
   yahoo_finance:
 
@@ -233,3 +233,261 @@ databases:
         category:
           type: TEXT
           description: Group the asset belongs to ("Indices" or "Companies"). Duplicates yahoo_metadata.category for query convenience.
+
+  binance:
+
+    binance_metadata:
+      primary_key: [symbol]
+      foreign_keys: []
+      columns:
+        symbol:
+          type: TEXT
+          description: Binance spot trading-pair symbol (e.g. "BTCUSDT"). Primary identifier of the pair and join key used by binance_historical_prices.symbol.
+        base_asset:
+          type: TEXT
+          description: Base asset / coin code of the pair (e.g. "BTC" for BTCUSDT). The actual cryptocurrency being priced.
+        quote_asset:
+          type: TEXT
+          description: Quote asset the coin is priced in; always "USDT" with the current download config.
+        status:
+          type: TEXT
+          description: Binance trading status reported by exchangeInfo (e.g. "TRADING").
+        rank:
+          type: INTEGER
+          description: Popularity rank by trailing-24h quote volume at download time; 1 is the most actively traded of the selected coins.
+        description:
+          type: TEXT
+          description: Short human-readable description synthesized from documented Binance fields (base/quote assets, spot status, popularity rank).
+        last_price:
+          type: DOUBLE PRECISION
+          description: Last traded price (in the quote asset) from the 24h ticker snapshot taken at download time.
+        price_change_percent_24h:
+          type: DOUBLE PRECISION
+          description: Percentage price change over the trailing 24h window at download time.
+        high_24h:
+          type: DOUBLE PRECISION
+          description: Highest traded price over the trailing 24h window at download time.
+        low_24h:
+          type: DOUBLE PRECISION
+          description: Lowest traded price over the trailing 24h window at download time.
+        quote_volume_24h:
+          type: DOUBLE PRECISION
+          description: Trailing-24h traded volume expressed in the quote asset (USDT); the metric used to rank coin popularity.
+        trade_count_24h:
+          type: BIGINT
+          description: Number of trades executed over the trailing 24h window at download time.
+
+    binance_historical_prices:
+      primary_key: [date, symbol]
+      foreign_keys:
+        - columns: [symbol]
+          references_table: binance_metadata
+          references_columns: [symbol]
+          enforce: true
+      columns:
+        date:
+          type: TIMESTAMP WITHOUT TIME ZONE
+          description: Open time of the daily candle. Stored as a naive UTC timestamp (timezone stripped), one row per trading day per symbol.
+        open:
+          type: DOUBLE PRECISION
+          description: Opening price (in the quote asset) for the daily candle.
+        high:
+          type: DOUBLE PRECISION
+          description: Highest traded price during the daily candle.
+        low:
+          type: DOUBLE PRECISION
+          description: Lowest traded price during the daily candle.
+        close:
+          type: DOUBLE PRECISION
+          description: Closing price (in the quote asset) for the daily candle.
+        volume:
+          type: DOUBLE PRECISION
+          description: Base-asset volume traded during the candle. Stored as a double because crypto volumes are fractional (unlike Yahoo's integer share counts).
+        quote_volume:
+          type: DOUBLE PRECISION
+          description: Quote-asset (USDT) volume traded during the candle.
+        symbol:
+          type: TEXT
+          description: Binance spot trading-pair symbol. References binance_metadata.symbol.
+        base_asset:
+          type: TEXT
+          description: Base asset / coin code (e.g. "BTC"). Duplicates binance_metadata.base_asset for query convenience.
+
+  fred:
+
+    fred_states:
+      primary_key: [id]
+      foreign_keys: []
+      columns:
+        id:
+          type: TEXT
+          description: Two-letter USPS state abbreviation (e.g. "CA", "TX", "DC"). Primary identifier of the state and the join key used by fred_state_indicator_values.state. Resolved from the FRED FIPS code via a static reference map.
+        name:
+          type: TEXT
+          description: Full English state name as reported by FRED regional data (e.g. "California", "District of Columbia").
+        fips:
+          type: TEXT
+          description: Two-digit FIPS state code (e.g. "06" for California). This is the `code` field returned by the GeoFRED regional/data endpoint and the reliable key used to map observations to states (per-state FRED series ids do not always encode the abbreviation).
+        region:
+          type: TEXT
+          description: U.S. Census Bureau region the state belongs to (one of "Northeast", "Midwest", "South", "West"). District of Columbia is classified under "South" following Census convention.
+        division:
+          type: TEXT
+          description: U.S. Census Bureau division (e.g. "Pacific", "Mountain", "New England", "South Atlantic"). A finer grouping than region.
+
+    fred_state_indicators:
+      primary_key: [indicator_id]
+      foreign_keys: []
+      columns:
+        indicator_id:
+          type: TEXT
+          description: Friendly slug identifying the indicator concept (e.g. "unemployment_rate", "real_gdp"). Same value used by state_indicator_values.indicator_id. Defined in fred_download_config.json.
+        name:
+          type: TEXT
+          description: Human-readable indicator title (e.g. "Unemployment Rate", "Real GDP (All Industry)").
+        category:
+          type: TEXT
+          description: Dashboard section grouping for the indicator (e.g. "Labor Market", "Housing"), taken from the top-level key in fred_download_config.json.
+        series_group:
+          type: TEXT
+          description: GeoFRED series group id (e.g. "1224") used to fetch the cross-state panel from the regional/data endpoint.
+        example_series_id:
+          type: TEXT
+          description: A representative single-state FRED series id (e.g. "CAUR") used to resolve the series group and its metadata.
+        units:
+          type: TEXT
+          description: Units of measurement reported by FRED (e.g. "Percent", "Thousands of Persons", "Millions of Dollars", "Dollars").
+        frequency:
+          type: TEXT
+          description: Native FRED release frequency of the underlying series (e.g. "Monthly", "Quarterly", "Annual", "Weekly"). Stored observations are aggregated to annual regardless.
+        seasonal_adjustment:
+          type: TEXT
+          description: Seasonal-adjustment code from the series group (e.g. "SA" seasonally adjusted, "NSA" not seasonally adjusted, "SAAR" seasonally adjusted annual rate).
+        region_type:
+          type: TEXT
+          description: Geographic granularity of the series group; always "state" for this table.
+        min_date:
+          type: TEXT
+          description: Earliest observation date available for the series group (ISO date YYYY-MM-DD), as reported by FRED.
+        max_date:
+          type: TEXT
+          description: Latest observation date available for the series group (ISO date YYYY-MM-DD), as reported by FRED.
+        notes:
+          type: TEXT
+          description: Free-form description of the indicator, synthesized from the FRED series group metadata (title, units, frequency, seasonal adjustment, source coverage).
+
+    fred_state_indicator_values:
+      primary_key: [state, year, indicator_id]
+      foreign_keys:
+        - columns: [state]
+          references_table: fred_states
+          references_columns: [id]
+          enforce: true
+        - columns: [indicator_id]
+          references_table: fred_state_indicators
+          references_columns: [indicator_id]
+          enforce: false
+      columns:
+        state:
+          type: TEXT
+          description: Two-letter USPS state abbreviation (e.g. "CA"). References fred_states.id.
+        year:
+          type: INTEGER
+          description: Calendar year of the observation. The native FRED frequency (monthly/quarterly/weekly) is aggregated to an annual value by the GeoFRED regional/data endpoint (frequency=a).
+        value:
+          type: DOUBLE PRECISION
+          description: Numeric value of the indicator for the given state and year, in the indicator's units. Rows whose value is null (typically the current incomplete year under annual aggregation) are dropped at ingestion.
+        indicator_id:
+          type: TEXT
+          description: Friendly slug of the indicator (e.g. "unemployment_rate"). References fred_state_indicators.indicator_id (FK declared but not enforced because downloader_extra can ingest values on demand).
+
+  eurostat:
+
+    eurostat_regions:
+      primary_key: [id]
+      foreign_keys: []
+      columns:
+        id:
+          type: TEXT
+          description: NUTS 2021 region code at level 2 (e.g. "DE21" for Oberbayern, "FR10" for Île-de-France). Primary identifier of the region and the join key used by eurostat_indicator_values.region. Sourced from the GISCO NUTS-2 GeoJSON so the catalogue exactly matches the choropleth polygons.
+        name:
+          type: TEXT
+          description: Region name in the Latin alphabet as published by Eurostat/GISCO (NAME_LATN, e.g. "Oberbayern", "Île de France", "Ostschweiz").
+        country_code:
+          type: TEXT
+          description: Two-letter country code in Eurostat convention (the first two characters of the NUTS code; note "EL" for Greece and "UK" for the United Kingdom, differing from ISO "GR"/"GB").
+        country_name:
+          type: TEXT
+          description: English country name (e.g. "Germany", "Czechia"), taken from the GISCO NAME_ENGL field which at NUTS level 2 carries the country name.
+        nuts1_id:
+          type: TEXT
+          description: Parent NUTS level-1 code (the first three characters of id, e.g. "DE2" for "DE21"). Handy for grouping NUTS-2 regions into their larger NUTS-1 area.
+        level:
+          type: INTEGER
+          description: NUTS hierarchy level of the region; always 2 for this table (kept for future flexibility if other levels are added).
+
+    eurostat_indicators:
+      primary_key: [indicator_id]
+      foreign_keys: []
+      columns:
+        indicator_id:
+          type: TEXT
+          description: Friendly slug identifying the indicator concept (e.g. "gdp_per_capita_pps", "unemployment_rate"). Same value used by eurostat_indicator_values.indicator_id. Defined in eurostat_download_config.json (on-demand items use the lower-cased Eurostat dataset code).
+        name:
+          type: TEXT
+          description: Human-readable indicator title (e.g. "GDP per capita (PPS)", "Unemployment rate (15+)").
+        category:
+          type: TEXT
+          description: Dashboard section grouping for the indicator (e.g. "Economy & output", "Labour market"), taken from the top-level key in eurostat_download_config.json.
+        dataset:
+          type: TEXT
+          description: Eurostat dissemination dataset code the values were fetched from (e.g. "nama_10r_2gdp", "lfst_r_lfu3rt").
+        filters:
+          type: TEXT
+          description: JSON object (stored as text) of the non-geo/non-time dimensions pinned to a single category to isolate one series (e.g. {"unit":"PPS_EU27_2020_HAB"} or {"isced11":"TOTAL","sex":"T","age":"Y_GE15","unit":"PC"}).
+        units:
+          type: TEXT
+          description: Units of measurement for the values (e.g. "Euro per inhabitant", "Percentage", "Number", "Years").
+        frequency:
+          type: TEXT
+          description: Native release frequency of the Eurostat series (e.g. "Annual"). Stored observations are annual.
+        nuts_level:
+          type: INTEGER
+          description: NUTS level the values are stored at; always 2 for this table.
+        min_year:
+          type: INTEGER
+          description: Earliest year for which any region has a value for this indicator.
+        max_year:
+          type: INTEGER
+          description: Latest year for which any region has a value for this indicator.
+        source_label:
+          type: TEXT
+          description: The full dataset label as reported by Eurostat (e.g. "Gross domestic product (GDP) at current market prices by NUTS 2 region").
+        notes:
+          type: TEXT
+          description: Free-form description synthesized from the dataset label, units, frequency, filters and coverage.
+
+    eurostat_indicator_values:
+      primary_key: [region, year, indicator_id]
+      foreign_keys:
+        - columns: [region]
+          references_table: eurostat_regions
+          references_columns: [id]
+          enforce: true
+        - columns: [indicator_id]
+          references_table: eurostat_indicators
+          references_columns: [indicator_id]
+          enforce: false
+      columns:
+        region:
+          type: TEXT
+          description: NUTS-2 region code (e.g. "DE21"). References eurostat_regions.id. Observations whose code is not in the NUTS-2021 catalogue (e.g. codes from older NUTS vintages returned by some datasets) are dropped at ingestion.
+        year:
+          type: INTEGER
+          description: Calendar year of the (annual) observation.
+        value:
+          type: DOUBLE PRECISION
+          description: Numeric value of the indicator for the given region and year, in the indicator's units. Rows with a null / flagged (":") value are dropped at ingestion.
+        indicator_id:
+          type: TEXT
+          description: Friendly slug of the indicator (e.g. "gdp_per_capita_pps"). References eurostat_indicators.indicator_id (FK declared but not enforced because downloader_extra can ingest values on demand).

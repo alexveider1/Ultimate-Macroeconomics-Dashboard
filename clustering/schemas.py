@@ -46,9 +46,9 @@ class ClusterRequest(BaseModel):
         kpca_coef0: Independent term for ``poly`` / ``sigmoid``.
     """
 
-    method: Literal[
-        "kmeans", "dbscan", "meanshift", "hdbscan", "spectral", "hierarchical"
-    ] = Field(..., description="Clustering algorithm to use.")
+    method: Literal["kmeans", "dbscan", "meanshift", "hdbscan", "spectral", "hierarchical"] = Field(
+        ..., description="Clustering algorithm to use."
+    )
     dataframe: list[dict[str, Any]] = Field(
         ..., description="Tabular data represented as a list of rows (JSON objects)."
     )
@@ -70,9 +70,7 @@ class ClusterRequest(BaseModel):
         description="Mean-Shift bandwidth; None triggers sklearn's estimate_bandwidth().",
     )
 
-    hdbscan_min_cluster_size: int = Field(
-        5, gt=1, description="HDBSCAN minimum cluster size."
-    )
+    hdbscan_min_cluster_size: int = Field(5, gt=1, description="HDBSCAN minimum cluster size.")
     hdbscan_min_samples: int | None = Field(
         default=None,
         gt=0,

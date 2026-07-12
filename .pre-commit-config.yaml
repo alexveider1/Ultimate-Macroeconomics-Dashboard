@@ -1,0 +1,42 @@
+# Pre-commit hooks for the whole stack.
+#
+# Ruff runs in pre-commit's own isolated env (no service .venv needed) and
+# auto-discovers the single-source-of-truth root `ruff.toml`. `ty` is NOT a
+# pre-commit hook: it needs each service's own .venv for import resolution, so
+# it runs per-service via `uv run ty check` / CI instead.
+#
+# First-time setup (pre-commit isn't installed globally here):
+#   uvx pre-commit install
+#   uvx pre-commit run --all-files        # optional: format the whole tree once
+#
+# Bump hook versions with:  uvx pre-commit autoupdate
+
+default_install_hook_types: [pre-commit]
+minimum_pre_commit_version: "3.5.0"
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.14
+    hooks:
+      # Lint + autofix (import sorting via isort `I` comes from root ruff.toml).
+      - id: ruff-check
+        args: [--fix]
+      # Formatter (the equivalent of `ruff format`).
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf] # match ruff.toml's `lf` line endings
+      - id: check-yaml
+        args: [--allow-multiple-documents] # database_schema.yaml etc.
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-merge-conflict
+      - id: detect-private-key

@@ -86,9 +86,7 @@ def _render_life_expectancy_gap_overview() -> None:
     )
 
     selected_iso_codes = [
-        str(code).strip().upper()
-        for code in get_shared_selected_countries()
-        if str(code).strip()
+        str(code).strip().upper() for code in get_shared_selected_countries() if str(code).strip()
     ]
 
     top_df = year_df.sort("gap_years", descending=True).head(TOP_N_GAPS)
@@ -131,8 +129,7 @@ def _render_life_expectancy_gap_overview() -> None:
                 marker={"color": group_color},
                 name=group_name,
                 hovertemplate=(
-                    "<b>%{y}</b><br>"
-                    "Female - Male life expectancy: %{x:.2f} years<extra></extra>"
+                    "<b>%{y}</b><br>Female - Male life expectancy: %{x:.2f} years<extra></extra>"
                 ),
             )
         )

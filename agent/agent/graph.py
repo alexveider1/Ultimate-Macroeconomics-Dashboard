@@ -27,7 +27,7 @@ from .prompts import (
 from .schemas import (
     AgentState,
     ChatSynthesis,
-    DownloadIndicatorPlan,
+    DownloadPlan,
     GuardrailDecision,
     PlotlyCodeGeneration,
     PolarsCodeGeneration,
@@ -37,11 +37,11 @@ from .schemas import (
     WebSearchPlan,
 )
 from .tools import (
-    download_indicator,
     encode_data_for_sandbox,
     execute_code_in_sandbox,
     get_database_schema_text,
     get_news_topics,
+    ingest_data,
     run_sql_query,
     search_qdrant_news,
     web_search,
@@ -65,6 +65,26 @@ WORKER_NAMES = [
 WORKER_HISTORY_TURNS = 3
 
 
+def _message_text(content: Any) -> str:
+    """Return the plain-text of a message, tolerating multimodal content.
+
+    A ``HumanMessage`` carrying image attachments has ``content`` as a list of
+    OpenAI content-parts (``{"type": "text", ...}`` / ``{"type": "image_url",
+    ...}``) rather than a bare string. This concatenates the text parts and
+    drops image parts so callers never stringify (and leak) base64 data URIs.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            str(part.get("text", ""))
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        ]
+        return " ".join(p for p in parts if p)
+    return str(content)
+
+
 def _format_chat_history(messages: list, max_turns: int = WORKER_HISTORY_TURNS) -> str:
     """Render the last ``max_turns`` messages as a compact text block.
 
@@ -79,9 +99,9 @@ def _format_chat_history(messages: list, max_turns: int = WORKER_HISTORY_TURNS) 
     lines: list[str] = []
     for msg in trimmed:
         if isinstance(msg, HumanMessage):
-            lines.append(f"USER: {str(msg.content).strip()}")
+            lines.append(f"USER: {_message_text(msg.content).strip()}")
         elif isinstance(msg, AIMessage):
-            text = str(msg.content).strip()
+            text = _message_text(msg.content).strip()
             if len(text) > 400:
                 text = text[:400] + "…"
             lines.append(f"ASSISTANT: {text}")
@@ -168,7 +188,7 @@ class GuardrailAgent:
         last_user_msg = ""
         for msg in reversed(state.get("messages", [])):
             if isinstance(msg, HumanMessage):
-                last_user_msg = str(msg.content)
+                last_user_msg = _message_text(msg.content)
                 break
         if not last_user_msg.strip():
             return {
@@ -278,9 +298,7 @@ class MacroSupervisorAgent:
             return "\n---\n".join(results)
         older = results[:-keep_verbatim]
         recent = results[-keep_verbatim:]
-        older_block = "\n".join(
-            f"- (earlier) {r.splitlines()[0][:200]}" for r in older
-        )
+        older_block = "\n".join(f"- (earlier) {r.splitlines()[0][:200]}" for r in older)
         return (
             f"EARLIER RESULTS (summarised — full text dropped to keep prompt small):\n"
             f"{older_block}\n\n"
@@ -381,6 +399,45 @@ class MacroSupervisorAgent:
             }
 
 
+def _detect_market_needs_download(previous_steps: list[dict]) -> str | None:
+    """Decide whether an empty SQL result means an untracked Yahoo/Binance asset.
+
+    Unlike World Bank (which has the ``database_indicators`` master catalogue),
+    Yahoo and Binance have no catalogue: the only signal that an asset can be
+    downloaded on demand is that a lookup against its ``*_metadata`` /
+    ``*_historical_prices`` tables came back empty. To avoid a false positive
+    when the asset *is* tracked but simply has no rows for the requested filter,
+    we suppress the signal if any ``*_metadata`` step returned rows.
+
+    Args:
+        previous_steps: The sql_agent's executed steps (each with ``query`` and
+            ``result``), in order.
+
+    Returns:
+        ``"yahoo"`` / ``"binance"`` when the empty result looks like an
+        untracked asset, otherwise ``None``.
+    """
+
+    def touched(substr: str) -> bool:
+        return any(substr in s["query"].lower() for s in previous_steps)
+
+    def meta_found(table: str) -> bool:
+        return any(
+            table in s["query"].lower() and s["result"].get("row_count", 0) > 0
+            for s in previous_steps
+        )
+
+    if (touched("yahoo_metadata") or touched("yahoo_historical_prices")) and not meta_found(
+        "yahoo_metadata"
+    ):
+        return "yahoo"
+    if (touched("binance_metadata") or touched("binance_historical_prices")) and not meta_found(
+        "binance_metadata"
+    ):
+        return "binance"
+    return None
+
+
 class SQLAgent:
     """Worker that issues up to ``MAX_SQL_STEPS`` read-only SELECTs against Postgres."""
 
@@ -476,7 +533,10 @@ class SQLAgent:
                     info = err if err else f"{s['result'].get('row_count', 0)} rows"
                     step_lines.append(f"  Step {i + 1}: {s['query'][:120]} -> {info}")
                     query_lower = s["query"].lower()
-                    if "database_indicators" in query_lower and s["result"].get("row_count", 0) > 0:
+                    if (
+                        "world_bank_database_indicators" in query_lower
+                        and s["result"].get("row_count", 0) > 0
+                    ):
                         indicator_match_step = s
                 steps_summary = "\n".join(step_lines)
 
@@ -516,6 +576,36 @@ class SQLAgent:
                         "trace": [
                             f"sql_agent: NEEDS_DOWNLOAD "
                             f"(candidate={first_indicator_id}, db={db_id_value}, "
+                            f"{len(previous_steps)} steps)"
+                        ],
+                    }
+
+                market_source = _detect_market_needs_download(previous_steps)
+                if market_source is not None:
+                    if market_source == "yahoo":
+                        asset_kind = "ticker"
+                        infer_hint = "the Yahoo ticker (e.g. Apple → AAPL, S&P 500 → ^GSPC)"
+                    else:
+                        asset_kind = "spot pair"
+                        infer_hint = (
+                            "the FULL Binance pair symbol, USDT-quoted "
+                            "(e.g. Bitcoin → BTCUSDT, Solana → SOLUSDT)"
+                        )
+                    return {
+                        "worker_results": [
+                            f"SQL_AGENT NEEDS_DOWNLOAD (source={market_source}): the "
+                            f"requested {asset_kind} is not present in "
+                            f"`{market_source}_metadata` — it is not tracked yet but "
+                            f"CAN be downloaded on demand (there is no master "
+                            f"catalogue for {market_source}).\n"
+                            f"Route to downloader_agent with source={market_source} "
+                            f"and {infer_hint} for the asset the user named, then "
+                            f"retry sql_agent.\n"
+                            f"Steps taken:\n{steps_summary}"
+                        ],
+                        "last_worker_status": "NEEDS_DOWNLOAD",
+                        "trace": [
+                            f"sql_agent: NEEDS_DOWNLOAD (source={market_source}, "
                             f"{len(previous_steps)} steps)"
                         ],
                     }
@@ -1044,69 +1134,133 @@ RUNTIME STATE (changes per call):
 
 
 class DownloaderAgent:
-    """Worker that on-demand-ingests a single World Bank indicator into Postgres."""
+    """Worker that on-demand-ingests one unit of data from WB / Yahoo / Binance / FRED / Eurostat."""
 
     EXTRACT_SYSTEM_PROMPT = (
-        "You extract the exact World Bank `indicator_id` (string, e.g. "
-        "'NY.GDP.MKTP.CD') and `db_id` (integer database id, e.g. 2) from "
-        "the supervisor's task description. The supervisor has ALREADY "
-        "discovered these values via sql_agent's exploration of the "
-        "`database_indicators` table — your job is purely to read them out "
-        "of the task text. NEVER invent or guess values. If the task does "
-        "not contain a clear indicator_id and db_id, return the closest "
-        "literal values you can find."
+        "You decide which single unit of data to download on demand and from "
+        "which `source`, then output structured fields.\n"
+        "- source='worldbank': the supervisor's task ALREADY contains the exact "
+        "`indicator_id` (e.g. 'NY.GDP.MKTP.CD') and `db_id` (e.g. 2), discovered "
+        "by sql_agent from the `database_indicators` master table — read them out "
+        "VERBATIM, never invent them. Set indicator_id and db_id.\n"
+        "- source='yahoo': there is NO catalogue to look up, so infer the correct "
+        "Yahoo Finance `ticker` from the asset the user named using your own "
+        "knowledge (e.g. Apple → AAPL, S&P 500 → ^GSPC, Palantir → PLTR). Set "
+        "ticker.\n"
+        "- source='binance': there is NO catalogue, so infer the FULL Binance "
+        "spot pair `symbol`, quoted in USDT, from the coin the user named "
+        "(e.g. Bitcoin → BTCUSDT, Solana → SOLUSDT, Litecoin → LTCUSDT). Set "
+        "symbol.\n"
+        "- source='fred': US-state indicators. There is NO catalogue, so infer a "
+        "representative single-state FRED `series_id` for the concept the user "
+        "named (e.g. state unemployment → CAUR, per-capita personal income → "
+        "CAPCPI, personal consumption → CAPCE); the whole 50-state + DC panel is "
+        "fetched from that one series. Set series_id.\n"
+        "- source='eurostat': EU sub-national (NUTS-2 region) indicators. There is "
+        "NO catalogue, so infer the Eurostat `dataset` code for the concept the "
+        "user named (e.g. regional GDP → nama_10r_2gdp, regional unemployment → "
+        "lfst_r_lfu3rt, regional population → demo_r_pjanaggr3) and, when needed, "
+        "`filters` pinning its extra dimensions to one category "
+        "(e.g. {'unit': 'EUR_HAB'} for GDP per capita, "
+        "{'sex': 'T', 'age': 'Y_GE15', 'unit': 'PC'} for an unemployment rate); the "
+        "whole NUTS-2 region panel is fetched from that dataset. Set dataset (and "
+        "filters if applicable).\n"
+        "The supervisor's task states which source to use; output only the "
+        "fields for that source."
     )
 
     def __init__(self, llm: ChatOpenAI):
-        """Bind the structured-output LLM that extracts the indicator id + db id."""
+        """Bind the structured-output LLM that extracts the download plan."""
         self.llm = llm
 
+    @staticmethod
+    def _build_payload(plan: DownloadPlan) -> tuple[str, dict]:
+        """Map a ``DownloadPlan`` to ``(identifier, /ingest body)`` by source.
+
+        Args:
+            plan: The structured download plan from the LLM.
+
+        Returns:
+            ``(identifier, payload)`` where ``identifier`` is the human-readable
+            id used in status messages and ``payload`` is the ``/ingest`` body.
+
+        Raises:
+            ValueError: When required fields for the source are missing.
+        """
+        if plan.source == "worldbank":
+            if not plan.indicator_id or plan.db_id is None:
+                raise ValueError("worldbank download needs indicator_id and db_id")
+            return plan.indicator_id, {
+                "source": "worldbank",
+                "indicator_id": plan.indicator_id,
+                "db_id": plan.db_id,
+            }
+        if plan.source == "yahoo":
+            if not plan.ticker:
+                raise ValueError("yahoo download needs a ticker")
+            return plan.ticker, {"source": "yahoo", "ticker": plan.ticker}
+        if plan.source == "binance":
+            if not plan.symbol:
+                raise ValueError("binance download needs a symbol")
+            return plan.symbol, {"source": "binance", "symbol": plan.symbol}
+        if plan.source == "fred":
+            if not plan.series_id:
+                raise ValueError("fred download needs a series_id")
+            return plan.series_id, {"source": "fred", "series_id": plan.series_id}
+        if plan.source == "eurostat":
+            if not plan.dataset:
+                raise ValueError("eurostat download needs a dataset")
+            return plan.dataset, {
+                "source": "eurostat",
+                "dataset": plan.dataset,
+                "filters": plan.filters or {},
+            }
+        raise ValueError(f"Unknown download source: {plan.source}")
+
     async def ainvoke(self, state: AgentState) -> dict:
-        """Extract ``(indicator_id, db_id)`` and call ``downloader_extra/ingest``."""
+        """Extract the download plan and call ``downloader_extra/ingest``."""
         task = state["isolated_worker_task"]
-        logger.info("downloader_agent: extracting indicator id from task")
+        logger.info("downloader_agent: extracting download plan from task")
         try:
-            structured_llm = self.llm.with_structured_output(DownloadIndicatorPlan)
-            plan: DownloadIndicatorPlan = await structured_llm.ainvoke(
+            structured_llm = self.llm.with_structured_output(DownloadPlan)
+            plan: DownloadPlan = await structured_llm.ainvoke(
                 [
                     SystemMessage(content=self.EXTRACT_SYSTEM_PROMPT),
                     HumanMessage(content=f"SUPERVISOR TASK:\n{task}"),
                 ]
             )
 
+            identifier, payload = self._build_payload(plan)
             logger.info(
-                "downloader_agent: calling /ingest indicator=%s db=%s",
-                plan.indicator_id,
-                plan.db_id,
+                "downloader_agent: calling /ingest source=%s identifier=%s",
+                plan.source,
+                identifier,
             )
-            result = await download_indicator(plan.indicator_id, plan.db_id)
+            result = await ingest_data(payload)
 
             if not result.get("success", False):
                 error = result.get("error") or result.get("detail", "Unknown error")
                 return {
                     "worker_results": [
                         f"DOWNLOADER_AGENT ERROR: {error} "
-                        f"(indicator={plan.indicator_id}, db={plan.db_id})"
+                        f"(source={plan.source}, identifier={identifier})"
                     ],
                     "last_worker_status": "ERROR",
-                    "trace": [
-                        f"downloader_agent: failed – {plan.indicator_id}/{plan.db_id} – {error}"
-                    ],
+                    "trace": [f"downloader_agent: failed – {plan.source}/{identifier} – {error}"],
                 }
 
             status = result.get("status", "success")
             rows_inserted = result.get("rows_inserted", 0)
             return {
                 "worker_results": [
-                    f"DOWNLOADER_AGENT SUCCESS: indicator={plan.indicator_id}, "
-                    f"db={plan.db_id}, rows_inserted={rows_inserted}, "
-                    f"status={status}. The full (economy, year, value) table for "
-                    f"this indicator is now stored in the `indicators` table — "
-                    f"route back to sql_agent to fetch it."
+                    f"DOWNLOADER_AGENT SUCCESS: source={plan.source}, "
+                    f"identifier={identifier}, rows_inserted={rows_inserted}, "
+                    f"status={status}. The data for {identifier} is now stored in "
+                    f"Postgres — route back to sql_agent to fetch it."
                 ],
                 "last_worker_status": "SUCCESS",
                 "trace": [
-                    f"downloader_agent: {plan.indicator_id}/{plan.db_id} – "
+                    f"downloader_agent: {plan.source}/{identifier} – "
                     f"{rows_inserted} rows, status={status}"
                 ],
             }
@@ -1180,31 +1334,50 @@ class MacroAgentGraph:
         self,
         base_url: str,
         model_name: str,
+        fast_model_name: str,
         api_key: str,
         max_retries: int = 3,
         recursion_limit: int = 30,
     ):
-        """Construct one ``ChatOpenAI`` instance and assemble the StateGraph."""
-        self.llm = ChatOpenAI(
-            base_url=base_url,
-            model=model_name,
-            api_key=api_key,
-            temperature=0,
-            max_retries=3,
-            stream_usage=True,
-        )
+        """Build the strong/fast ``ChatOpenAI`` pair and assemble the StateGraph.
+
+        The two models share the endpoint and credentials but differ in
+        capability. ``smart_llm`` (``model_name``) does the reasoning-heavy
+        work — planning, SQL/Plotly code generation and the final answer —
+        while ``fast_llm`` (``fast_model_name``) handles the cheap in-scope
+        screen and the lightweight workers to cut latency and cost. An empty
+        ``fast_model_name`` falls back to the strong model, preserving the
+        previous single-model behaviour. ``UsageTracker`` is attached at the
+        graph level, so token accounting spans both models automatically.
+        """
+
+        def _build_llm(model: str) -> ChatOpenAI:
+            return ChatOpenAI(
+                base_url=base_url,
+                model=model,
+                api_key=api_key,
+                temperature=0,
+                max_retries=3,
+                stream_usage=True,
+            )
+
+        self.smart_llm = _build_llm(model_name)
+        self.fast_llm = _build_llm(fast_model_name or model_name)
         self.max_retries = max_retries
         self.recursion_limit = recursion_limit
 
-        self.guardrail = GuardrailAgent(llm=self.llm)
-        self.supervisor = MacroSupervisorAgent(llm=self.llm, max_retries=max_retries)
-        self.sql_agent = SQLAgent(llm=self.llm)
-        self.plotly_agent = PlotlyAgent(llm=self.llm)
-        self.table_agent = TableAgent(llm=self.llm)
-        self.rag_agent = RAGAgent(llm=self.llm)
-        self.web_search_agent = WebSearchAgent(llm=self.llm)
-        self.downloader_agent = DownloaderAgent(llm=self.llm)
-        self.chat_agent = ChatAgent(llm=self.llm)
+        # Strong model: planning, code generation and the final answer.
+        self.supervisor = MacroSupervisorAgent(llm=self.smart_llm, max_retries=max_retries)
+        self.sql_agent = SQLAgent(llm=self.smart_llm)
+        self.plotly_agent = PlotlyAgent(llm=self.smart_llm)
+        self.chat_agent = ChatAgent(llm=self.smart_llm)
+
+        # Fast model: in-scope screening + lightweight workers.
+        self.guardrail = GuardrailAgent(llm=self.fast_llm)
+        self.table_agent = TableAgent(llm=self.fast_llm)
+        self.rag_agent = RAGAgent(llm=self.fast_llm)
+        self.web_search_agent = WebSearchAgent(llm=self.fast_llm)
+        self.downloader_agent = DownloaderAgent(llm=self.fast_llm)
 
         self.graph = self._build_graph()
 
@@ -1245,8 +1418,17 @@ class MacroAgentGraph:
     def _build_initial_state(
         message: str,
         chat_history: list[dict],
+        images: list[str] | None = None,
     ) -> dict:
-        """Convert raw chat history + the current message into a LangGraph state."""
+        """Convert raw chat history + the current message into a LangGraph state.
+
+        When ``images`` (base64 data URIs) are supplied, the current turn becomes
+        a multimodal ``HumanMessage`` whose ``content`` is a list of OpenAI
+        content-parts (one ``text`` part + one ``image_url`` part per image), the
+        same shape used by ``/plots/interpret``. Only the vision-capable supervisor
+        receives the raw messages, so the images are visible there; text workers see
+        the text-only history via :func:`_message_text`.
+        """
         messages: list = []
         for msg in chat_history:
             role = msg.get("role", "user")
@@ -1255,7 +1437,12 @@ class MacroAgentGraph:
                 messages.append(HumanMessage(content=content))
             elif role == "assistant":
                 messages.append(AIMessage(content=content))
-        messages.append(HumanMessage(content=message))
+        if images:
+            content_parts: list[dict[str, Any]] = [{"type": "text", "text": message}]
+            content_parts.extend({"type": "image_url", "image_url": {"url": uri}} for uri in images)
+            messages.append(HumanMessage(content=content_parts))
+        else:
+            messages.append(HumanMessage(content=message))
 
         return {
             "messages": messages,
@@ -1320,6 +1507,9 @@ class MacroAgentGraph:
         message: str,
         chat_history: list[dict] | None = None,
         usage_tracker: Any | None = None,
+        langfuse_handler: Any | None = None,
+        trace_metadata: dict[str, Any] | None = None,
+        images: list[str] | None = None,
     ):
         """Yield events the API layer relays to the chat UI.
 
@@ -1328,15 +1518,29 @@ class MacroAgentGraph:
           - {"type": "token", "delta": <str>}
           - {"type": "final", "response": <str>, "artifacts": {...}}
           - {"type": "error", "response": <str>}
+
+        ``langfuse_handler`` (when supplied) is attached as an extra LangChain
+        callback so the whole run — every worker, tool and LLM call — is traced
+        in Langfuse alongside the ``usage_tracker``. ``trace_metadata`` may carry
+        Langfuse trace attributes (``langfuse_session_id`` / ``langfuse_user_id``
+        / ``langfuse_tags``) that surface on the trace.
         """
-        state = self._build_initial_state(message, chat_history or [])
+        state = self._build_initial_state(message, chat_history or [], images)
         accumulated_artifacts: dict[str, Any] = {}
         last_isolated_task = ""
         final_state: dict[str, Any] = {}
 
         graph_config: dict[str, Any] = {"recursion_limit": self.recursion_limit}
-        if usage_tracker is not None:
-            graph_config["callbacks"] = [usage_tracker]
+        callbacks = [cb for cb in (usage_tracker, langfuse_handler) if cb is not None]
+        if callbacks:
+            graph_config["callbacks"] = callbacks
+        if langfuse_handler is not None:
+            # Name the root run so the Langfuse trace is grouped/searchable, and
+            # forward any session/user/tag attributes onto the trace.
+            graph_config["run_name"] = "macro-agent-chat"
+            metadata = {k: v for k, v in (trace_metadata or {}).items() if v is not None}
+            if metadata:
+                graph_config["metadata"] = metadata
 
         try:
             async for chunk in self.graph.astream(state, config=graph_config):
@@ -1385,9 +1589,7 @@ class MacroAgentGraph:
                 }
                 return
 
-            draft = self._sanitize_draft(last_isolated_task) or (
-                "I could not produce a response."
-            )
+            draft = self._sanitize_draft(last_isolated_task) or ("I could not produce a response.")
 
             collected: list[str] = []
             try:

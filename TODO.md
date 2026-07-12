@@ -1,23 +1,22 @@
 # TODO
 
-> Set of features to implement and bugs to be fixed
+> Flat backlog of the features still to implement and bugs still to fix.
+> Completed work is reflected in `CLAUDE.md` (delivered architecture) and the git
+> history — this file tracks only what remains open.
 
 ## Short-term
 
-* Add consistent across countries selector for countries
+*
 
 ## Medium-term
 
-* Complete complex testing of agent (create a table with set of tasks to solve and results of agent execution)
-* Add hierarchical clustering to the `clustering` container
+* **Agent eval harness:** a fixture table of prompts → asserted worker path / `last_worker_status` / answer-contains checks, run against the LangGraph in `agent/agent/graph.py`, as the regression net for prompt and routing changes.
 
 ## Long-term
 
-* Add page with data from [FRED](https://fred.stlouisfed.org/)
-* Migrate frontend to Reacts + NextJS + Apache E-Charts
-* Add interactive graph networks for visualizing connections between countries in global economy
+* Interactive graph networks visualizing connections between countries in the global economy; dedicated graph-based analysis pages.
 
 ## Backlog
 
-* Implement new data sources: Maddison Project Database
-* Implement feature for creating dynamic, llm-based macroeconomics reports as documents
+* New data source: Maddison Project Database.
+* Dynamic, LLM-based macroeconomics reports rendered as documents.

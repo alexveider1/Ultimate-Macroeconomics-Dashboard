@@ -1,0 +1,26 @@
+# Blackbox exporter modules — the health-probing half of the monitoring stack
+# (replaces Netdata's go.d httpcheck/portcheck). Bind-mounted read-only to
+# /etc/blackbox_exporter/config.yml. Prometheus drives it (see the blackbox-http
+# / blackbox-tcp jobs in prometheus.yml); the actual target lists live there.
+
+modules:
+  # HTTP GET, success on any 2xx (all of the stack's health endpoints return
+  # 200). ip4 preferred so probes don't stall on IPv6 resolution over the
+  # Compose bridge network.
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [] # empty => default 2xx
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+
+  # TCP connect — for services with no HTTP surface (Postgres + the Langfuse
+  # backing stores). Success = the port accepts a connection.
+  tcp_connect:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false

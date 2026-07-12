@@ -6,12 +6,22 @@ services:
     image: postgres:18
     restart: unless-stopped
     container_name: postgres_db
-    env_file:
-      - ./_container_data/.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Consumed only by the /docker-entrypoint-initdb.d bootstrap (below) to create
+      # the `langfuse` role + database on first volume init — the self-hosted
+      # Langfuse stack now shares this Postgres instead of its own container.
+      LANGFUSE_POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD}
     ports:
       - 5432:5432
     volumes:
       - postgres_data:/var/lib/postgresql
+      # One-time (fresh-volume) bootstrap: create the langfuse role + database so
+      # Langfuse can share this server. Postgres runs these before opening the
+      # network port, so the DB exists before langfuse_web connects.
+      - ./_container_data/db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
       interval: 5s
@@ -23,8 +33,8 @@ services:
     image: qdrant/qdrant:v1.17
     restart: unless-stopped
     container_name: qdrant_db
-    env_file:
-      - ./_container_data/.env
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
     ports:
       - 6333:6333
     volumes:
@@ -41,10 +51,21 @@ services:
       context: downloader_general
       dockerfile: Dockerfile
     container_name: downloader_general
-    restart: "no"
+    # Long-running now: after the one-shot initial ingest it stays up to run the
+    # per-source incremental update scheduler (config.yaml `scheduler`).
+    restart: unless-stopped
     tty: true
-    env_file:
-      - ./_container_data/.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_LLM_USER: ${POSTGRES_LLM_USER}
+      POSTGRES_LLM_PASSWORD: ${POSTGRES_LLM_PASSWORD}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      FRED_API_KEY: ${FRED_API_KEY}
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
     depends_on:
       db:
         condition: service_healthy
@@ -54,7 +75,21 @@ services:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/database_schema.yaml:/app/database_schema.yaml:ro
       - ./_container_data/_configs:/app/_configs
+      # Only the marker + logs persist here. The multi-GB Webhose news clone/unzip
+      # is intentionally NOT under this mount — it goes to the container-local,
+      # ephemeral /app/news (see main.py) and each .zip is deleted right after
+      # extraction, so the raw news .zip/.json files never land on the host.
       - ./_container_data/downloader_general:/app/_container_data
+    # Healthy once the one-shot initial ingest has written its marker. Dependents
+    # wait on `service_healthy` (not `service_completed_successfully`) because the
+    # container no longer exits — it stays up running the update scheduler. The
+    # long start_period covers the ~1–2h first ingest without flapping.
+    healthcheck:
+      test: [ "CMD-SHELL", "test -f /app/_container_data/.download_completed" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 7200s
 
   agent:
     build:
@@ -62,8 +97,14 @@ services:
       dockerfile: Dockerfile
     container_name: agent
     restart: unless-stopped
-    env_file:
-      - ./_container_data/.env
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+      POSTGRES_LLM_USER: ${POSTGRES_LLM_USER}
+      POSTGRES_LLM_PASSWORD: ${POSTGRES_LLM_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
     ports:
       - 8000:8000
     depends_on:
@@ -72,7 +113,7 @@ services:
       vector_db:
         condition: service_healthy
       downloader_general:
-        condition: service_completed_successfully
+        condition: service_healthy
       downloader_extra:
         condition: service_healthy
     volumes:
@@ -87,14 +128,49 @@ services:
       retries: 10
       start_period: 30s
 
+  triton:
+    build:
+      context: triton
+      dockerfile: Dockerfile
+    container_name: triton
+    restart: unless-stopped
+    # GPU is required: Chronos + XGBoost run on CUDA and clustering uses cuML.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    # Triton's python backend shuttles tensors through /dev/shm; the 64MB Docker
+    # default is far too small, so give it room.
+    shm_size: "2gb"
+    volumes:
+      # Read by the Chronos model to resolve its checkpoint name (single source
+      # of truth); nothing else in Triton reads config.yaml.
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      # Persist the Hugging Face weight cache so Chronos isn't re-downloaded on
+      # every container restart.
+      - triton_hf_cache:/root/.cache/huggingface
+    # Ports (HTTP 8000 / gRPC 8001 / metrics 8002) stay internal to the compose
+    # network — the forecaster/clustering adapters reach Triton over gRPC by
+    # container name; nothing is published to the host.
+    healthcheck:
+      test: [ "CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/v2/health/ready', timeout=3).status == 200 else 1)" ]
+      interval: 30s
+      timeout: 5s
+      retries: 30
+      # First boot pip-loads RAPIDS/torch, downloads the Chronos weights, and
+      # inits every forecasting/clustering model — allow a long ramp before
+      # marking healthy.
+      start_period: 900s
+
   forecaster:
     build:
       context: forecaster
       dockerfile: Dockerfile
     container_name: forecaster
     restart: unless-stopped
-    env_file:
-      - ./_container_data/.env
     ports:
       - 8001:8001
     depends_on:
@@ -103,7 +179,9 @@ services:
       vector_db:
         condition: service_healthy
       downloader_general:
-        condition: service_completed_successfully
+        condition: service_healthy
+      triton:
+        condition: service_healthy
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/forecaster:/app/_container_data
@@ -113,15 +191,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
-    # remove `deploy` part if no GPU available
-    ### start of removable part
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [ gpu ]
 
   clustering:
     build:
@@ -129,8 +198,6 @@ services:
       dockerfile: Dockerfile
     container_name: clustering
     restart: unless-stopped
-    env_file:
-      - ./_container_data/.env
     ports:
       - 8002:8002
     depends_on:
@@ -139,7 +206,9 @@ services:
       vector_db:
         condition: service_healthy
       downloader_general:
-        condition: service_completed_successfully
+        condition: service_healthy
+      triton:
+        condition: service_healthy
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/clustering:/app/_container_data
@@ -156,8 +225,11 @@ services:
       dockerfile: Dockerfile
     container_name: downloader_extra
     restart: unless-stopped
-    env_file:
-      - ./_container_data/.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      FRED_API_KEY: ${FRED_API_KEY}
     ports:
       - 8003:8003
     depends_on:
@@ -166,7 +238,7 @@ services:
       vector_db:
         condition: service_healthy
       downloader_general:
-        condition: service_completed_successfully
+        condition: service_healthy
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/downloader_extra:/app/_container_data
@@ -183,8 +255,6 @@ services:
       dockerfile: Dockerfile
     container_name: python_sandbox
     restart: unless-stopped
-    env_file:
-      - ./_container_data/.env
     ports:
       - 8004:8004
     depends_on:
@@ -193,7 +263,7 @@ services:
       vector_db:
         condition: service_healthy
       downloader_general:
-        condition: service_completed_successfully
+        condition: service_healthy
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/python_sandbox:/app/_container_data
@@ -204,14 +274,70 @@ services:
       retries: 10
       start_period: 20s
 
+  docling:
+    build:
+      context: docling
+      dockerfile: Dockerfile
+    container_name: docling
+    restart: unless-stopped
+    # Converts document uploads to Markdown for the Streamlit chat. PDF OCR/VLM
+    # inference is offloaded to a CLOUD OpenAI-compatible endpoint (config
+    # docling.vlm), authenticated with the shared OPENAI_API_KEY; Office formats
+    # (docx/pptx/xlsx) parse locally with no VLM.
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    ports:
+      - 8006:8006
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/docling:/app/_container_data
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8006/health', timeout=3).status == 200 else 1)" ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  backup:
+    build:
+      context: backup
+      dockerfile: Dockerfile
+    container_name: backup
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      vector_db:
+        condition: service_healthy
+    volumes:
+      - ./_container_data/config.yaml:/app/config.yaml:ro
+      - ./_container_data/backup:/app/_container_data
+
+  # --- Streamlit dashboard (sole frontend) -----------------------------------
+  # Multi-page Streamlit app that talks DIRECTLY to the backend services (no
+  # BFF): the read-only LLM Postgres role for page reads, Qdrant for the news /
+  # RAG pages, the OpenAI key for the chat's voice transcription, and the agent /
+  # forecaster / clustering / python_sandbox / downloader_extra HTTP APIs. Host
+  # 8501 (3000=langfuse_web, 3001=grafana).
   app:
     build:
       context: app
       dockerfile: Dockerfile
     container_name: app
     restart: unless-stopped
-    env_file:
-      - ./_container_data/.env
+    environment:
+      POSTGRES_LLM_USER: ${POSTGRES_LLM_USER}
+      POSTGRES_LLM_PASSWORD: ${POSTGRES_LLM_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY}
+      # Whisper voice transcription (chat multimodal input); base_url/model live
+      # in config.yaml `whisper:`. Same shared key as the agent LLM.
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     ports:
       - 8501:8501
     depends_on:
@@ -228,24 +354,259 @@ services:
       python_sandbox:
         condition: service_healthy
       downloader_general:
-        condition: service_completed_successfully
+        condition: service_healthy
       downloader_extra:
+        condition: service_healthy
+      docling:
         condition: service_healthy
     volumes:
       - ./_container_data/config.yaml:/app/config.yaml:ro
       - ./_container_data/themes.yaml:/app/themes.yaml
       - ./_container_data/_configs:/app/_configs
       - ./_container_data/app:/app/_container_data
-      # Read-only docker socket so the Monitoring page can read container stats.
-      # The app process inside the container runs as root, so it can talk to
-      # the socket directly. Remove this mount if you don't want the dashboard
-      # to introspect the host's containers.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     healthcheck:
       test: [ "CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=3).status == 200 else 1)" ]
       interval: 30s
       timeout: 5s
       retries: 10
+      start_period: 30s
+
+  # --- Langfuse (LLM tracing / observability, self-hosted) -------------------
+  # Independent observability stack. Core services (agent / downloader_general)
+  # emit traces to langfuse_web but intentionally do NOT depend_on it, so a
+  # Langfuse outage never blocks the app — the SDK degrades to a no-op. Image
+  # tags mirror Langfuse's official self-host compose (the server is the `:3`
+  # line, versioned separately from the v4 Python SDK). Only langfuse_web is
+  # published to the host (:3000 UI); the rest are internal to the network.
+  langfuse_worker:
+    image: langfuse/langfuse-worker:3
+    container_name: langfuse_worker
+    restart: unless-stopped
+    depends_on: &langfuse-depends-on
+      db:
+        condition: service_healthy
+      langfuse_clickhouse:
+        condition: service_healthy
+      langfuse_redis:
+        condition: service_healthy
+      langfuse_minio:
+        condition: service_healthy
+    environment: &langfuse-common-env
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD}@db:5432/langfuse
+      SALT: ${LANGFUSE_SALT}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
+      TELEMETRY_ENABLED: "true"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
+      NEXTAUTH_URL: http://localhost:3000
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse_clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse_clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_HOST: langfuse_redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: ${LANGFUSE_REDIS_AUTH}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      LANGFUSE_S3_MEDIA_UPLOAD_EXTERNAL_ENDPOINT: http://localhost:9090
+
+  langfuse_web:
+    image: langfuse/langfuse:3
+    container_name: langfuse_web
+    restart: unless-stopped
+    depends_on: *langfuse-depends-on
+    ports:
+      - 3000:3000
+    environment:
+      <<: *langfuse-common-env
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
+      # Auto-provision an org + project + login on first boot so the project
+      # keys in .env work immediately (no manual UI setup). Idempotent.
+      LANGFUSE_INIT_ORG_ID: umd
+      LANGFUSE_INIT_ORG_NAME: Ultimate Macro Dashboard
+      LANGFUSE_INIT_PROJECT_ID: umd-agent
+      LANGFUSE_INIT_PROJECT_NAME: macro-agent
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL}
+      LANGFUSE_INIT_USER_NAME: Admin
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
+    healthcheck:
+      # Langfuse's Next.js server binds to the container's own hostname IP (not
+      # 0.0.0.0 or loopback), so localhost / 127.0.0.1 both refuse — resolve the
+      # hostname at runtime via CMD-SHELL.
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://$(hostname):3000/api/public/health || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  langfuse_clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: langfuse_clickhouse
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  langfuse_redis:
+    image: redis:7-alpine
+    container_name: langfuse_redis
+    restart: unless-stopped
+    command: --requirepass ${LANGFUSE_REDIS_AUTH} --maxmemory-policy noeviction
+    volumes:
+      - langfuse_redis_data:/data
+    healthcheck:
+      test: [ "CMD-SHELL", "redis-cli -a ${LANGFUSE_REDIS_AUTH} ping | grep -q PONG" ]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  langfuse_minio:
+    image: minio/minio:latest
+    container_name: langfuse_minio
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_PASSWORD}
+    networks:
+      default:
+        # MinIO (>= 2025 releases) rejects any request whose Host header is not
+        # an RFC-valid hostname with "InvalidRequest / invalid hostname" — and
+        # the container name "langfuse_minio" contains an underscore, so every
+        # S3 event/media upload from langfuse_web failed and no traces were
+        # persisted. Expose a hyphenated alias the S3 endpoints target instead.
+        aliases:
+          - langfuse-minio
+    ports:
+      # API on 9090 (media presigned URLs), console on 9091.
+      - 9090:9000
+      - 9091:9001
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: [ "CMD", "mc", "ready", "local" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # --- External monitoring (Grafana + Prometheus + OpenTelemetry) ------------
+  # Standalone metrics + health monitor, independent of the dashboard (mirrors
+  # the Langfuse precedent): on the default bridge so it reaches internal-only
+  # services (triton, langfuse_*) by name, with NO depends_on in either
+  # direction — a monitor outage can never block or be blocked by the stack.
+  # Replaces the former Netdata container. Every container is treated as an
+  # external service: the OTel Collector reads the Docker socket for
+  # per-container CPU/RAM/net/disk (ALL containers) + host metrics;
+  # blackbox_exporter probes each service's health; Prometheus scrapes both
+  # (+ Triton's native metrics); Grafana visualises. Fully FOSS, no paid tiers.
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.119.0
+    container_name: otel-collector
+    hostname: umd-otel-collector
+    restart: unless-stopped
+    command: [ "--config=/etc/otelcol-contrib/config.yaml" ]
+    # Run as root so the docker_stats receiver can read the root-owned Docker
+    # socket. The collector image is distroless (no shell), hence no healthcheck.
+    user: "0:0"
+    volumes:
+      - ./_container_data/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      # docker_stats reads per-container metrics via the Docker Engine API over
+      # the socket (moved here from the old netdata service).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # hostmetrics reads the host's /proc + /sys via this read-only root mount
+      # (root_path: /hostfs in the collector config). No `rslave` — WSL2 mounts
+      # the host root `private` (the same caveat the old netdata service noted).
+      - /:/hostfs:ro
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: prometheus
+    hostname: umd-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    ports:
+      - 9092:9090 # UI/API (host 9090/9091 are taken by langfuse_minio)
+    volumes:
+      - ./_container_data/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  blackbox_exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: blackbox_exporter
+    hostname: umd-blackbox
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
+    volumes:
+      - ./_container_data/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9115/-/healthy" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    hostname: umd-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - 3001:3000 # UI (host 3000 is taken by langfuse_web)
+    volumes:
+      # Datasource + dashboard-provider provisioning, and the dashboard JSONs.
+      - ./_container_data/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./_container_data/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana # grafana.db + state
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
       start_period: 30s
 
 networks:
@@ -255,3 +616,10 @@ networks:
 volumes:
   postgres_data:
   qdrant_data:
+  triton_hf_cache:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_redis_data:
+  langfuse_minio_data:
+  prometheus_data:
+  grafana_data:

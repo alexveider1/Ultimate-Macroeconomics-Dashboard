@@ -1,0 +1,28 @@
+name: "forecast_chronos"
+backend: "python"
+max_batch_size: 0
+
+input [
+  {
+    name: "INPUT"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  }
+]
+
+output [
+  {
+    name: "OUTPUT"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  }
+]
+
+# Amazon Chronos (Torch/T5) — the one genuinely pretrained model; runs on CUDA.
+# Weights are loaded once in initialize(), so a long model-load is expected.
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+  }
+]

@@ -59,7 +59,7 @@ def _load_indicator_config() -> dict[str, list[dict[str, Any]]]:
 
 
 def load_dashboard_config() -> dict[str, list[dict[str, Any]]]:
-    """Public alias used by the custom-plot page; returns the cached config dict."""
+    """Public alias used by the clustering page; returns the cached config dict."""
     return _load_indicator_config()
 
 

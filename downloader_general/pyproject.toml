@@ -26,6 +26,7 @@ dependencies = [
     "hyperframe==6.1.0",
     "idna==3.11",
     "jiter==0.13.0",
+    "langfuse==4.13.0",
     "multitasking==0.0.12",
     "numpy==2.4.2",
     "openai==2.25.0",
@@ -40,6 +41,7 @@ dependencies = [
     "pycparser==3.0",
     "pydantic==2.12.5",
     "pydantic-core==2.41.5",
+    "pydantic-settings==2.14.2",
     "python-dateutil==2.9.0.post0",
     "python-dotenv==1.2.1",
     "pytz==2026.1.post1",
@@ -51,14 +53,11 @@ dependencies = [
     "sniffio==1.3.1",
     "soupsieve==2.8.3",
     "sqlalchemy==2.0.47",
-    "tabulate==0.9.0",
     "tiktoken==0.12.0",
-    "tqdm==4.67.3",
     "typing-extensions==4.15.0",
     "typing-inspection==0.4.2",
     "tzdata==2025.3",
     "urllib3==2.6.3",
-    "wbgapi==1.0.14",
     "websockets==16.0",
     "yfinance==1.2.0",
 ]
@@ -85,9 +84,9 @@ pythonpath = ["."]
 addopts = "-ra --strict-markers --cov --cov-report=term-missing"
 
 [tool.coverage.run]
-source = ["main.py", "src"]
+source = ["."]
 branch = true
-omit = ["tests/*", "**/__init__.py"]
+omit = ["tests/*", ".venv/*", "**/__init__.py"]
 
 [tool.coverage.report]
 show_missing = true
@@ -98,26 +97,3 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
 ]
-
-[tool.ruff]
-line-length = 100
-target-version = "py312"
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "W"]
-ignore = ["E501"]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-
-[tool.ty.environment]
-python-version = "3.12"
-
-[tool.ty.rules]
-unresolved-import = "ignore"
-no-matching-overload = "ignore"
-unknown-argument = "ignore"
-unresolved-attribute = "warn"
-invalid-argument-type = "warn"
-invalid-assignment = "warn"

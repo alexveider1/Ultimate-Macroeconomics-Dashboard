@@ -1,0 +1,58 @@
+[project]
+# NOTE: Triton is NVIDIA's C++ server image — its runtime deps are pip-installed
+# from requirements.txt into the container (see Dockerfile), NOT locked with uv.
+# This pyproject exists only so the repo's dev loop (ruff / ty / pytest) works in
+# the triton/ directory: it pins the CPU-runnable subset needed to unit-test the
+# ported inference maths in common/umd_common. GPU-only deps (torch, chronos,
+# xgboost-cuda, cuML, prophet, umap-learn) are intentionally absent — tests that
+# need them importorskip, and unresolved-import is only a ty warning.
+name = "umd-triton"
+version = "0.9.0"
+description = "Triton model repository + shared inference code for forecasting/clustering."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "statsmodels",
+    "polars",
+    "pyyaml",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.14",
+    "ty>=0.0.39",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The shared inference package lives under common/ (baked onto PYTHONPATH in the
+# image); expose it to the test process the same way.
+pythonpath = ["common"]
+addopts = "-ra --strict-markers --cov --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["common"]
+branch = true
+omit = ["tests/*", ".venv/*", "**/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

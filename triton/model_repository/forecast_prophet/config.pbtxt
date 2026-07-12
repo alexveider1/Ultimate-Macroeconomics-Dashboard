@@ -1,0 +1,27 @@
+name: "forecast_prophet"
+backend: "python"
+max_batch_size: 0
+
+input [
+  {
+    name: "INPUT"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  }
+]
+
+output [
+  {
+    name: "OUTPUT"
+    data_type: TYPE_STRING
+    dims: [ 1 ]
+  }
+]
+
+# Prophet's Stan backend is CPU-only — no CUDA path exists.
+instance_group [
+  {
+    count: 1
+    kind: KIND_CPU
+  }
+]

@@ -20,12 +20,14 @@ dependencies = [
     "jiter==0.13.0",
     "jsonpatch==1.33",
     "jsonpointer==3.1.1",
+    "langchain==1.2.14",
     "langchain-core==1.2.23",
     "langchain-openai==1.1.12",
     "langgraph==1.1.4",
     "langgraph-checkpoint==4.0.1",
     "langgraph-prebuilt==1.0.8",
     "langgraph-sdk==0.3.12",
+    "langfuse==4.13.0",
     "langsmith==0.7.23",
     "openai==2.30.0",
     "orjson==3.11.8",
@@ -34,6 +36,7 @@ dependencies = [
     "psycopg2-binary==2.9.11",
     "pydantic==2.12.3",
     "pydantic-core==2.41.4",
+    "pydantic-settings==2.14.2",
     "python-dotenv==1.2.1",
     "pyyaml==6.0.3",
     "qdrant-client==1.17.0",
@@ -43,7 +46,6 @@ dependencies = [
     "starlette==0.49.3",
     "tenacity==9.1.4",
     "tiktoken==0.12.0",
-    "tqdm==4.67.3",
     "typing-extensions==4.15.0",
     "typing-inspection==0.4.2",
     "urllib3==2.6.3",
@@ -74,9 +76,9 @@ pythonpath = ["."]
 addopts = "-ra --strict-markers --cov --cov-report=term-missing"
 
 [tool.coverage.run]
-source = ["agent", "main.py"]
+source = ["."]
 branch = true
-omit = ["tests/*", "**/__init__.py"]
+omit = ["tests/*", ".venv/*", "**/__init__.py"]
 
 [tool.coverage.report]
 show_missing = true
@@ -87,26 +89,3 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
 ]
-
-[tool.ruff]
-line-length = 100
-target-version = "py312"
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "W"]
-ignore = ["E501"]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-
-[tool.ty.environment]
-python-version = "3.12"
-
-[tool.ty.rules]
-unresolved-import = "ignore"
-no-matching-overload = "ignore"
-unknown-argument = "ignore"
-unresolved-attribute = "warn"
-invalid-argument-type = "warn"
-invalid-assignment = "warn"

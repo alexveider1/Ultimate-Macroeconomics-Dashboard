@@ -1,0 +1,41 @@
+# Shared Ruff configuration for the whole stack.
+#
+# Every service's pyproject.toml intentionally carries NO [tool.ruff] block, so
+# running `ruff` from any service directory (e.g. `cd app && uv run ruff check`)
+# walks up the tree and resolves this single source of truth. Run it repo-wide
+# with `uv run ruff check .` / `uv run ruff format .` from the root.
+
+line-length = 100
+target-version = "py312"
+
+extend-exclude = [
+    "**/.venv",
+    "**/__pycache__",
+    "**/.ruff_cache",
+    "**/.pytest_cache",
+]
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+]
+ignore = [
+    "E501", 
+]
+
+[lint.isort]
+combine-as-imports = true
+force-sort-within-sections = true
+order-by-type = true
+split-on-trailing-comma = true
+known-first-party = ["agent", "core", "pages", "umd_common", "src"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+docstring-code-format = true
+docstring-code-line-length = "dynamic"

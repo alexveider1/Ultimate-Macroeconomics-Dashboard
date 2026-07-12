@@ -64,12 +64,8 @@ def test_ensure_llm_role_grants_select_on_existing_and_future_tables(
         with engine.begin() as conn:
             conn.execute(text("DROP TABLE IF EXISTS pre_bootstrap_tbl"))
             conn.execute(text("DROP TABLE IF EXISTS post_bootstrap_tbl"))
-            conn.execute(
-                text("CREATE TABLE pre_bootstrap_tbl (id INT, label TEXT)")
-            )
-            conn.execute(
-                text("INSERT INTO pre_bootstrap_tbl (id, label) VALUES (1, 'pre')")
-            )
+            conn.execute(text("CREATE TABLE pre_bootstrap_tbl (id INT, label TEXT)"))
+            conn.execute(text("INSERT INTO pre_bootstrap_tbl (id, label) VALUES (1, 'pre')"))
     finally:
         engine.dispose()
 
@@ -80,12 +76,8 @@ def test_ensure_llm_role_grants_select_on_existing_and_future_tables(
     engine = create_engine(postgres_uri)
     try:
         with engine.begin() as conn:
-            conn.execute(
-                text("CREATE TABLE post_bootstrap_tbl (id INT, label TEXT)")
-            )
-            conn.execute(
-                text("INSERT INTO post_bootstrap_tbl (id, label) VALUES (2, 'post')")
-            )
+            conn.execute(text("CREATE TABLE post_bootstrap_tbl (id INT, label TEXT)"))
+            conn.execute(text("INSERT INTO post_bootstrap_tbl (id, label) VALUES (2, 'post')"))
     finally:
         engine.dispose()
 
@@ -93,11 +85,13 @@ def test_ensure_llm_role_grants_select_on_existing_and_future_tables(
     llm_engine = create_engine(llm_uri)
     try:
         with llm_engine.connect() as conn:
-            assert conn.execute(
-                text("SELECT label FROM pre_bootstrap_tbl WHERE id = 1")
-            ).scalar() == "pre"
-            assert conn.execute(
-                text("SELECT label FROM post_bootstrap_tbl WHERE id = 2")
-            ).scalar() == "post"
+            assert (
+                conn.execute(text("SELECT label FROM pre_bootstrap_tbl WHERE id = 1")).scalar()
+                == "pre"
+            )
+            assert (
+                conn.execute(text("SELECT label FROM post_bootstrap_tbl WHERE id = 2")).scalar()
+                == "post"
+            )
     finally:
         llm_engine.dispose()

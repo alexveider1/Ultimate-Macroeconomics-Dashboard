@@ -7,21 +7,16 @@ RLIMIT_AS / RLIMIT_CPU caps so a runaway snippet can't take down the host.
 """
 
 import logging
+from pathlib import Path
+import resource  # POSIX only — container is Linux, so always available here
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
 
-import yaml
-from dotenv import load_dotenv
+from config import load_config
 from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-
-try:
-    import resource  # POSIX only — container is Linux, so always available here
-except ImportError:
-    resource = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +24,8 @@ SANDBOX_MEMORY_LIMIT_BYTES = 2 * 1024 * 1024 * 1024
 SANDBOX_CPU_TIME_BUFFER_SECONDS = 5
 
 CONFIG_PATH = Path("config.yaml")
-ENV_FILE_PATH = Path(".env")
 
-CONFIG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-load_dotenv(ENV_FILE_PATH)
+CONFIG = load_config(CONFIG_PATH)
 
 app = FastAPI(
     title="Python Sandbox API",

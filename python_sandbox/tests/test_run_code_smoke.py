@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
 from main import _run_code
+import pytest
 
 
 def test_run_code_captures_stdout() -> None:

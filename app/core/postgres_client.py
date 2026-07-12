@@ -8,35 +8,33 @@ clicks on the same page don't re-query Postgres.
 """
 
 import logging
-import os
 from pathlib import Path
 from typing import Iterable
 
 import connectorx as cx
 import polars as pl
 import streamlit as st
-import yaml
-from dotenv import load_dotenv
 
 from core.app_logging import log_sql_query
+from core.config import load_config
+from core.settings import get_settings
 
 CONFIG_PATH = Path("config.yaml")
-ENV_FILE_PATH = Path(".env")
 
-CONFIG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-load_dotenv(ENV_FILE_PATH)
+CONFIG = load_config(CONFIG_PATH)
+SETTINGS = get_settings()
 
-_PG = CONFIG.get("postgres", {})
+_PG = CONFIG.postgres
 # Database name source of truth is POSTGRES_DB in .env (the postgres image only
 # reads it from there on first volume init). config.yaml's `database` stays as
 # a fallback for environments that don't set the env var.
-_PG_DATABASE = os.getenv("POSTGRES_DB") or _PG.get("database")
+_PG_DATABASE = SETTINGS.postgres_db or _PG.database
 SQL_URL = (
     f"postgresql://"
-    f"{os.getenv('POSTGRES_LLM_USER')}:{os.getenv('POSTGRES_LLM_PASSWORD')}"
-    f"@{_PG.get('host')}:{_PG.get('port')}/{_PG_DATABASE}"
+    f"{SETTINGS.postgres_llm_user}:{SETTINGS.postgres_llm_password}"
+    f"@{_PG.host}:{_PG.port}/{_PG_DATABASE}"
 )
-POSTGRES_TARGET = f"{_PG.get('host')}:{_PG.get('port')}"
+POSTGRES_TARGET = f"{_PG.host}:{_PG.port}"
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +136,7 @@ def get_world_bank_indicator(indicator_code: str, country_code: str = "ALL") -> 
     country_codes = _normalize_country_codes(country_code)
     query = (
         "SELECT year, economy, value "
-        "FROM indicators "
+        "FROM world_bank_indicators "
         f"WHERE indicator_id = {_sql_string(indicator_code)}"
     )
 
@@ -165,7 +163,7 @@ def get_yahoo_finance_timeseries(ticker: str) -> pl.DataFrame:
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_world_bank_metadata(indicator_code: str) -> pl.DataFrame:
     """Return every metadata row stored for ``indicator_code``."""
-    query = f"SELECT * FROM metadata WHERE indicator_id = {_sql_string(indicator_code)}"
+    query = f"SELECT * FROM world_bank_metadata WHERE indicator_id = {_sql_string(indicator_code)}"
     return fetch_postgres_data(query=query)
 
 
@@ -186,7 +184,7 @@ def get_world_bank_indicator_name(
     preferred_db = str(preferred_database_id).strip()
     query = (
         "SELECT id, description, database_id "
-        "FROM database_indicators "
+        "FROM world_bank_database_indicators "
         f"WHERE id = {_sql_string(indicator_code)} "
         "AND description IS NOT NULL AND description <> '' "
         "ORDER BY "
@@ -207,7 +205,7 @@ def get_world_bank_country_codes() -> list[str]:
     """Return every distinct, non-empty ``economy`` code present in indicators."""
     query = (
         "SELECT DISTINCT economy "
-        "FROM indicators "
+        "FROM world_bank_indicators "
         "WHERE economy IS NOT NULL AND economy <> '' "
         "ORDER BY economy"
     )
@@ -252,9 +250,48 @@ def get_all_yahoo_metadata() -> pl.DataFrame:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def get_all_binance_historical_prices() -> pl.DataFrame:
+    """Return the complete daily OHLCV history for every Binance coin.
+
+    Returns an empty frame (rather than raising) when the table doesn't exist —
+    a deployment whose volume predates the crypto tables shouldn't crash the
+    Crypto page.
+    """
+    query = (
+        "SELECT date, open, high, low, close, volume, quote_volume, symbol, base_asset "
+        "FROM binance_historical_prices "
+        "WHERE date IS NOT NULL AND close IS NOT NULL AND symbol IS NOT NULL"
+    )
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("Binance historical prices unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_all_binance_metadata() -> pl.DataFrame:
+    """Return one master-data row per Binance coin (ranked by 24h volume).
+
+    Empty frame on a missing table, mirroring
+    :func:`get_all_binance_historical_prices`.
+    """
+    query = (
+        "SELECT symbol, base_asset, quote_asset, status, rank, description, last_price, "
+        "price_change_percent_24h, high_24h, low_24h, quote_volume_24h, trade_count_24h "
+        "FROM binance_metadata"
+    )
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("Binance metadata unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_world_bank_country_mapping() -> pl.DataFrame:
     """Return ``(id, value)`` for every WB economy with both fields set."""
-    query = "SELECT id, value FROM countries WHERE id IS NOT NULL AND value IS NOT NULL"
+    query = "SELECT id, value FROM world_bank_countries WHERE id IS NOT NULL AND value IS NOT NULL"
     return fetch_postgres_data(query=query)
 
 
@@ -263,6 +300,136 @@ def get_world_bank_country_regions() -> pl.DataFrame:
     """Return ``(id, value, region)`` for every non-aggregate WB economy."""
     query = (
         'SELECT id, value, "region.value" AS region '
-        "FROM countries WHERE id IS NOT NULL AND aggregate = false"
+        "FROM world_bank_countries WHERE id IS NOT NULL AND aggregate = false"
     )
     return fetch_postgres_data(query=query)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_fred_states() -> pl.DataFrame:
+    """Return the FRED states catalogue ``(id, name, fips, region, division)``.
+
+    Empty frame (rather than raising) on a missing table, so a deployment whose
+    volume predates the FRED tables doesn't crash the Regional Statistics page.
+    """
+    query = "SELECT id, name, fips, region, division FROM fred_states"
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("FRED states unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_fred_indicators_catalog() -> pl.DataFrame:
+    """Return every FRED indicator description row (one per indicator concept)."""
+    query = (
+        "SELECT indicator_id, name, category, series_group, example_series_id, units, "
+        "frequency, seasonal_adjustment, region_type, min_date, max_date, notes "
+        "FROM fred_state_indicators"
+    )
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("FRED indicator catalogue unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_fred_indicator_meta(indicator_id: str) -> pl.DataFrame:
+    """Return the single description row for one FRED indicator."""
+    query = (
+        "SELECT indicator_id, name, category, series_group, example_series_id, units, "
+        "frequency, seasonal_adjustment, region_type, min_date, max_date, notes "
+        "FROM fred_state_indicators "
+        f"WHERE indicator_id = {_sql_string(indicator_id)}"
+    )
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("FRED indicator meta unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_fred_indicator(indicator_id: str, states: str | Iterable[str] = "ALL") -> pl.DataFrame:
+    """Return ``(state, year, value)`` rows for one FRED indicator.
+
+    Args:
+        indicator_id: FRED indicator slug (e.g. ``"unemployment_rate"``).
+        states: Single 2-letter abbrev, an iterable of them, or ``"ALL"``.
+
+    Returns:
+        Polars frame ordered by ``year`` then ``state``.
+    """
+    state_codes = _normalize_country_codes(states)
+    query = (
+        "SELECT state, year, value "
+        "FROM fred_state_indicator_values "
+        f"WHERE indicator_id = {_sql_string(indicator_id)} AND value IS NOT NULL"
+    )
+    if state_codes:
+        query += " AND state IN (" + ", ".join(_sql_string(code) for code in state_codes) + ")"
+    query += " ORDER BY year, state"
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("FRED indicator values unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_eurostat_regions() -> pl.DataFrame:
+    """Return the Eurostat NUTS-2 catalogue ``(id, name, country_code, country_name, nuts1_id, level)``.
+
+    Empty frame (rather than raising) on a missing table, so a deployment whose
+    volume predates the Eurostat tables doesn't crash the Regional Statistics page.
+    """
+    query = "SELECT id, name, country_code, country_name, nuts1_id, level FROM eurostat_regions"
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("Eurostat regions unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_eurostat_indicators_catalog() -> pl.DataFrame:
+    """Return every Eurostat indicator description row (one per indicator concept)."""
+    query = (
+        "SELECT indicator_id, name, category, dataset, filters, units, frequency, "
+        "nuts_level, min_year, max_year, source_label, notes "
+        "FROM eurostat_indicators"
+    )
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("Eurostat indicator catalogue unavailable: %s", exc)
+        return pl.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_eurostat_indicator(indicator_id: str, regions: str | Iterable[str] = "ALL") -> pl.DataFrame:
+    """Return ``(region, year, value)`` rows for one Eurostat indicator.
+
+    Args:
+        indicator_id: Eurostat indicator slug (e.g. ``"gdp_per_capita_pps"``).
+        regions: Single NUTS-2 code, an iterable of them, or ``"ALL"``.
+
+    Returns:
+        Polars frame ordered by ``year`` then ``region``.
+    """
+    region_codes = _normalize_country_codes(regions)
+    query = (
+        "SELECT region, year, value "
+        "FROM eurostat_indicator_values "
+        f"WHERE indicator_id = {_sql_string(indicator_id)} AND value IS NOT NULL"
+    )
+    if region_codes:
+        query += " AND region IN (" + ", ".join(_sql_string(code) for code in region_codes) + ")"
+    query += " ORDER BY year, region"
+    try:
+        return fetch_postgres_data(query=query)
+    except Exception as exc:
+        logger.warning("Eurostat indicator values unavailable: %s", exc)
+        return pl.DataFrame()

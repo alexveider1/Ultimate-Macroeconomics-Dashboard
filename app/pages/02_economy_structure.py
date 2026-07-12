@@ -265,9 +265,7 @@ def _render_sector_trajectory_deep_dive() -> None:
     )
 
     selected_codes = [
-        str(code).strip().upper()
-        for code in get_shared_selected_countries()
-        if str(code).strip()
+        str(code).strip().upper() for code in get_shared_selected_countries() if str(code).strip()
     ][:4]
     _, label_by_iso, name_by_iso = _build_country_labels()
 

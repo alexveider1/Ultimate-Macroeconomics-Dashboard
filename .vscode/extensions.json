@@ -1,0 +1,45 @@
+{
+  // Recommended extensions for developing this repo. VS Code offers to install
+  // these when the workspace is opened. Note: `.vscode/` is currently gitignored,
+  // so this list is local unless the ignore rule is relaxed (see README/CLAUDE).
+  "recommendations": [
+    // Remote / containers
+    "ms-vscode-remote.remote-containers", // Dev Containers (Microsoft)
+    "GitHub.codespaces", // GitHub Codespaces
+    "GitHub.remotehub", // GitHub Repositories
+    "ms-vscode-remote.remote-ssh", // Remote - SSH
+    "ms-vscode-remote.remote-ssh-edit", // Remote - SSH: editing config files
+    "ms-vscode.remote-explorer", // Remote Explorer
+    "ms-vscode.remote-repositories", // Remote Repositories
+
+    // Docker / containers
+    "ms-azuretools.vscode-containers", // Container Tools
+    "ms-azuretools.vscode-docker", // Docker
+
+    // Python toolchain (Astral) — no Pylance, ty is the type checker
+    "ms-python.python", // Python
+    "ms-python.debugpy", // Python Debugger
+    "charliermarsh.ruff", // Ruff (Astral)
+    "astral-sh.ty", // ty (Astral)
+
+    // Git / GitHub
+    "GitHub.vscode-pull-request-github", // GitHub Pull Requests
+
+    // Databases
+    "mtxr.sqltools", // SQLTools (Matheus Teixeira)
+    "mtxr.sqltools-driver-pg", // SQLTools PostgreSQL/Cockroach driver
+
+    // Docs / diagrams / web
+    "hediet.vscode-drawio", // Draw.io Integration (Henning Dieterichs)
+    "James-Yu.latex-workshop", // LaTeX Workshop (James Yu)
+    "DavidAnson.vscode-markdownlint", // markdownlint (David Anson)
+    "esbenp.prettier-vscode", // Prettier
+    "dbaeumer.vscode-eslint", // ESLint
+
+    // Claude Code
+    "Anthropic.claude-code" // Claude Code for VS Code
+  ],
+  "unwantedRecommendations": [
+    "ms-python.vscode-pylance" // language server is disabled in favour of ty
+  ]
+}

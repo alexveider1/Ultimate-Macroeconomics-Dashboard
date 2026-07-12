@@ -222,9 +222,7 @@ def _render_export_composition_deep_dive() -> None:
     )
 
     selected_iso_codes = [
-        str(c).strip().upper()
-        for c in get_shared_selected_countries()
-        if str(c).strip()
+        str(c).strip().upper() for c in get_shared_selected_countries() if str(c).strip()
     ]
 
     top = snapshot.sort("exports_total", descending=True).head(TOP_N_EXPORTERS)

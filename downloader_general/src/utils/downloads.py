@@ -1,25 +1,69 @@
 """Shared utilities for the World Bank / Yahoo / news downloaders.
 
-Holds retry wrappers, connectivity probes, schema-flattening helpers, and the
-git ``CloneProgress`` adapter that pipes git-clone telemetry into a tqdm bar.
+Holds retry wrappers, connectivity probes, schema-flattening helpers, the
+git ``CloneProgress`` adapter that logs git-clone telemetry, and
+:func:`log_progress` — a logging-based replacement for ``tqdm`` progress bars.
 """
 
+import asyncio
 import json
 import logging
 import os
-import stat
-import sys
 from pathlib import Path
-from time import sleep
-from typing import Any, Callable, Dict, Iterable, Optional
+import stat
+from time import monotonic, sleep
+from typing import Any, Callable, Dict, Iterable, Iterator, Optional
 
-import polars as pl
-import wbgapi as wb
 from git import RemoteProgress
+import polars as pl
 from sqlalchemy import create_engine, text
-from tqdm import tqdm
+
+from src.utils import wb_client
 
 logger = logging.getLogger(__name__)
+
+_PROGRESS_LOG_INTERVAL_SECONDS = 5.0
+
+
+def log_progress(
+    iterable: Iterable[Any],
+    *,
+    label: str,
+    total: Optional[int] = None,
+    interval_seconds: float = _PROGRESS_LOG_INTERVAL_SECONDS,
+) -> Iterator[Any]:
+    """Yield from ``iterable`` while emitting throttled progress log records.
+
+    A logging-based stand-in for ``tqdm``: terminal progress bars don't render
+    usefully in container logs, so instead of a live bar this logs a progress
+    line at most once per ``interval_seconds`` (plus a final line on the last
+    item). Work is expected to happen in the loop body, so the count reflects
+    items whose body has finished. ``total`` enables percentage reporting; when
+    it is unknown only the running count is logged.
+
+    Args:
+        iterable: Items to iterate over.
+        label: Human-readable prefix identifying the operation in the log.
+        total: Total item count when known, for percentage reporting.
+        interval_seconds: Minimum seconds between progress log records.
+
+    Yields:
+        Each item from ``iterable`` unchanged.
+    """
+    logger.info("%s: starting (%s items)", label, total if total is not None else "?")
+    count = 0
+    last_log = monotonic()
+    for item in iterable:
+        yield item
+        count += 1
+        is_last = total is not None and count >= total
+        now = monotonic()
+        if is_last or now - last_log >= interval_seconds:
+            if total:
+                logger.info("%s: %d/%d (%.0f%%)", label, count, total, count / total * 100)
+            else:
+                logger.info("%s: %d processed", label, count)
+            last_log = now
 
 
 def _remove_readonly(func, path, exc_info):
@@ -39,14 +83,12 @@ def _remove_readonly(func, path, exc_info):
 
 
 class CloneProgress(RemoteProgress):
-    """Pipe GitPython clone progress events into a tqdm progress bar."""
+    """Log GitPython clone progress periodically (replaces the old tqdm bar)."""
 
     def __init__(self):
-        """Initialise the underlying ``RemoteProgress`` and tqdm bar."""
+        """Initialise the underlying ``RemoteProgress`` and log-throttle state."""
         super().__init__()
-        self.pbar = tqdm(
-            desc="Cloning Repository", unit="operations", dynamic_ncols=True, file=sys.stdout
-        )
+        self._last_log = 0.0
 
     def update(
         self,
@@ -55,17 +97,24 @@ class CloneProgress(RemoteProgress):
         max_count: str | float | None = None,
         message: str = "",
     ) -> None:
-        """Push one clone-progress sample into the tqdm bar.
+        """Log one clone-progress sample, throttled to one line per interval.
 
         Args:
-            op_code: GitPython operation code (unused — we just update totals).
+            op_code: GitPython operation code (unused — we just report totals).
             cur_count: Current operation count.
             max_count: Total operation count, or ``None`` when unknown.
             message: Optional human-readable status (unused).
         """
-        self.pbar.total = float(max_count) if max_count is not None else None
-        self.pbar.n = float(cur_count)
-        self.pbar.refresh()
+        complete = max_count is not None and float(cur_count) >= float(max_count)
+        now = monotonic()
+        if not complete and now - self._last_log < _PROGRESS_LOG_INTERVAL_SECONDS:
+            return
+        self._last_log = now
+        if max_count:
+            pct = float(cur_count) / float(max_count) * 100
+            logger.info("Cloning repository: %d%% (%s/%s)", int(pct), cur_count, max_count)
+        else:
+            logger.info("Cloning repository: %s objects", cur_count)
 
 
 def _call_with_retries(
@@ -73,15 +122,22 @@ def _call_with_retries(
     request_callable: Callable[[], Optional[object]],
     retry_delay_seconds: float,
     max_retries: int,
+    max_delay: float = 60.0,
 ):
     """Call ``request_callable`` with bounded retry-on-exception.
+
+    The synchronous twin of :func:`wb_client.call_with_retries`: retries use the
+    same exponential backoff with jitter (:func:`wb_client.compute_backoff_delay`)
+    so flaky Yahoo / git / embedding calls back off from an overloaded upstream
+    instead of retrying on a fixed cadence.
 
     Args:
         operation_name: Label used in log messages so failures can be traced.
         request_callable: Zero-arg callable that performs the request.
-        retry_delay_seconds: Sleep between attempts.
+        retry_delay_seconds: Base delay for the first retry; doubles each attempt.
         max_retries: Number of retries *after* the first attempt — total
             attempts will be ``max_retries + 1``.
+        max_delay: Ceiling on the per-attempt backoff delay.
 
     Returns:
         Whatever ``request_callable`` returns on success, or ``None`` if every
@@ -93,22 +149,32 @@ def _call_with_retries(
         try:
             return request_callable()
         except Exception as exc:
+            # Log a concise one-line message (exception type + message) rather than
+            # a full traceback: these are expected transient upstream failures
+            # (Cloudflare 403s, rate-limit 400s, timeouts) that the backoff retries,
+            # and a stack trace per attempt floods the container logs unreadably.
             if attempt == max_retries:
-                logger.exception(
-                    "Operation '%s' failed after %d attempt(s), giving up",
+                logger.error(
+                    "Operation '%s' failed after %d attempt(s), giving up: %s: %s",
                     operation_name,
                     attempt + 1,
+                    type(exc).__name__,
+                    exc,
                 )
                 return None
+            delay = wb_client.compute_backoff_delay(
+                retry_delay_seconds, attempt, max_delay=max_delay
+            )
             logger.warning(
-                "Retry %d/%d for operation '%s' failed: %s",
+                "Retry %d/%d for operation '%s' failed: %s: %s; retrying in %.1fs",
                 attempt + 1,
                 max_retries,
                 operation_name,
+                type(exc).__name__,
                 exc,
-                exc_info=True,
+                delay,
             )
-            sleep(retry_delay_seconds)
+            sleep(delay)
             attempt += 1
 
 
@@ -133,7 +199,7 @@ def _flatten_record(record: dict) -> dict:
 
 
 def _polars_from_world_bank_records(records: Optional[object]) -> pl.DataFrame:
-    """Convert a wbgapi iterable (or pre-built frame) into Polars.
+    """Convert a World Bank record iterable (or pre-built frame) into Polars.
 
     Tolerates already-built DataFrames, ``None`` (empty frame), and arbitrary
     iterables of dicts or non-dict scalars; flattens one level of nested
@@ -165,7 +231,8 @@ def _polars_from_world_bank_records(records: Optional[object]) -> pl.DataFrame:
     return pl.from_dicts(rows, infer_schema_length=len(rows))
 
 
-def _download_source_indicators(
+async def _download_source_indicators(
+    client,
     db_id: int,
     sql_uri: str,
     table_name: str,
@@ -176,6 +243,7 @@ def _download_source_indicators(
     """Pull the indicator catalogue for one WB database into Postgres.
 
     Args:
+        client: Shared ``httpx.AsyncClient`` for WB API calls.
         db_id: World Bank database id.
         sql_uri: Postgres URI to write to.
         table_name: Destination table.
@@ -189,9 +257,9 @@ def _download_source_indicators(
     """
     from src.utils.schema import write_polars_to_table
 
-    indicator_records = _call_with_retries(
+    indicator_records = await wb_client.call_with_retries(
         operation_name=f"series.list(db={db_id})",
-        request_callable=lambda: list(wb.series.list(db=db_id)),
+        request_coro_factory=lambda: wb_client.fetch_series(client, db_id),
         max_retries=api_max_retries,
         retry_delay_seconds=api_retry_delay_seconds,
     )
@@ -208,11 +276,12 @@ def _download_source_indicators(
 
     df_indicators = df_indicators.with_columns(pl.lit(db_id).alias("database_id"))
     df_indicators = df_indicators.rename({"value": "description"})
-    write_polars_to_table(
+    await asyncio.to_thread(
+        write_polars_to_table,
         df_indicators,
-        sql_uri=sql_uri,
-        table_name=table_name,
-        table_def=table_def,
+        sql_uri,
+        table_name,
+        table_def,
     )
     return True
 
@@ -269,23 +338,24 @@ def _test_sql(uri: str) -> bool:
 
 
 def _test_world_bank_api() -> bool:
-    """Probe the World Bank API by calling ``wb.source.list()``.
+    """Probe the World Bank API via the async client's ``/source`` healthcheck.
+
+    Runs the async probe in a throwaway event loop so the sync
+    ``_initialize_connections`` caller stays unchanged.
 
     Returns:
         ``True`` if the call returned any rows; ``False`` on any error.
     """
+
+    async def _probe() -> bool:
+        async with wb_client.build_async_client() as client:
+            return await wb_client.healthcheck(client)
+
     try:
-        _records = _call_with_retries(
-            operation_name="source.list",
-            request_callable=lambda: list(wb.source.list()),
-            max_retries=4,
-            retry_delay_seconds=5.0,
-        )
-        if _records is None:
-            return False
-        _test = _polars_from_world_bank_records(_records)
-        logger.info("Successfully tested connection to World Bank API")
-        return _test.height > 0
+        ok = asyncio.run(_probe())
+        if ok:
+            logger.info("Successfully tested connection to World Bank API")
+        return ok
     except Exception:
         logger.exception("An error occured while testing connection to World Bank API")
         return False

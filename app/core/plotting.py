@@ -9,24 +9,24 @@ LLM-generated plot descriptions.
 """
 
 import base64
+from datetime import datetime
 import hashlib
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from plotly.colors import hex_to_rgb
 import plotly.graph_objects as go
 import plotly.io as pio
 import polars as pl
 import streamlit as st
-import yaml
-from plotly.colors import hex_to_rgb
 
 from core.api_client import (
     forecast_timeseries,
     interpret_plot_image,
 )
 from core.assets import get_markup_template, render_markup_template
+from core.config import load_config
 from core.postgres_client import (
     get_world_bank_country_mapping,
     get_world_bank_indicator,
@@ -38,15 +38,14 @@ from core.theming import (
     get_color,
     get_colorway,
     get_confidence_band_alpha,
+    get_diverging_colorscale,
     get_sequential_colorscale,
 )
-from core.token_usage import record_usage
-from core.token_usage_store import record_persistent
 
 CONFIG_PATH = Path("config.yaml")
 
-CONFIG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-FORECASTER_BASE_URL = f"http://forecaster:{CONFIG.get('forecaster', {}).get('port', 8001)}"
+CONFIG = load_config(CONFIG_PATH)
+FORECASTER_BASE_URL = f"http://forecaster:{CONFIG.forecaster.port}"
 
 
 def apply_plotly_theme(fig: go.Figure) -> go.Figure:
@@ -66,6 +65,158 @@ def apply_plotly_theme(fig: go.Figure) -> go.Figure:
 
 def _apply_plotly_template(fig: go.Figure) -> go.Figure:
     """Internal alias kept for readability inside the chart builders."""
+    return apply_plotly_theme(fig)
+
+
+def build_candlestick_plot(
+    df: pl.DataFrame,
+    date_col: str,
+    open_col: str,
+    high_col: str,
+    low_col: str,
+    close_col: str,
+    title: str = "",
+) -> go.Figure:
+    """Build a themed candlestick chart from one series' OHLC history.
+
+    Args:
+        df: Source frame with at least the OHLC + date columns.
+        date_col / open_col / high_col / low_col / close_col: Column names.
+        title: Chart title.
+
+    Returns:
+        A themed ``go.Figure``; shows a placeholder annotation when the frame is
+        empty or missing a required column.
+    """
+    fig = go.Figure()
+    required_cols = [date_col, open_col, high_col, low_col, close_col]
+
+    if df.is_empty() or any(col not in df.columns for col in required_cols):
+        fig.add_annotation(text="No OHLC data available for candlestick chart.", showarrow=False)
+        fig.update_layout(title=title)
+        return apply_plotly_theme(fig)
+
+    prepared_df = (
+        df.select(required_cols)
+        .drop_nulls(required_cols)
+        .sort(date_col)
+        .unique(subset=[date_col], keep="last", maintain_order=True)
+        .sort(date_col)
+    )
+    if prepared_df.is_empty():
+        fig.add_annotation(text="No OHLC data available for candlestick chart.", showarrow=False)
+        fig.update_layout(title=title)
+        return apply_plotly_theme(fig)
+
+    fig.add_trace(
+        go.Candlestick(
+            x=prepared_df[date_col].to_list(),
+            open=prepared_df[open_col].to_list(),
+            high=prepared_df[high_col].to_list(),
+            low=prepared_df[low_col].to_list(),
+            close=prepared_df[close_col].to_list(),
+            name="OHLC",
+            increasing_line_color=get_color("positive"),
+            decreasing_line_color=get_color("negative"),
+        )
+    )
+    fig.update_layout(
+        title=title,
+        margin=dict(l=20, r=20, t=40, b=20),
+        xaxis_rangeslider_visible=False,
+        yaxis_title="Price",
+        hovermode="x",
+    )
+    return apply_plotly_theme(fig)
+
+
+def build_correlation_heatmap(
+    df: pl.DataFrame,
+    date_col: str,
+    series_col: str,
+    value_col: str,
+    title: str = "",
+    label_map: Optional[Dict[str, str]] = None,
+) -> go.Figure:
+    """Build a Pearson-correlation heatmap of every series pair in ``df``.
+
+    Pivots ``df`` to one column per ``series_col`` value and correlates each
+    pair on their overlapping observations.
+
+    Args:
+        df: Long-format frame (one row per date/series).
+        date_col: Date column used as the pivot index.
+        series_col: Column identifying each series (one heatmap axis tick each).
+        value_col: Numeric column to correlate (e.g. daily returns).
+        title: Chart title.
+        label_map: Optional ``series → display label`` map used in hover text.
+
+    Returns:
+        A themed ``go.Figure``; placeholder annotation when fewer than two
+        series are available.
+    """
+    fig = go.Figure()
+
+    if df.is_empty() or any(col not in df.columns for col in [date_col, series_col, value_col]):
+        fig.add_annotation(text="No data available for correlation heatmap.", showarrow=False)
+        fig.update_layout(title=title)
+        return apply_plotly_theme(fig)
+
+    pivot = (
+        df.select([date_col, series_col, value_col])
+        .pivot(values=value_col, index=date_col, on=series_col, aggregate_function="last")
+        .sort(date_col)
+    )
+    series = [col for col in pivot.columns if col != date_col]
+    if len(series) < 2:
+        fig.add_annotation(
+            text="Need at least two series to compute correlations.", showarrow=False
+        )
+        fig.update_layout(title=title)
+        return apply_plotly_theme(fig)
+
+    def _label(name: str) -> str:
+        if not label_map:
+            return name
+        display = label_map.get(name, name)
+        return display if display and display != name else name
+
+    corr_rows: list[list[float]] = []
+    customdata_rows: list[list[list[str]]] = []
+    for row_series in series:
+        row_vals: list[float] = []
+        row_customdata: list[list[str]] = []
+        for col_series in series:
+            pair_df = pivot.select(
+                [
+                    pl.col(row_series).cast(pl.Float64).alias("x"),
+                    pl.col(col_series).cast(pl.Float64).alias("y"),
+                ]
+            ).drop_nulls()
+            row_customdata.append([_label(row_series), _label(col_series)])
+            if pair_df.height < 2:
+                row_vals.append(0.0)
+                continue
+            corr_val = pair_df.select(pl.corr("x", "y")).item()
+            row_vals.append(float(corr_val) if corr_val is not None else 0.0)
+        corr_rows.append(row_vals)
+        customdata_rows.append(row_customdata)
+
+    fig.add_trace(
+        go.Heatmap(
+            z=corr_rows,
+            x=series,
+            y=series,
+            customdata=customdata_rows,
+            zmin=-1,
+            zmax=1,
+            zmid=0,
+            colorscale=get_diverging_colorscale(),
+            colorbar_title="Corr",
+            hovertemplate=get_markup_template("correlation_heatmap_hovertemplate"),
+        )
+    )
+    fig.update_layout(title=title, margin=dict(l=10, r=10, t=40, b=10))
     return apply_plotly_theme(fig)
 
 
@@ -603,6 +754,282 @@ def build_map_plot(
     return _apply_plotly_template(fig)
 
 
+def build_us_state_choropleth(
+    df: pl.DataFrame,
+    state_col: str,
+    val_col: str,
+    title: str = "",
+    value_label: str = "Value",
+    name_col: Optional[str] = None,
+    hover_context: Optional[str] = None,
+    reverse_scale: bool = False,
+) -> go.Figure:
+    """Build a choropleth of the 50 US states + DC keyed by USPS abbreviation.
+
+    Mirrors :func:`build_map_plot` but uses ``locationmode="USA-states"`` and the
+    ``"usa"`` geo scope so the two-letter state codes render as a US map.
+
+    Args:
+        df: Source frame.
+        state_col: Column holding 2-letter state abbreviations (upper-cased).
+        val_col: Column holding the metric to colour by.
+        title: Chart title.
+        value_label: Colorbar / hover label for the value scale.
+        name_col: Optional column used for the hover label (defaults to abbrev).
+        hover_context: Optional descriptive string injected into the hover.
+        reverse_scale: Flip the sequential colour scale (useful when lower is
+            "better", e.g. unemployment).
+
+    Returns:
+        Themed ``go.Figure`` ready to render.
+    """
+    fig = go.Figure()
+
+    if df.is_empty():
+        fig.add_annotation(text="No data available for map.", showarrow=False)
+        fig.update_layout(title=title)
+        return _apply_plotly_template(fig)
+
+    locations = [str(code).upper() for code in df[state_col].to_list()]
+    z_values = df[val_col].to_list()
+    hover_text = df[name_col].to_list() if name_col and name_col in df.columns else locations
+    context_line = f"<br>{hover_context}" if hover_context else ""
+    hovertemplate = f"<b>%{{text}}</b>{context_line}<br>{value_label}: %{{z:,.2f}}<extra></extra>"
+
+    fig.add_trace(
+        go.Choropleth(
+            locations=locations,
+            z=z_values,
+            text=hover_text,
+            hovertemplate=hovertemplate,
+            locationmode="USA-states",
+            autocolorscale=False,
+            colorscale=get_sequential_colorscale(reverse=reverse_scale),
+            marker_line_color=get_color("map_coastline"),
+            marker_line_width=0.5,
+            colorbar_title=value_label,
+        )
+    )
+
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=16)),
+        geo=dict(
+            scope="usa",
+            showframe=False,
+            showlakes=False,
+            bgcolor="rgba(0,0,0,0)",
+            lakecolor="rgba(0,0,0,0)",
+        ),
+        margin=dict(l=0, r=0, t=50, b=0),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+
+    return _apply_plotly_template(fig)
+
+
+def build_nuts_choropleth(
+    df: pl.DataFrame,
+    region_col: str,
+    val_col: str,
+    geojson: dict,
+    title: str = "",
+    value_label: str = "Value",
+    name_col: Optional[str] = None,
+    hover_context: Optional[str] = None,
+    reverse_scale: bool = False,
+) -> go.Figure:
+    """Build a choropleth of EU NUTS-2 regions keyed by NUTS code.
+
+    The EU analogue of :func:`build_us_state_choropleth`: Plotly has no built-in
+    NUTS geometry, so the region polygons come from the bundled GISCO GeoJSON
+    passed in ``geojson`` and are matched to ``region_col`` codes via
+    ``featureidkey="properties.NUTS_ID"``. The view is constrained to continental
+    Europe so overseas NUTS-2 regions (Canaries, French DOM, Azores…) don't blow
+    up the bounds — they still appear in the rankings/table.
+
+    Args:
+        df: Source frame.
+        region_col: Column holding NUTS-2 codes (e.g. ``"DE21"``).
+        val_col: Column holding the metric to colour by.
+        geojson: Parsed GISCO NUTS-2 GeoJSON (features keyed by ``NUTS_ID``).
+        title: Chart title.
+        value_label: Colorbar / hover label for the value scale.
+        name_col: Optional column used for the hover label (defaults to code).
+        hover_context: Optional descriptive string injected into the hover.
+        reverse_scale: Flip the sequential colour scale (useful when lower is
+            "better", e.g. unemployment).
+
+    Returns:
+        Themed ``go.Figure`` ready to render.
+    """
+    fig = go.Figure()
+
+    if df.is_empty():
+        fig.add_annotation(text="No data available for map.", showarrow=False)
+        fig.update_layout(title=title)
+        return _apply_plotly_template(fig)
+
+    locations = [str(code) for code in df[region_col].to_list()]
+    z_values = df[val_col].to_list()
+    hover_text = df[name_col].to_list() if name_col and name_col in df.columns else locations
+    context_line = f"<br>{hover_context}" if hover_context else ""
+    hovertemplate = f"<b>%{{text}}</b>{context_line}<br>{value_label}: %{{z:,.2f}}<extra></extra>"
+
+    fig.add_trace(
+        go.Choropleth(
+            geojson=geojson,
+            featureidkey="properties.NUTS_ID",
+            locations=locations,
+            z=z_values,
+            text=hover_text,
+            hovertemplate=hovertemplate,
+            autocolorscale=False,
+            colorscale=get_sequential_colorscale(reverse=reverse_scale),
+            marker_line_color=get_color("map_coastline"),
+            marker_line_width=0.3,
+            colorbar_title=value_label,
+        )
+    )
+
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=16)),
+        geo=dict(
+            scope="europe",
+            projection_type="mercator",
+            showframe=False,
+            showcoastlines=False,
+            showcountries=False,
+            lataxis_range=[34, 71],
+            lonaxis_range=[-24, 45],
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        margin=dict(l=0, r=0, t=50, b=0),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+
+    return _apply_plotly_template(fig)
+
+
+def build_region_ranking_bar(
+    df: pl.DataFrame,
+    region_col: str,
+    val_col: str,
+    title: str = "",
+    value_label: str = "Value",
+    label_col: Optional[str] = None,
+    top_n: int = 10,
+    ascending: bool = False,
+) -> go.Figure:
+    """Build a horizontal bar chart of the top/bottom-N regions by a metric.
+
+    Region-agnostic (keyed on ``region_col``) so it is reused by both the FRED
+    US-state page and future Eurostat regional pages.
+
+    Args:
+        df: Source frame (one row per region).
+        region_col: Column holding the region code.
+        val_col: Column holding the metric.
+        title: Chart title.
+        value_label: Axis / hover label for the value.
+        label_col: Optional column for the tick label (defaults to region code).
+        top_n: Number of regions to show.
+        ascending: When ``False`` (default) show the highest values; when
+            ``True`` show the lowest.
+
+    Returns:
+        Themed ``go.Figure`` with the largest bar at the top.
+    """
+    fig = go.Figure()
+
+    if df.is_empty():
+        fig.add_annotation(text="No data available.", showarrow=False)
+        fig.update_layout(title=title)
+        return _apply_plotly_template(fig)
+
+    label = label_col if label_col and label_col in df.columns else region_col
+    # Pick the extreme N, then order so the most extreme sits at the top.
+    picked = df.sort(val_col, descending=not ascending).head(top_n)
+    picked = picked.sort(val_col, descending=ascending)
+
+    fig.add_trace(
+        go.Bar(
+            x=picked[val_col].to_list(),
+            y=picked[label].to_list(),
+            orientation="h",
+            marker_color=get_colorway()[0],
+            hovertemplate=f"<b>%{{y}}</b><br>{value_label}: %{{x:,.2f}}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=16)),
+        xaxis_title=value_label,
+        yaxis_title=None,
+        margin=dict(l=0, r=10, t=50, b=0),
+    )
+    return _apply_plotly_template(fig)
+
+
+def build_region_trend_lines(
+    df: pl.DataFrame,
+    region_col: str,
+    year_col: str,
+    val_col: str,
+    regions: list[str],
+    title: str = "",
+    value_label: str = "Value",
+    label_by_region: Optional[Dict[str, str]] = None,
+) -> go.Figure:
+    """Build a multi-region time-trend line chart (one line per region).
+
+    Region-agnostic so both FRED and future Eurostat pages reuse it.
+
+    Args:
+        df: Long frame with region / year / value columns.
+        region_col: Column holding the region code.
+        year_col: Column holding the year (x axis).
+        val_col: Column holding the metric (y axis).
+        regions: Region codes to plot, in the desired colour order.
+        title: Chart title.
+        value_label: Y-axis label.
+        label_by_region: Optional mapping of region code to display name.
+
+    Returns:
+        Themed ``go.Figure``.
+    """
+    fig = go.Figure()
+    colorway = get_colorway()
+
+    for index, region in enumerate(regions):
+        sub = df.filter(pl.col(region_col) == region).sort(year_col)
+        if sub.is_empty():
+            continue
+        display_name = label_by_region.get(region, region) if label_by_region else region
+        fig.add_trace(
+            go.Scatter(
+                x=sub[year_col].to_list(),
+                y=sub[val_col].to_list(),
+                mode="lines",
+                name=display_name,
+                line=dict(color=colorway[index % len(colorway)], width=2),
+                hovertemplate=f"<b>{display_name}</b><br>%{{x}}: %{{y:,.2f}}<extra></extra>",
+            )
+        )
+
+    if not fig.data:
+        fig.add_annotation(text="No data available for the selected regions.", showarrow=False)
+
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=16)),
+        xaxis_title="Year",
+        yaxis_title=value_label,
+        margin=dict(l=0, r=10, t=50, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    return _apply_plotly_template(fig)
+
+
 class GraphBox:
     def __init__(
         self,
@@ -984,9 +1411,6 @@ class GraphBox:
             mode=mode,
             chart_context=chart_context,
         )
-        usage_payload = response.get("usage")
-        record_usage(usage_payload)
-        record_persistent("plot_interpret", usage_payload)
         description = str(response.get("description", "")).strip()
         if not description:
             description = "No interpretation returned."

@@ -1,0 +1,28 @@
+{
+    "base_url": "https://api.binance.com",
+    "quote_asset": "USDT",
+    "top_n": 30,
+    "kline_interval": "1d",
+    "max_parallel_symbols": 6,
+    "exclude_base_assets": [
+        "USDC",
+        "FDUSD",
+        "TUSD",
+        "BUSD",
+        "DAI",
+        "USDP",
+        "USDD",
+        "PYUSD",
+        "USD1",
+        "USDE",
+        "USDS",
+        "GUSD",
+        "USTC",
+        "EUR",
+        "GBP",
+        "AEUR",
+        "EURI",
+        "WBTC",
+        "WBETH"
+    ]
+}

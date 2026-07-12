@@ -96,9 +96,7 @@ def _render_wgi_radar_overview() -> None:
                 name_by_iso[iso] = name
 
     selected_iso_codes = [
-        str(code).strip().upper()
-        for code in get_shared_selected_countries()
-        if str(code).strip()
+        str(code).strip().upper() for code in get_shared_selected_countries() if str(code).strip()
     ]
 
     axis_categories = dimension_cols + [dimension_cols[0]]

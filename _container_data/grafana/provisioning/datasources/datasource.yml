@@ -1,0 +1,15 @@
+# Grafana datasource provisioning — points Grafana at Prometheus. Bind-mounted
+# read-only to /etc/grafana/provisioning/datasources/. The fixed uid lets the
+# provisioned dashboards reference it directly.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s

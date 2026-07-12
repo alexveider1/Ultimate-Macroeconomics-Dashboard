@@ -5,12 +5,11 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
+from schema import Base
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from testcontainers.postgres import PostgresContainer
-
-from schema import Base
 
 
 @pytest.fixture(scope="session")

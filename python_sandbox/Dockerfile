@@ -15,7 +15,7 @@ COPY pyproject.toml uv.lock ./
 
 RUN uv sync --frozen --no-install-project --no-dev
 
-COPY main.py .
+COPY main.py config.py .
 
 EXPOSE 8004
 

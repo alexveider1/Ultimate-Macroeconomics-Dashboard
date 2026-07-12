@@ -1,38 +1,55 @@
-"""FastAPI service: on-demand single-indicator ingestion from the World Bank.
+"""FastAPI service: on-demand single-unit ingestion from five sources.
 
 The agent's ``downloader_agent`` worker POSTs to ``/ingest`` whenever the LLM
-decides an indicator the user is asking about is missing from Postgres. The
-endpoint short-circuits when the indicator is already present (returns
-``status="already_downloaded"``), otherwise it fetches and stores it via
-:mod:`client_wb` on a worker thread so the event loop stays free.
+decides data the user is asking about is missing from Postgres. ``source``
+selects the path:
+
+* ``worldbank`` — one indicator via :mod:`client_wb`.
+* ``yahoo`` — one ticker via :mod:`client_yahoo`.
+* ``binance`` — one spot pair via :mod:`client_binance`.
+* ``fred`` — one US-state indicator (50 states + DC) via :mod:`client_fred`.
+* ``eurostat`` — one EU NUTS-2 dataset via :mod:`client_eurostat`.
+
+Each path short-circuits when the data is already present (returns
+``status="already_downloaded"``), otherwise it fetches and stores it on a worker
+thread so the event loop stays free.
 """
 
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import yaml
-from dotenv import load_dotenv
+from client_binance import fetch_and_store_binance
+from client_eurostat import fetch_and_store_eurostat
+from client_fred import fetch_and_store_fred
+from client_wb import fetch_and_store_indicator
+from client_yahoo import fetch_and_store_yahoo
+from config import load_config
 from fastapi import FastAPI, HTTPException
-from fastapi.concurrency import run_in_threadpool
+from schema import (
+    Base,
+    BinanceMetadata,
+    EurostatIndicator,
+    IngestRequest,
+    IngestResponse,
+    MacroIndicator,
+    StateIndicator,
+    YahooMetadata,
+)
+from settings import get_settings
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from client_wb import fetch_and_store_indicator
-from schema import Base, IngestRequest, IngestResponse, MacroIndicator
-
 CONFIG_PATH = Path("config.yaml")
-ENV_FILE_PATH = Path(".env")
 
-CONFIG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-load_dotenv(ENV_FILE_PATH)
+CONFIG = load_config(CONFIG_PATH)
+SETTINGS = get_settings()
 
-_PG = CONFIG.get("postgres", {})
-_PG_DATABASE = os.getenv("POSTGRES_DB") or _PG.get("database")
+_PG = CONFIG.postgres
+_PG_DATABASE = SETTINGS.postgres_db or _PG.database
 SQL_URI = (
     f"postgresql+psycopg2://"
-    f"{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
-    f"@{_PG.get('host')}:{_PG.get('port')}/{_PG_DATABASE}"
+    f"{SETTINGS.postgres_user}:{SETTINGS.postgres_password}"
+    f"@{_PG.host}:{_PG.port}/{_PG_DATABASE}"
 )
 
 
@@ -85,7 +102,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Macroeconomics Data Ingestion Service",
-    description="Fetches macroeconomic indicators from the World Bank and stores them in a database",
+    description=(
+        "On-demand ingestion of a single unit of data from the World Bank "
+        "(indicator), Yahoo Finance (ticker), Binance (spot pair), FRED "
+        "(US-state indicator), or Eurostat (EU NUTS-2 dataset)."
+    ),
     lifespan=lifespan,
 )
 
@@ -113,54 +134,153 @@ def list_indicators() -> dict[str, list[str]]:
     return {"indicators": [row[0] for row in rows]}
 
 
-@app.post("/ingest", response_model=IngestResponse)
-async def ingest_indicator(payload: IngestRequest):
-    """Ingest a single World Bank indicator into Postgres.
+def _already_present(session_factory: sessionmaker[Session], model, **filters) -> bool:
+    """Return ``True`` if at least one row of ``model`` matches ``filters``."""
+    with session_factory() as session:
+        existing = session.execute(select(model).filter_by(**filters).limit(1)).scalar()
+    return existing is not None
 
-    Short-circuits when at least one row for ``(indicator_id, db_id)``
-    already exists. Otherwise hands off to :func:`client_wb.fetch_and_store_indicator`
-    on the threadpool so the event loop stays free.
+
+async def _ingest_worldbank(payload: IngestRequest) -> IngestResponse:
+    """World Bank path: short-circuit on ``(indicator_id, db_id)`` then fetch."""
+    if not payload.indicator_id or payload.db_id is None:
+        raise HTTPException(status_code=400, detail="worldbank requires indicator_id and db_id")
+    indicator_id, db_id = payload.indicator_id, payload.db_id
+
+    if _already_present(
+        app.state.session_factory, MacroIndicator, indicator_id=indicator_id, db_id=db_id
+    ):
+        return IngestResponse(
+            source="worldbank",
+            identifier=indicator_id,
+            db_id=db_id,
+            rows_inserted=0,
+            status="already_downloaded",
+        )
+
+    rows_inserted = await fetch_and_store_indicator(indicator_id, db_id, app.state.sql_uri)
+    return IngestResponse(
+        source="worldbank",
+        identifier=indicator_id,
+        db_id=db_id,
+        rows_inserted=rows_inserted,
+        status="success",
+    )
+
+
+async def _ingest_yahoo(payload: IngestRequest) -> IngestResponse:
+    """Yahoo path: short-circuit on ``ticker`` in yahoo_metadata then fetch."""
+    if not payload.ticker:
+        raise HTTPException(status_code=400, detail="yahoo requires ticker")
+    ticker = payload.ticker.strip()
+
+    if _already_present(app.state.session_factory, YahooMetadata, ticker=ticker):
+        return IngestResponse(
+            source="yahoo", identifier=ticker, rows_inserted=0, status="already_downloaded"
+        )
+
+    rows_inserted = await fetch_and_store_yahoo(ticker, app.state.sql_uri)
+    return IngestResponse(
+        source="yahoo", identifier=ticker, rows_inserted=rows_inserted, status="success"
+    )
+
+
+async def _ingest_binance(payload: IngestRequest) -> IngestResponse:
+    """Binance path: short-circuit on ``symbol`` in binance_metadata then fetch."""
+    if not payload.symbol:
+        raise HTTPException(status_code=400, detail="binance requires symbol")
+    symbol = payload.symbol.strip().upper()
+
+    if _already_present(app.state.session_factory, BinanceMetadata, symbol=symbol):
+        return IngestResponse(
+            source="binance", identifier=symbol, rows_inserted=0, status="already_downloaded"
+        )
+
+    rows_inserted = await fetch_and_store_binance(symbol, app.state.sql_uri)
+    return IngestResponse(
+        source="binance", identifier=symbol, rows_inserted=rows_inserted, status="success"
+    )
+
+
+async def _ingest_fred(payload: IngestRequest) -> IngestResponse:
+    """FRED path: short-circuit on the resolved slug in state_indicators then fetch.
+
+    The slug is the upper-cased ``series_id``; an ``example_series_id`` match also
+    short-circuits so asking for a series backing a pre-loaded indicator (e.g.
+    ``CAUR`` → ``unemployment_rate``) doesn't re-download it.
+    """
+    if not payload.series_id:
+        raise HTTPException(status_code=400, detail="fred requires series_id")
+    series_id = payload.series_id.strip()
+    slug = series_id.upper()
+
+    if _already_present(
+        app.state.session_factory, StateIndicator, indicator_id=slug
+    ) or _already_present(app.state.session_factory, StateIndicator, example_series_id=series_id):
+        return IngestResponse(
+            source="fred", identifier=slug, rows_inserted=0, status="already_downloaded"
+        )
+
+    rows_inserted = await fetch_and_store_fred(series_id, app.state.sql_uri, SETTINGS.fred_api_key)
+    return IngestResponse(
+        source="fred", identifier=slug, rows_inserted=rows_inserted, status="success"
+    )
+
+
+async def _ingest_eurostat(payload: IngestRequest) -> IngestResponse:
+    """Eurostat path: short-circuit on the dataset slug in eurostat_indicators then fetch.
+
+    The slug is the lower-cased dataset code; if it (or an already-loaded config
+    indicator sharing the same ``dataset``) is present, the fetch is skipped.
+    """
+    if not payload.dataset:
+        raise HTTPException(status_code=400, detail="eurostat requires dataset")
+    dataset = payload.dataset.strip()
+    slug = dataset.lower()
+
+    if _already_present(
+        app.state.session_factory, EurostatIndicator, indicator_id=slug
+    ) or _already_present(app.state.session_factory, EurostatIndicator, dataset=dataset):
+        return IngestResponse(
+            source="eurostat", identifier=slug, rows_inserted=0, status="already_downloaded"
+        )
+
+    rows_inserted = await fetch_and_store_eurostat(dataset, payload.filters, app.state.sql_uri)
+    return IngestResponse(
+        source="eurostat", identifier=slug, rows_inserted=rows_inserted, status="success"
+    )
+
+
+@app.post("/ingest", response_model=IngestResponse)
+async def ingest_data(payload: IngestRequest):
+    """Ingest a single unit of data from the requested ``source``.
+
+    Dispatches on ``payload.source`` to the World Bank / Yahoo / Binance path,
+    each of which short-circuits when the data is already present and otherwise
+    fetches it (offloading the blocking DB write to a worker thread).
 
     Args:
-        payload: ``IngestRequest`` with the WB indicator and database ids.
+        payload: ``IngestRequest`` carrying the source and its id field(s).
 
     Raises:
-        HTTPException: 404 when the indicator can't be fetched from WB,
-            500 for any other unexpected error.
+        HTTPException: 404 when the data can't be fetched from the source,
+            400 for a bad request, 500 for any other unexpected error.
     """
-    session_factory: sessionmaker[Session] = app.state.session_factory
+    handlers = {
+        "worldbank": _ingest_worldbank,
+        "yahoo": _ingest_yahoo,
+        "binance": _ingest_binance,
+        "fred": _ingest_fred,
+        "eurostat": _ingest_eurostat,
+    }
+    handler = handlers.get(payload.source)
+    if handler is None:  # pragma: no cover — guarded by the request validator
+        raise HTTPException(status_code=400, detail=f"Unknown source: {payload.source}")
+
     try:
-        with session_factory() as session:
-            existing = session.execute(
-                select(MacroIndicator)
-                .where(
-                    MacroIndicator.indicator_id == payload.indicator_id,
-                    MacroIndicator.db_id == payload.db_id,
-                )
-                .limit(1)
-            ).scalar()
-
-        if existing is not None:
-            return IngestResponse(
-                indicator_id=payload.indicator_id,
-                db_id=payload.db_id,
-                rows_inserted=0,
-                status="already_downloaded",
-            )
-
-        rows_inserted = await run_in_threadpool(
-            fetch_and_store_indicator,
-            payload.indicator_id,
-            payload.db_id,
-            app.state.sql_uri,
-        )
-
-        return IngestResponse(
-            indicator_id=payload.indicator_id,
-            db_id=payload.db_id,
-            rows_inserted=rows_inserted,
-            status="success",
-        )
+        return await handler(payload)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:

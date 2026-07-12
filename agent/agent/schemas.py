@@ -216,14 +216,71 @@ class WebSearchPlan(BaseModel):
     )
 
 
-class DownloadIndicatorPlan(BaseModel):
-    """On-demand ingestion request from the ``downloader_agent`` worker."""
+class DownloadPlan(BaseModel):
+    """On-demand ingestion request from the ``downloader_agent`` worker.
+
+    One worker serves five sources; ``source`` selects which id fields apply.
+    World Bank ids come from sql_agent's ``database_indicators`` lookup; Yahoo
+    tickers, Binance pair symbols, FRED series ids and Eurostat dataset codes have
+    no master catalogue, so they are inferred from the user's request (Apple →
+    ``AAPL``, Solana → ``SOLUSDT``, state unemployment → ``CAUR``, EU regional GDP
+    per capita → ``nama_10r_2gdp``).
+    """
 
     thought_process: str = Field(
-        description="Reasoning about which World Bank indicator to download."
+        description="Reasoning about what data to download and from which source."
     )
-    indicator_id: str = Field(description="The World Bank indicator ID (e.g. 'NY.GDP.MKTP.CD').")
-    db_id: int = Field(description="The World Bank database ID (e.g. 2 for WDI).")
+    source: Literal["worldbank", "yahoo", "binance", "fred", "eurostat"] = Field(
+        description="Which data source to download from."
+    )
+    indicator_id: str | None = Field(
+        default=None,
+        description=(
+            "World Bank indicator ID (e.g. 'NY.GDP.MKTP.CD'). Required when source='worldbank'."
+        ),
+    )
+    db_id: int | None = Field(
+        default=None,
+        description="World Bank database ID (e.g. 2 for WDI). Required when source='worldbank'.",
+    )
+    ticker: str | None = Field(
+        default=None,
+        description=("Yahoo Finance ticker (e.g. 'AAPL', '^GSPC'). Required when source='yahoo'."),
+    )
+    symbol: str | None = Field(
+        default=None,
+        description=(
+            "Full Binance spot pair symbol, USDT-quoted (e.g. 'BTCUSDT'). "
+            "Required when source='binance'."
+        ),
+    )
+    series_id: str | None = Field(
+        default=None,
+        description=(
+            "A representative single-state FRED series id for the concept "
+            "(e.g. 'CAUR' for state unemployment, 'CAPCPI' for per-capita income); "
+            "the whole 50-state + DC panel is fetched from it. Required when source='fred'."
+        ),
+    )
+    dataset: str | None = Field(
+        default=None,
+        description=(
+            "Eurostat dataset code for the EU regional concept (e.g. 'nama_10r_2gdp' for "
+            "regional GDP, 'lfst_r_lfu3rt' for unemployment, 'demo_r_pjanaggr3' for "
+            "population); the whole NUTS-2 region panel is fetched from it. Required when "
+            "source='eurostat'."
+        ),
+    )
+    filters: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Optional Eurostat dimension filters pinning the dataset's extra dimensions to "
+            "one category so a single clean series is returned (e.g. {'unit': 'EUR_HAB'} for "
+            "GDP per capita, or {'sex': 'T', 'age': 'Y_GE15', 'unit': 'PC'} for an "
+            "unemployment rate). Any dimension left out falls back to its first category. "
+            "Only used when source='eurostat'."
+        ),
+    )
 
 
 class ChatSynthesis(BaseModel):
@@ -272,6 +329,23 @@ class ChatRequest(BaseModel):
 
     user_message: str
     chat_history: list[ChatMessage] = Field(default_factory=list)
+    session_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional stable id for the chat session, forwarded to Langfuse as "
+            "the trace session id so turns of one conversation group together."
+        ),
+    )
+    images: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional image attachments for the current turn as base64 data URIs "
+            "(``data:image/<fmt>;base64,...``). Injected into the user message as "
+            "OpenAI vision content-parts so the (vision-capable) supervisor can see "
+            "them. Non-image modalities (audio, documents) are folded into "
+            "``user_message`` as text upstream by the caller (the Streamlit chat)."
+        ),
+    )
 
 
 class PlotInterpretationRequest(BaseModel):

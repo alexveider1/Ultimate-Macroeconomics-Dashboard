@@ -6,8 +6,9 @@ interface, so the entry-point in ``main.py`` can drive them uniformly.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import Any, Dict, List
 
+import httpx
 from tiktoken import Encoding
 
 
@@ -20,17 +21,19 @@ class BaseWorldBankDownloader(ABC):
         pass
 
     @abstractmethod
-    def download_basic_tables(self) -> None:
+    async def download_basic_tables(self, client: httpx.AsyncClient) -> None:
         """Download basic `world-bank` tables"""
         pass
 
     @abstractmethod
-    def download_metadata(self, indicator_id: str, db: int) -> None:
+    async def download_metadata(
+        self, client: httpx.AsyncClient, indicator_id: str, db: int
+    ) -> None:
         """Download metadata for table from `world-bank`"""
         pass
 
     @abstractmethod
-    def download_db(self, indicator_id: str, db: int) -> None:
+    async def download_db(self, client: httpx.AsyncClient, indicator_id: str, db: int) -> None:
         """Download table from `world-bank`"""
         pass
 
@@ -115,4 +118,121 @@ class BaseYahooDownloader(ABC):
     @abstractmethod
     def run(self) -> None:
         """Method for downloading all the needed data from `yahoo-finance`"""
+        pass
+
+
+class BaseFredDownloader(ABC):
+    """Abstract contract for any FRED state-indicator downloader implementation."""
+
+    @abstractmethod
+    def _initialize_connections(self, host: str, port: int, db: str) -> bool:
+        """Test whether the SQL and FRED API connections can be established"""
+        pass
+
+    @abstractmethod
+    async def download_states(self, client: httpx.AsyncClient) -> Dict[str, str]:
+        """Write the states catalogue and return the FRED ``{fips: name}`` mapping"""
+        pass
+
+    @abstractmethod
+    async def download_indicator(
+        self, client: httpx.AsyncClient, slug: str, series_id: str, name: str, category: str
+    ) -> None:
+        """Download one indicator's description row + annual state panel from `fred`"""
+        pass
+
+    @abstractmethod
+    def run(self) -> None:
+        """Method for downloading all the needed state indicators from `fred`"""
+        pass
+
+
+class BaseEurostatDownloader(ABC):
+    """Abstract contract for any Eurostat NUTS-region downloader implementation."""
+
+    @abstractmethod
+    def _initialize_connections(self, host: str, port: int, db: str) -> bool:
+        """Test whether the SQL and Eurostat API connections can be established"""
+        pass
+
+    @abstractmethod
+    def download_regions(self) -> None:
+        """Write the NUTS-2 regions catalogue from the bundled GISCO GeoJSON"""
+        pass
+
+    @abstractmethod
+    async def download_indicator(
+        self,
+        client: httpx.AsyncClient,
+        slug: str,
+        dataset: str,
+        filters: Dict[str, str],
+        name: str,
+        category: str,
+    ) -> None:
+        """Download one indicator's description row + annual region panel from `eurostat`"""
+        pass
+
+    @abstractmethod
+    def run(self) -> None:
+        """Method for downloading all the needed region indicators from `eurostat`"""
+        pass
+
+
+class BaseActuallyRelevantDownloader(ABC):
+    """Abstract contract for the Actually Relevant curated-news downloader."""
+
+    @abstractmethod
+    def _initialize_connections(self) -> bool:
+        """Test whether the Actually Relevant API, OpenAI and Qdrant are reachable"""
+        pass
+
+    @abstractmethod
+    def run(self) -> None:
+        """Fetch every story, bucket by macro-topic, embed and upload to Qdrant"""
+        pass
+
+
+class BaseWorldBankArticlesDownloader(ABC):
+    """Abstract contract for the World Bank documents (WDS) downloader."""
+
+    @abstractmethod
+    def _initialize_connections(self) -> bool:
+        """Test whether the World Bank WDS API, OpenAI and Qdrant are reachable"""
+        pass
+
+    @abstractmethod
+    def run(self) -> None:
+        """Per query fetch top-N docs, chunk their text, embed and upload to Qdrant"""
+        pass
+
+
+class BaseBinanceDownloader(ABC):
+    """Abstract contract for any Binance crypto downloader implementation."""
+
+    @abstractmethod
+    def _initialize_connections(self, host: str, port: int, db: str) -> bool:
+        """Test whether the SQL connection can be established"""
+        pass
+
+    @abstractmethod
+    async def select_top_symbols(self, client: httpx.AsyncClient) -> List[Dict[str, Any]]:
+        """Pick the most popular spot pairs from `binance` (ranked, with metadata)"""
+        pass
+
+    @abstractmethod
+    def download_metadata(self, rows: List[Dict[str, Any]]) -> None:
+        """Write the selected pairs' master data to Postgres"""
+        pass
+
+    @abstractmethod
+    async def download_historical_data(
+        self, client: httpx.AsyncClient, symbol: str, base_asset: str
+    ) -> None:
+        """Download the full candle history for one symbol from `binance`"""
+        pass
+
+    @abstractmethod
+    def run(self) -> None:
+        """Method for downloading all the needed data from `binance`"""
         pass

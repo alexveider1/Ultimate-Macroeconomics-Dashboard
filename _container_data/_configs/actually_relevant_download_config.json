@@ -1,0 +1,26 @@
+{
+  "base_url": "https://actually-relevant-api.onrender.com",
+  "page_size": 100,
+  "topics": [
+    {
+      "slug": "human-development",
+      "collection": "actually_relevant"
+    },
+    {
+      "slug": "planet-climate",
+      "collection": "actually_relevant"
+    },
+    {
+      "slug": "existential-threats",
+      "collection": "actually_relevant"
+    },
+    {
+      "slug": "science-technology",
+      "collection": "actually_relevant"
+    },
+    {
+      "slug": "general-news",
+      "collection": "actually_relevant"
+    }
+  ]
+}

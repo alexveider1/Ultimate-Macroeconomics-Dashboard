@@ -12,7 +12,7 @@ shared:
   world_bank_articles_download_config: _configs/world_bank_articles_download_config.json
   nuts_geojson: _configs/nuts_level2_2021.geojson
   eurostat_nuts_level: 2
-  openai_base_url: https://api.openai.com/v1
+  openai_base_url: https://openrouter.ai/api/v1
   openai_llm_model: gpt-5.4
   openai_llm_model_fast: gpt-5.4-mini
   openai_embedding_model: openai/text-embedding-3-small
@@ -92,15 +92,15 @@ docling:
     # (whisper.*): the API key is the shared OPENAI_API_KEY (in .env); only these
     # non-secret knobs live here. Point base_url at any OpenAI-compatible vision
     # endpoint hosting granite-docling (or a compatible OCR model).
-    base_url: https://your-cloud-vllm-host/v1
-    model: ibm-granite/granite-docling-258M
+    base_url: https://openrouter.ai/api/v1
+    model: gpt-5.4-nano
 whisper:
   # OpenAI-compatible audio-transcription endpoint used by the Streamlit chat's
   # voice / audio input. The API key is the shared OPENAI_API_KEY (in .env); only
   # these non-secret knobs live here. Point base_url at any OpenAI-compatible
   # /audio endpoint (self-hosted or hosted).
   enabled: true
-  base_url: https://api.openai.com/v1
+  base_url: https://openrouter.ai/api/v1
   model: whisper-1
 backup:
   # Cloud backups are OFF until you set enabled: true AND provide an rclone

@@ -37,38 +37,47 @@
 \maketitle{}
 
 \section{Project goals}
-The project itself represents a multipage interactive dashboard with plots related to the most common topics in macroeconomics: gross domestic product, national income, trading indicators, inflation, demography, social-related data and much more.
+The project itself represents a multi-page interactive dashboard with plots related to the most common topics in macroeconomics: gross domestic product, national income, trading indicators, inflation, demography, social-related data and much more.
 Moreover, the project includes configurable machine learning modules for making macroeconomics research more functional and accessible.
 Sometimes macroeconomics data visualized in plots seems to be either too complicated to understand or hard to interpret due to poor visualization practices.
 
 The project goal is to solve this problem by providing macroeconomics researchers with both high-quality and user-friendly visualizations.
 In other words, the project is designed to help macroeconomics researchers generate ideas or hypotheses for deep analysis of the different aspects of macroeconomics.
-Furthermore, in order to improve the research experience, the most cutting-edge technologies were used for time series forecasting, feature-based country clustering and an agentic system included in the dashboard.
+Furthermore, in order to improve the research experience, the most cutting-edge technologies were used for time-series forecasting, feature-based clustering and an agentic AI system included in the dashboard.
 
-Most data used in the dashboard is from \href{https://data360.worldbank.org/en/search}{World Bank Data API}. Nevertheless, in order to introduce a more complex outlook on the macroeconomic situation, other data sources are included as well: news articles parsed from the open \href{https://github.com/Webhose/free-news-datasets}{Webz.io News Dataset Repository} that is used for local RAG and improved fact-based inference of the agentic system.
-In addition, as global macroeconomics is significantly affected by financial markets, data from \href{https://finance.yahoo.com/}{Yahoo Finance} is utilized as well.
+Most tabular data used in the dashboard comes from the \href{https://data360.worldbank.org/en/search}{World Bank Data API}. Nevertheless, in order to introduce a more complex outlook on the macroeconomic situation, several other data sources are included as well:
+\href{https://finance.yahoo.com/}{Yahoo Finance} equities (global macroeconomics is significantly affected by financial markets),
+\href{https://www.binance.com/}{Binance} cryptocurrency pairs,
+\href{https://fred.stlouisfed.org/}{FRED} regional indicators for the United States (per-state),
+and \href{https://ec.europa.eu/eurostat}{Eurostat} regional indicators for the European Union (per NUTS-2 region).
+In addition, a corpus of more than 30\,000 news articles --- assembled from the open \href{https://github.com/Webhose/free-news-datasets}{Webz.io News Dataset Repository}, a curated macro-news feed, and World Bank documents --- is embedded into a vector database and used for local Retrieval-Augmented Generation (RAG), grounding the agentic system in facts and reducing the risk of hallucinations.
 
 To sum up, the general purpose of the project is to create a highly technological, complex intellectual system for improving the research experience of macroeconomists.
 
 \section{Project Overview}
-As mentioned before, the project includes plenty of various visualizations of main macroeconomic (and other) indicators, separated by pages.
-Each page is dedicated to a specific sub-topic: "General Economics indicators", "Economy Structure", "Finance and Monetary" etc.
-On each page of the dashboard there are three main types of plots for each presented indicator: a map with visualization of the indicator across countries, the dynamics of the indicator over time for selected countries, and the distribution of the indicator across countries in the selected year.
-Each of these plots is highly configurable: the user can apply a log-transformation to it, filter by years or countries and even create a brief overview of the graph using an LLM.
+As mentioned before, the project includes plenty of various visualizations of main macroeconomic (and other) indicators, organized into pages grouped into four sections in the sidebar.
 
-Moreover, on some pages of the dashboard custom plots are introduced --- this is an option left for the project's extensibility in terms of shown visualizations.
-Additionally, other pages of the dashboard include graphs built using other data sources, along with the opportunity to set up a custom plot, configure and run clustering, and discuss the dashboard with an AI Agent which has full access to the macroeconomics data and has a low risk of hallucinations.
+The \textbf{Dashboard} section holds ten thematic pages, each dedicated to a specific sub-topic --- ``General Economics Indicators'', ``Economy Structure'', ``Finance and Monetary'', ``Trade and External Sector'', ``Demography'' and so on.
+On each of these pages there are three main types of plots for every presented indicator: a map visualizing the indicator across countries, the dynamics of the indicator over time for the selected countries, and the distribution of the indicator across countries in the selected year.
+Each of these plots is highly configurable: the user can apply a log-transformation, filter by years or countries, request a short-horizon forecast produced by one of several time-series models, and even generate a brief overview of the graph using a large language model.
+
+The \textbf{Other data} section covers the non-World-Bank sources --- Yahoo Finance equities, Binance cryptocurrencies and the news explorer --- together with a clustering sandbox that lets the user assemble a feature set from any indicators, run an unsupervised clustering model, and inspect the resulting low-dimensional projection.
+The \textbf{Regional Statistics} section presents sub-national data: United States indicators per state (FRED) and European Union indicators per NUTS-2 region (Eurostat), each rendered as a regional choropleth with rankings and per-region trends.
+Finally, the \textbf{AI} section hosts the AI Analyst --- a chat interface backed by a multi-agent system that has full read access to the macroeconomics data (and the news RAG corpus), streams its reasoning steps, and can build plots or download missing data on demand. It accepts multimodal input (text, images, documents and voice) and is engineered to keep the risk of hallucinations low.
 
 \section{Architecture and technical stack of the project}
-During the development of the project a modern and reliable tech stack was used. For the relational database \href{https://www.postgresql.org/}{PostgreSQL} was used, while for vector storage \href{https://qdrant.tech/}{Qdrant} was utilized.
-For secure deployment \href{https://nginx.org/}{NGINX} was used.
-The application relies on the micro-service architectural style via multiple \href{https://www.docker.com/}{Docker} containers.
-Most of the code is written in \href{https://www.python.org/}{Python} with the most popular frameworks for specific tasks: \href{https://streamlit.io/}{Streamlit}, \href{https://plotly.com/}{Plotly}, \href{https://pola.rs/}{Polars}, \href{https://pydantic.dev/}{Pydantic}, \href{https://fastapi.tiangolo.com/}{FastAPI}, \href{https://docs.langchain.com/oss/python/langgraph/overview}{LangGraph}
+During the development of the project a modern and reliable tech stack was used, following a strict micro-service architectural style with multiple \href{https://www.docker.com/}{Docker} containers orchestrated by Docker Compose --- each container responsible for exactly one capability.
+For the relational database \href{https://www.postgresql.org/}{PostgreSQL} was used, while for vector storage \href{https://qdrant.tech/}{Qdrant} was utilized.
+All forecasting and clustering model inference is hosted by the \href{https://developer.nvidia.com/triton-inference-server}{NVIDIA Triton Inference Server}, which runs the models on the GPU where possible.
+
+Most of the code is written in \href{https://www.python.org/}{Python} (managed with the \href{https://docs.astral.sh/uv/}{uv} package manager) using the most popular frameworks for the task at hand: \href{https://streamlit.io/}{Streamlit} for the dashboard front end, \href{https://plotly.com/}{Plotly} for the visualizations, \href{https://pola.rs/}{Polars} for data processing, \href{https://pydantic.dev/}{Pydantic} for data validation, \href{https://fastapi.tiangolo.com/}{FastAPI} for the back-end micro-services, and \href{https://docs.langchain.com/oss/python/langgraph/overview}{LangGraph} for the multi-agent AI analyst.
+The dashboard talks directly to the back-end services, with no intermediate layer.
+Observability is provided by a self-hosted \href{https://langfuse.com/}{Langfuse} deployment for tracing every large-language-model call, and by an independent \href{https://grafana.com/}{Grafana} / \href{https://prometheus.io/}{Prometheus} / \href{https://opentelemetry.io/}{OpenTelemetry} stack for container and service monitoring.
 
 \section{Project result}
-Final and temporary versions of the dashboard can be accessed at the \href{https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard}{GitHub Repository}.
-Repository includes two branches: "main" for local usage and "hosting" for deployment.
-More information and detailed installation guides for both use-cases can be found in the "README.md" file in the repository.
+Final and intermediate versions of the dashboard can be accessed at the \href{https://github.com/alexveider1/Ultimate-Macroeconomics-Dashboard}{GitHub repository}.
+The whole stack runs locally via a single \texttt{docker compose up} command; a working NVIDIA GPU (with the NVIDIA Container Toolkit) is required, since the Triton Inference Server reserves it for all model inference.
+More information and a detailed installation guide can be found in the \texttt{README.md} file in the repository.
 
 \newpage{}
 

@@ -4,6 +4,20 @@ All notable changes to **Ultimate Macroeconomics Dashboard** are documented in t
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.15]
+
+Simplified the sidebar navigation: dropped the **Constructors** section, removed the custom plot constructor entirely, and folded the clustering sandbox into **Other data**.
+
+### Removed
+
+- **Custom Plot Constructor page** (`app/pages/12_custom_plot_builder.py`). It only re-rendered an arbitrary World Bank indicator as a single `GraphBox` — the same two-panel map + trend/distribution card the ten themed Dashboard pages already provide — so it added navigation surface without new capability. No shared helper became dead code: `render_country_selector` / `GraphBox` are still used by the Dashboard pages (via `page_utils.render_page_from_config`), and `load_dashboard_config` is still used by the clustering page (its docstring updated accordingly).
+- **"Constructors" navigation group.** With the custom-plot page gone and clustering relocated, the group is empty and has been deleted from the `st.navigation` shell in `app/app.py` (and from the `smoke.spec.ts` group-list assertion).
+
+### Changed
+
+- **Clustering Sandbox moved to the "Other data" section** (`app/app.py`), alongside Yahoo Finance / Crypto / News Explorer. The page (`13_clustering_sandbox.py`) is otherwise unchanged; only its nav group moved.
+- **e2e updates.** The `ai-constructors.spec.ts` spec was renamed to `interactive.spec.ts` (the "constructors" framing no longer applies) with the custom-plot test dropped and the clustering test kept; `helpers.ts` `PAGES` drops the custom-plot entry and regroups clustering under "Other data". The navigation sweep now walks **17** sidebar pages (was 18).
+
 ## [v0.14]
 
 Extended on-demand ingestion beyond the World Bank: the agent can now download a single Yahoo Finance ticker or Binance crypto pair that isn't yet in the database, the same way it already pulls missing WB indicators.

@@ -71,9 +71,6 @@ def setup_routing():
         "pages/10_environment.py", title="Environment and Sustainability", icon="📈"
     )
     p_agent = st.Page("pages/11_ai_agent_chat.py", title="AI Analyst", icon="🤖")
-    p_custom_plot = st.Page(
-        "pages/12_custom_plot_builder.py", title="Custom Plot Constructor", icon="📊"
-    )
     p_cluster = st.Page("pages/13_clustering_sandbox.py", title="Clustering Sandbox", icon="🔍")
     p_yahoo_finance = st.Page("pages/14_yahoo_finance.py", title="Yahoo Finance", icon="💹")
     p_news = st.Page("pages/15_news.py", title="News Explorer", icon="📰")
@@ -96,9 +93,8 @@ def setup_routing():
                 p_education_human_capital,
                 p_environment,
             ],
-            "Other data": [p_yahoo_finance, p_crypto, p_news],
+            "Other data": [p_yahoo_finance, p_crypto, p_news, p_cluster],
             "Regional Statistics": [p_fred_regional, p_eurostat_regional],
-            "Constructors": [p_custom_plot, p_cluster],
             "AI": [p_agent],
         }
     )

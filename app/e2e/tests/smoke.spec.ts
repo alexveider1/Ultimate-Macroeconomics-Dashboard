@@ -33,7 +33,7 @@ test.describe("app shell", () => {
   test("sidebar lists every navigation group", async ({ page }) => {
     await openApp(page);
     const nav = sidebarNav(page);
-    for (const group of ["Dashboard", "Other data", "Regional Statistics", "Constructors", "AI"]) {
+    for (const group of ["Dashboard", "Other data", "Regional Statistics", "AI"]) {
       await expect(nav.getByText(group, { exact: true })).toBeVisible();
     }
   });

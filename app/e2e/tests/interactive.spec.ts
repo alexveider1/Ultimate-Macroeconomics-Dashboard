@@ -4,10 +4,9 @@ import { expectNoException, gotoNav, openApp, RENDER_TIMEOUT } from "./helpers";
 
 /**
  * The interactive pages: the AI Analyst chat (multimodal input widgets), the
- * two constructors (custom plot, clustering), and the news explorer. These
- * assert the controls render and the page is driveable — they deliberately do
- * NOT fire live LLM/agent calls (those need real API keys and are out of scope
- * for a frontend smoke).
+ * clustering sandbox, and the news explorer. These assert the controls render
+ * and the page is driveable — they deliberately do NOT fire live LLM/agent
+ * calls (those need real API keys and are out of scope for a frontend smoke).
  */
 
 test.describe("AI Analyst chat", () => {
@@ -33,23 +32,8 @@ test.describe("AI Analyst chat", () => {
   });
 });
 
-test.describe("constructors", () => {
-  test("custom plot builder renders selectors and a chart", async ({ page }) => {
-    await openApp(page);
-    await gotoNav(page, "Custom Plot Constructor");
-    await expect(
-      page.getByRole("heading", { name: "Custom Plot Constructor", level: 1 }),
-    ).toBeVisible({ timeout: RENDER_TIMEOUT });
-
-    await expect(page.getByText("Select category")).toBeVisible();
-    await expect(page.getByText("Select indicator")).toBeVisible();
-    await expect(page.getByTestId("stPlotlyChart").first()).toBeVisible({
-      timeout: RENDER_TIMEOUT,
-    });
-    await expectNoException(page);
-  });
-
-  test("clustering sandbox renders its configuration form", async ({ page }) => {
+test.describe("clustering sandbox", () => {
+  test("renders its configuration form", async ({ page }) => {
     await openApp(page);
     await gotoNav(page, "Clustering Sandbox");
     await expect(page.getByRole("heading", { name: "Clustering Sandbox", level: 1 })).toBeVisible({

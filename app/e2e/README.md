@@ -9,13 +9,13 @@ They drive the real UI against a running stack (live Postgres/Qdrant data).
   to boot, the page ↔ heading table, and the no-traceback assertion.
 - `smoke.spec.ts` — the app shell boots, the disclaimer gate works, every
   sidebar group is listed.
-- `navigation.spec.ts` — walks all 18 sidebar pages on one session and asserts
+- `navigation.spec.ts` — walks all 17 sidebar pages on one session and asserts
   each renders its heading with no Python traceback (the main regression net).
 - `dashboard.spec.ts` — a World Bank page: charts render, the cross-page country
   selector persists, and the per-graph settings popover opens.
 - `data-pages.spec.ts` — Yahoo / Crypto / FRED / Eurostat each draw a chart.
-- `ai-constructors.spec.ts` — the AI chat's multimodal inputs, the custom-plot
-  and clustering constructors, and the news explorer render and are driveable.
+- `interactive.spec.ts` — the AI chat's multimodal inputs, the clustering
+  sandbox, and the news explorer render and are driveable.
 
 ## Setup
 

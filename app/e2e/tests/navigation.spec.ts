@@ -14,7 +14,7 @@ test.describe.configure({ mode: "serial" });
 
 test.describe("navigate every page", () => {
   test("walks the whole sidebar", async ({ page }) => {
-    test.slow(); // 18 heavy, data-backed pages on one session.
+    test.slow(); // 17 heavy, data-backed pages on one session.
     await openApp(page);
 
     for (const { nav, heading } of PAGES) {

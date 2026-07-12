@@ -33,10 +33,9 @@ export const PAGES: { nav: string; heading: string | RegExp; group: string }[] =
   { nav: "Yahoo Finance", heading: "Yahoo Finance Dashboard", group: "Other data" },
   { nav: "Crypto", heading: "Crypto (Binance) Dashboard", group: "Other data" },
   { nav: "News Explorer", heading: "News Explorer", group: "Other data" },
+  { nav: "Clustering Sandbox", heading: "Clustering Sandbox", group: "Other data" },
   { nav: "United States (FRED)", heading: /Regional Statistics \(FRED\)/, group: "Regional Statistics" },
   { nav: "European Union (Eurostat)", heading: /Regional Statistics \(Eurostat\)/, group: "Regional Statistics" },
-  { nav: "Custom Plot Constructor", heading: "Custom Plot Constructor", group: "Constructors" },
-  { nav: "Clustering Sandbox", heading: "Clustering Sandbox", group: "Constructors" },
   { nav: "AI Analyst", heading: "AI Analyst", group: "AI" },
 ];
 

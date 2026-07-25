@@ -6,10 +6,6 @@ latest year where all three sectors are reported, and a stacked-area
 small-multiples view of how each country's mix has shifted over time.
 """
 
-import plotly.graph_objects as go
-import polars as pl
-import streamlit as st
-
 from core.page_helpers import fetch_indicator_slice
 from core.plotting import apply_plotly_theme
 from core.postgres_client import (
@@ -17,6 +13,10 @@ from core.postgres_client import (
     get_world_bank_country_mapping,
 )
 from core.theming import get_color
+import plotly.graph_objects as go
+import polars as pl
+import streamlit as st
+
 from pages.page_utils import get_shared_selected_countries, render_page_from_config
 
 ECONOMY_STRUCTURE_INDICATORS = [

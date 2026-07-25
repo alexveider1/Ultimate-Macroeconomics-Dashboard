@@ -12,14 +12,13 @@ import logging
 from pathlib import Path
 from typing import Any, Callable
 
-import streamlit as st
-
 from core.app_logging import log_page_render
 from core.plotting import GraphBox
 from core.postgres_client import (
     get_world_bank_country_codes,
     get_world_bank_country_mapping,
 )
+import streamlit as st
 
 logger = logging.getLogger(__name__)
 

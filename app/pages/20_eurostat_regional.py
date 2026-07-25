@@ -10,9 +10,6 @@ indicator to ``eurostat_download_config.json`` surfaces it here automatically
 after the next ingestion.
 """
 
-import polars as pl
-import streamlit as st
-
 from core.app_logging import log_page_render
 from core.assets import load_nuts_geojson
 from core.plotting import (
@@ -25,6 +22,8 @@ from core.postgres_client import (
     get_eurostat_indicators_catalog,
     get_eurostat_regions,
 )
+import polars as pl
+import streamlit as st
 
 EUROSTAT_KEY_PREFIX = "eurostat_regional"
 DEFAULT_INDICATOR = "gdp_per_capita_pps"

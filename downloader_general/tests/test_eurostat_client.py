@@ -9,7 +9,6 @@ import asyncio
 import json
 
 import httpx
-
 from src.utils import eurostat_client
 
 

@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import base64
 
-import pytest
-
 from core import multimodal
 from core.multimodal import ProcessedUploads, augment_message, process_uploads
+import pytest
 
 
 def test_text_file_decoded_into_block() -> None:

@@ -10,9 +10,6 @@ catalogue in the ``state_indicators`` table, so adding an indicator to
 ingestion.
 """
 
-import polars as pl
-import streamlit as st
-
 from core.app_logging import log_page_render
 from core.plotting import (
     build_region_ranking_bar,
@@ -24,6 +21,8 @@ from core.postgres_client import (
     get_fred_indicators_catalog,
     get_fred_states,
 )
+import polars as pl
+import streamlit as st
 
 FRED_KEY_PREFIX = "fred_regional"
 DEFAULT_INDICATOR = "unemployment_rate"

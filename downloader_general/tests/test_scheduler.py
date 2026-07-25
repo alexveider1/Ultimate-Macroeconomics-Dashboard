@@ -8,7 +8,6 @@ used so the due job fires on the first iteration (no wait), keeping tests fast.
 from collections.abc import Iterator
 
 import pytest
-
 from src import scheduler
 from src.scheduler import SourceJob, run_scheduler
 

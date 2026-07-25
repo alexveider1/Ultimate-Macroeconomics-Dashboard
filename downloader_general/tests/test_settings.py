@@ -1,7 +1,6 @@
 """Tests for the ingestion job's secrets model (optional, graceful defaults)."""
 
 import pytest
-
 from src.settings import Settings
 
 _SECRET_VARS = [

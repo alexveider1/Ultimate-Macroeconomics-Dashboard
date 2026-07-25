@@ -1,8 +1,7 @@
 """Tests for the dashboard's optional secrets model."""
 
-import pytest
-
 from core.settings import Settings
+import pytest
 
 _SECRET_VARS = [
     "POSTGRES_LLM_USER",

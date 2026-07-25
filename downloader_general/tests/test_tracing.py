@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from openai import OpenAI
 import pytest
-
 from src.config import LangfuseConfig
 from src.core import tracing
 

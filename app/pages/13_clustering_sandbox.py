@@ -9,10 +9,6 @@ projection (t-SNE / PCA / UMAP / Kernel PCA, or feature pass-through when
 
 from __future__ import annotations
 
-import plotly.graph_objects as go
-import polars as pl
-import streamlit as st
-
 from core.api_client import cluster_dataframe
 from core.app_logging import log_page_render
 from core.plotting import apply_plotly_theme
@@ -22,6 +18,10 @@ from core.postgres_client import (
     get_world_bank_indicator_name,
 )
 from core.theming import get_colorway
+import plotly.graph_objects as go
+import polars as pl
+import streamlit as st
+
 from pages.page_utils import load_dashboard_config
 
 RESULT_STATE_KEY = "clustering_sandbox_result"

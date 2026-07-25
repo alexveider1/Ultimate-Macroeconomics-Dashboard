@@ -1,9 +1,8 @@
 """Tests for the agent's least-privilege secrets model."""
 
+from agent.settings import Settings
 from pydantic import ValidationError
 import pytest
-
-from agent.settings import Settings
 
 _SECRET_VARS = [
     "OPENAI_API_KEY",

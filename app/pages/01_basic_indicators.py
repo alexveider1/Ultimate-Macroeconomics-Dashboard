@@ -8,10 +8,6 @@ animated bubble chart (GDP per capita × life expectancy × population by region
 
 import math
 
-import plotly.graph_objects as go
-import polars as pl
-import streamlit as st
-
 from core.assets import get_markup_template, render_markup_template
 from core.page_helpers import fetch_indicator_slice
 from core.plotting import apply_plotly_theme
@@ -20,6 +16,10 @@ from core.postgres_client import (
     get_world_bank_country_regions,
 )
 from core.theming import get_color, get_colorway
+import plotly.graph_objects as go
+import polars as pl
+import streamlit as st
+
 from pages.page_utils import render_page_from_config
 
 LIFE_EXP_INDICATOR_ID = "SP.DYN.LE00.IN"

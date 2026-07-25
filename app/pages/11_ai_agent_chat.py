@@ -16,14 +16,13 @@ import hashlib
 import re
 import uuid
 
-import plotly.io as pio
-import polars as pl
-import streamlit as st
-
 from core.api_client import agent_chat_stream
 from core.app_logging import log_page_render
 from core.multimodal import augment_message, process_uploads, supported_upload_extensions
 from core.plotting import apply_plotly_theme
+import plotly.io as pio
+import polars as pl
+import streamlit as st
 
 CHAT_STATE_KEY = "agent_chat_messages"
 SESSION_ID_KEY = "agent_chat_session_id"

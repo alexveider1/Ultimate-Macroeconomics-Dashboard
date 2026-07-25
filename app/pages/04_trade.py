@@ -5,16 +5,16 @@ Around the standard cards this page adds an imports × exports scatter
 view broken down by category.
 """
 
-import plotly.graph_objects as go
-import polars as pl
-import streamlit as st
-
 from core.page_helpers import fetch_indicator_slice
 from core.plotting import apply_plotly_theme
 from core.postgres_client import (
     get_world_bank_country_mapping,
 )
 from core.theming import get_color, get_diverging_colorscale
+import plotly.graph_objects as go
+import polars as pl
+import streamlit as st
+
 from pages.page_utils import get_shared_selected_countries, render_page_from_config
 
 IMPORT_INDICATOR_ID = "NE.IMP.GNFS.ZS"

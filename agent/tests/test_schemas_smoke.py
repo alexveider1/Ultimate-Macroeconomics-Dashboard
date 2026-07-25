@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from pydantic import ValidationError
-import pytest
-
 from agent.schemas import (
     ChatMessage,
     ChatRequest,
@@ -13,6 +10,8 @@ from agent.schemas import (
     SupervisorDecision,
     WebSearchPlan,
 )
+from pydantic import ValidationError
+import pytest
 
 
 def test_chat_request_accepts_history() -> None:

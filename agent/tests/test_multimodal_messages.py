@@ -7,9 +7,8 @@ conversation without leaking base64 into the text-only worker/guardrail paths:
 
 from __future__ import annotations
 
-from langchain_core.messages import HumanMessage
-
 from agent.graph import MacroAgentGraph, _format_chat_history, _message_text
+from langchain_core.messages import HumanMessage
 
 _IMG = "data:image/png;base64,AAAA"
 

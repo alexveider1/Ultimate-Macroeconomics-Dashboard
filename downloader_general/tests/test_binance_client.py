@@ -9,7 +9,6 @@ import asyncio
 from datetime import datetime
 
 import httpx
-
 from src.extractors.binance_download import BinanceDownloader, _is_leveraged_token
 from src.utils import binance_client
 

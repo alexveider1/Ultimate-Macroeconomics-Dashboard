@@ -7,10 +7,9 @@ Covers the two pure functions that decide *where* a download goes:
 
 from __future__ import annotations
 
-import pytest
-
 from agent.graph import DownloaderAgent, _detect_market_needs_download
 from agent.schemas import DownloadPlan
+import pytest
 
 
 def test_build_payload_worldbank() -> None:

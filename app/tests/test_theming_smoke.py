@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from core.theming import (
     get_active_theme,
     get_color,
@@ -12,6 +10,7 @@ from core.theming import (
     get_sequential_colorscale,
     register_plotly_template,
 )
+import pytest
 
 
 def test_active_theme_has_semantic_palette() -> None:

@@ -1,9 +1,8 @@
 """Validation tests for the dashboard's typed ``config.yaml`` view."""
 
+from core.config import AppConfig
 from pydantic import ValidationError
 import pytest
-
-from core.config import AppConfig
 
 
 def test_valid_config_parses() -> None:

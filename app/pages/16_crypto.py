@@ -7,9 +7,6 @@ return-correlation heatmap across every coin. Driven entirely from the cached
 Polars frames loaded by ``core.postgres_client``.
 """
 
-import polars as pl
-import streamlit as st
-
 from core.app_logging import log_page_render
 from core.plotting import (
     build_candlestick_plot,
@@ -20,6 +17,8 @@ from core.postgres_client import (
     get_all_binance_historical_prices,
     get_all_binance_metadata,
 )
+import polars as pl
+import streamlit as st
 
 CRYPTO_KEY_PREFIX = "binance_crypto"
 TOP_N_TREND = 5

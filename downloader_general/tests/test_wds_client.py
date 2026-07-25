@@ -13,7 +13,6 @@ from collections.abc import Callable
 
 import httpx
 import pytest
-
 from src.utils.wds_client import BROWSER_HEADERS, build_client, fetch_text, search, warm_up
 
 Handler = Callable[[httpx.Request], httpx.Response]

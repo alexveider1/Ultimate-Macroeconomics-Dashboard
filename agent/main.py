@@ -18,10 +18,6 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from openai import OpenAI, OpenAIError
-from starlette.responses import StreamingResponse
-
 from agent.config import load_config
 from agent.graph import MacroAgentGraph
 from agent.schemas import (
@@ -39,6 +35,9 @@ from agent.tracing import (
     tracing_enabled,
 )
 from agent.usage import UsageTracker
+from fastapi import FastAPI, HTTPException
+from openai import OpenAI, OpenAIError
+from starlette.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
 

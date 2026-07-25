@@ -7,9 +7,8 @@ template, initialises ``st.session_state``, defines the multi-page nav,
 and shows the data disclaimer dialog on first visit.
 """
 
-import streamlit as st
-
 from core.theming import register_plotly_template
+import streamlit as st
 
 st.set_page_config(
     page_title="Ultimate Macroeconomics Dashboard",

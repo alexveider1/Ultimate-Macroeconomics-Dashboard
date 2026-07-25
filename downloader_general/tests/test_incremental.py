@@ -8,7 +8,6 @@ each open their own engine from the URI, so the table must be persisted to disk
 from pathlib import Path
 
 from sqlalchemy import create_engine, text
-
 from src.utils.incremental import group_max, read_rows
 
 

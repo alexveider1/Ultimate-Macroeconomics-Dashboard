@@ -2,7 +2,6 @@
 
 from pydantic import ValidationError
 import pytest
-
 from src.config import DownloaderGeneralConfig
 
 VALID: dict = {

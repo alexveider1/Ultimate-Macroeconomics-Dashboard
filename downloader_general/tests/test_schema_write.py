@@ -11,7 +11,6 @@ from typing import Any
 
 import polars as pl
 from sqlalchemy import create_engine, text
-
 from src.utils.schema import bootstrap_schema_group, write_polars_to_table
 
 _SCHEMA: dict[str, Any] = {

@@ -7,10 +7,10 @@ until a flush, which the tests never trigger).
 
 from __future__ import annotations
 
+from agent.config import LangfuseConfig
 import pytest
 
 from agent import tracing
-from agent.config import LangfuseConfig
 
 
 @pytest.fixture(autouse=True)

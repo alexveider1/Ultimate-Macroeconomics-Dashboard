@@ -8,7 +8,6 @@ pytest-asyncio dependency (mirrors ``test_wb_client.py``).
 import asyncio
 
 import httpx
-
 from src.utils import fred_client
 
 

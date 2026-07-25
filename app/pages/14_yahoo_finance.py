@@ -8,15 +8,14 @@ from the cached Polars frames loaded by ``core.postgres_client``.
 from datetime import datetime
 from typing import Optional
 
-import plotly.graph_objects as go
-import polars as pl
-import streamlit as st
-
 from core.app_logging import log_page_render
 from core.assets import get_markup_template
 from core.plotting import apply_plotly_theme, build_line_plot
 from core.postgres_client import get_all_yahoo_historical_prices, get_all_yahoo_metadata
 from core.theming import get_color, get_diverging_colorscale
+import plotly.graph_objects as go
+import polars as pl
+import streamlit as st
 
 YAHOO_KEY_PREFIX = "yahoo_finance_yahoo_market_overview"
 DEFAULT_COMPANY_TICKERS = ["META", "AAPL", "AMZN", "GOOGL", "MSFT"]

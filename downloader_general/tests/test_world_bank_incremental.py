@@ -11,7 +11,6 @@ import asyncio
 from typing import Any
 
 import polars as pl
-
 from src.extractors import world_bank_download
 from src.extractors.world_bank_download import WorldBankDownloader
 

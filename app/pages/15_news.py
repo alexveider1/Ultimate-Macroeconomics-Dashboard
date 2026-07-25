@@ -11,12 +11,6 @@ import re
 from threading import RLock
 from typing import Any
 
-import matplotlib.pyplot as plt
-import numpy as np
-import plotly.graph_objects as go
-import streamlit as st
-from wordcloud import WordCloud
-
 from core.api_client import cluster_dataframe
 from core.app_logging import log_page_render
 from core.plotting import apply_plotly_theme
@@ -28,6 +22,11 @@ from core.qdrant_client import (
     scroll_collection,
 )
 from core.theming import get_color, get_colorway
+import matplotlib.pyplot as plt
+import numpy as np
+import plotly.graph_objects as go
+import streamlit as st
+from wordcloud import WordCloud
 
 PAGE_TITLE = "News Explorer"
 DEFAULT_NEAREST_COUNT = 5
